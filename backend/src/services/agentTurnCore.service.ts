@@ -67,15 +67,11 @@ import {
     isDialogueTrackedObjectiveType,
     isPendingClarificationAnswerable,
     tryAnswerPendingClarification,
-    resolvePendingTemporalClarificationAnswer,
+    buildPendingTemporalAnswerObjective,
+    reconcileDialogueTurn,
     classifyPlanCorrection,
     buildPlanDateCorrection,
     buildPendingPlanEdit,
-    classifyPendingPlanDecision,
-    isPendingPlanUnchangedCandidate,
-    classifyPendingPlanSemanticRelation,
-    isIndependentWriteObjective,
-    isCompletePendingPlanReplacement,
     isSelfContainedPendingPlanCandidate,
     groundPendingPlanCandidate,
 } from './agentDialogueContinuation.service';
@@ -471,59 +467,6 @@ export async function runAgentTurn(
                 timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
             },
         }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
-        const semanticRelation = classifyPendingPlanSemanticRelation(precomputedSemantic.interpretation);
-        if (semanticRelation.kind === 'approve') {
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_plan_confirmation', dialogueScopeKey, source: 'input_interpretation',
-            });
-            return finalizeAgentTurn(await runWriteActionTurn({
-                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-                newTurnObjective: existingDialogueState.openObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
-                confirmationRequested: true,
-            }), traceId);
-        }
-        if (semanticRelation.kind === 'reject') {
-            dialogueService.rejectPendingPlan({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: { status: 'answered', answer: 'Entendido; no ejecutaré el plan pendiente.', citations: [] },
-            }, traceId);
-        }
-        if (semanticRelation.kind === 'defer') {
-            dialogueService.recordTurn({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            const language = detectAgentLanguage(content, locale);
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: language === 'es'
-                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
-                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
-                    citations: [],
-                },
-            }, traceId);
-        }
-        if (semanticRelation.kind === 'follow_up'
-            && (semanticRelation.attribute === 'date' || semanticRelation.attribute === 'time')
-            && existingDialogueState.openObjective.timeConstraints.rawHint) {
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: `El objetivo pendiente está previsto para ${existingDialogueState.openObjective.timeConstraints.rawHint}.`,
-                    citations: [],
-                },
-            }, traceId);
-        }
-
         const pendingPlanContext = {
             actorUserId: input.actorUserId,
             conversationId,
@@ -575,17 +518,75 @@ export async function runAgentTurn(
                     : inputDialogueAct;
             }
         }
-        if (pendingPlanCandidate) {
-        const pendingPlanEdit = buildPendingPlanEdit({
+        const semanticRelation = reconcileDialogueTurn({
             dialogueState: existingDialogueState,
-            candidate: pendingPlanCandidate,
-            dialogueService,
+            semantic: precomputedSemantic,
+            pendingPlanCandidate,
+        });
+        if (semanticRelation.kind === 'follow_up'
+            && (semanticRelation.attribute === 'date' || semanticRelation.attribute === 'time')
+            && existingDialogueState.openObjective.timeConstraints.rawHint) {
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: `El objetivo pendiente está previsto para ${existingDialogueState.openObjective.timeConstraints.rawHint}.`,
+                    citations: [],
+                },
+            }, traceId);
+        }
+        if (semanticRelation.kind === 'approve') {
+            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+                path: 'core_reconciler_plan_confirmation', dialogueScopeKey,
+            });
+            return finalizeAgentTurn(await runWriteActionTurn({
+                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+                newTurnObjective: existingDialogueState.openObjective,
+                admittedTurnSequence: options.dialogueTurnSequence,
+                confirmationRequested: true,
+            }), traceId);
+        }
+        if (semanticRelation.kind === 'reject') {
+            dialogueService.rejectPendingPlan({
+                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: { status: 'answered', answer: 'Entendido; no ejecutaré el plan pendiente.', citations: [] },
+            }, traceId);
+        }
+        if (semanticRelation.kind === 'defer') {
+            dialogueService.recordTurn({
+                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            const language = detectAgentLanguage(content, locale);
+            return finalizeAgentTurn({
+                kind: 'response',
+                response: {
+                    status: 'answered',
+                    answer: language === 'es'
+                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
+                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
+                    citations: [],
+                },
+            }, traceId);
+        }
+        if (pendingPlanCandidate) {
+        const pendingPlanEdit = semanticRelation.kind === 'plan_edit'
+            ? buildPendingPlanEdit({
+                dialogueState: existingDialogueState,
+                candidate: pendingPlanCandidate,
+                dialogueService,
                 dialogueScopeKey,
                 actorUserId: input.actorUserId,
                 turnId: traceId,
                 now,
                 turnSequence: options.dialogueTurnSequence,
-        });
+            })
+            : { isEdit: false, changedSlots: [] as Array<'title' | 'date' | 'time'> };
         if (pendingPlanEdit.isEdit && pendingPlanEdit.correctedObjective) {
             dialogueService.openObjective({
                 actorUserId: input.actorUserId,
@@ -606,74 +607,10 @@ export async function runAgentTurn(
                 admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
         }
-        const pendingDecision = classifyPendingPlanDecision(pendingPlanCandidate);
-        if (pendingDecision === 'approve') {
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_plan_confirmation', dialogueScopeKey,
-            });
-            return finalizeAgentTurn(await runWriteActionTurn({
-                actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
-                now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-                newTurnObjective: existingDialogueState.openObjective,
-                admittedTurnSequence: options.dialogueTurnSequence,
-                confirmationRequested: true,
-            }), traceId);
         }
-        if (pendingDecision === 'reject') {
-            dialogueService.rejectPendingPlan({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_plan_rejection', dialogueScopeKey,
-            });
-            const language = detectAgentLanguage(content, locale);
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: language === 'es'
-                        ? 'Entendido; no ejecutaré el plan pendiente.'
-                        : 'Understood; I will not execute the pending plan.',
-                    citations: [],
-                },
-            }, traceId);
-        }
-        if (pendingDecision === 'defer') {
-            const turnSequence = turnSequenceFor(existingDialogueState, options.dialogueTurnSequence);
-            dialogueService.recordTurn({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                turnId: traceId,
-                turnSequence,
-            });
-            traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'semantic_plan_deferral', dialogueScopeKey,
-            });
-            const language = detectAgentLanguage(content, locale);
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: language === 'es'
-                        ? 'El plan queda pendiente. Puedes confirmarlo, cambiarlo o descartarlo cuando quieras.'
-                        : 'The plan remains pending. You can confirm, change, or discard it when you are ready.',
-                    citations: [],
-                },
-            }, traceId);
-        }
-        }
-        // A pending write plan must not hijack an independent retrieval
-        // question. The provider may omit the explicit `new_objective` act
-        // for a natural query such as "¿Qué pendientes tengo mañana?"; the
-        // canonical semantic route is still structural evidence that this
-        // turn is READ, not approval, correction, or replacement of the old
-        // plan. This check comes AFTER explicit lifecycle decisions above so
-        // a read-shaped provider proposal that clearly means "reject" still
-        // preserves the existing cancellation contract.
-        if (precomputedSemantic.route === 'read') {
+        // The reconciler owns topic escape, unchanged plans and replacement;
+        // this block only applies the already-decided state transition.
+        if (semanticRelation.kind === 'suspend_current') {
             dialogueService.suspendCurrentObjective({
                 actorUserId: input.actorUserId,
                 dialogueScopeKey,
@@ -682,14 +619,10 @@ export async function runAgentTurn(
             });
             readEscapedPendingPlan = true;
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-                path: 'read_escapes_pending_plan', dialogueScopeKey,
+                path: 'core_reconciler_suspend_pending_plan', dialogueScopeKey,
             });
         }
-        if (precomputedSemantic.route !== 'read') {
-        if (precomputedSemantic.route === 'write' && isPendingPlanUnchangedCandidate({
-            pendingObjectiveType: existingDialogueState.openObjective.objectiveType,
-            candidate: pendingPlanCandidate,
-        })) {
+        if (semanticRelation.kind === 'unchanged') {
             // A structurally empty same-family proposal is not enough
             // evidence for a new write. Preserve the Core-owned pending
             // plan and acknowledge the unchanged state without authorizing
@@ -713,7 +646,7 @@ export async function runAgentTurn(
                 },
             }, traceId);
         }
-        if (pendingPlanCandidate && isCompletePendingPlanReplacement(pendingPlanCandidate)) {
+        if (semanticRelation.kind === 'replace_objective' && pendingPlanCandidate) {
             traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
                 path: 'semantic_new_objective_replaces_pending_plan', dialogueScopeKey,
             });
@@ -723,22 +656,6 @@ export async function runAgentTurn(
                 newTurnObjective: pendingPlanCandidate,
                 admittedTurnSequence: options.dialogueTurnSequence,
             }), traceId);
-        }
-        // A semantic suspend signal is only a fallback when the current turn
-        // did not provide a complete replacement objective. The input
-        // interpreter may conservatively mark an explicit topic switch as
-        // suspend_current while the objective interpreter still provides the
-        // complete replacement. Core must reconcile that candidate first.
-        if (semanticRelation.kind === 'suspend') {
-            dialogueService.suspendCurrentObjective({
-                actorUserId: input.actorUserId, dialogueScopeKey, turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            return finalizeAgentTurn({
-                kind: 'response',
-                response: { status: 'answered', answer: 'De acuerdo. Dejé el objetivo anterior en pausa.', citations: [] },
-            }, traceId);
-        }
         }
     }
 
@@ -785,35 +702,60 @@ export async function runAgentTurn(
         } : undefined,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
 
-    // A planner clarification has precedence over a contradictory provider
-    // suspend signal only when the semantic result links the valid answer to
-    // the active temporal slot. Explicit reject/defer/new-objective acts are
-    // retained by the resolver and continue through the suspension boundary.
-    const pendingTemporalObjective = resolvePendingTemporalClarificationAnswer(
-        existingDialogueState,
-        content,
+    const dialogueReconciliation = reconcileDialogueTurn({
+        dialogueState: existingDialogueState,
         semantic,
-    );
-    if (pendingTemporalObjective) {
+        temporalCandidate: buildPendingTemporalAnswerObjective(existingDialogueState, content),
+        pendingPlanCandidate: semantic.objective,
+    });
+    if (dialogueReconciliation.kind === 'slot_filled') {
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'pending_temporal_clarification_answer', dialogueScopeKey,
+            path: 'core_reconciler_slot_filled', dialogueScopeKey,
         });
         return finalizeAgentTurn(await runWriteActionTurn({
             actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
             now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
-            newTurnObjective: pendingTemporalObjective,
+            newTurnObjective: dialogueReconciliation.objective,
             admittedTurnSequence: options.dialogueTurnSequence,
         }), traceId);
+    }
+
+    if (dialogueReconciliation.kind === 'replace_objective' && dialogueReconciliation.objective) {
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'core_reconciler_replace_objective', dialogueScopeKey,
+        });
+        return finalizeAgentTurn(await runWriteActionTurn({
+            actorUserId: input.actorUserId, content, conversationId, channel, locale, timezone,
+            now, traceId, envelope, referents, dialogueScopeKey, dialogueService,
+            newTurnObjective: dialogueReconciliation.objective,
+            admittedTurnSequence: options.dialogueTurnSequence,
+        }), traceId);
+    }
+
+    if (dialogueReconciliation.kind === 'cancel_active') {
+        dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+        traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
+            path: 'core_reconciler_cancel_active', dialogueScopeKey,
+        });
+        return finalizeAgentTurn({
+            kind: 'response',
+            response: {
+                status: 'answered',
+                answer: detectAgentLanguage(content, locale) === 'es'
+                    ? 'Entendido; cancelé el objetivo pendiente.'
+                    : 'Understood; I cancelled the pending objective.',
+                citations: [],
+            },
+        }, traceId);
     }
 
     // A semantic topic switch without a complete replacement objective must
     // suspend, not discard, the Core-owned objective. No write or execution
     // occurs here; the earlier plan remains non-authorized and can only be
     // resumed later through the unique suspended-objective path.
-    if (semantic.interpretation.dialogueControl === 'suspend_current'
+    if (dialogueReconciliation.kind === 'suspend_current'
         && existingDialogueState?.openObjective
-        && !semantic.objective
-        && semantic.route === 'read') {
+        && !resumedSuspendedObjective) {
         dialogueService.suspendCurrentObjective({
             actorUserId: input.actorUserId,
             dialogueScopeKey,
@@ -821,7 +763,7 @@ export async function runAgentTurn(
             turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
         });
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
-            path: 'semantic_suspend_current_objective', dialogueScopeKey,
+            path: 'core_reconciler_suspend_current_objective', dialogueScopeKey,
         });
         const language = detectAgentLanguage(content, locale);
         return finalizeAgentTurn({

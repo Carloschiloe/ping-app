@@ -28,12 +28,12 @@ import {
     reconcileContinuationObjective,
     isContinuationEligibleObjectiveType,
     classifyPendingPlanDecision,
-    classifyPendingPlanSemanticRelation,
     isIndependentWriteObjective,
     isSelfContainedPendingPlanCandidate,
     buildPendingPlanEdit,
     buildPendingTemporalAnswerObjective,
     resolvePendingTemporalClarificationAnswer,
+    reconcileDialogueTurn,
     classifyPlanCorrection,
     buildPlanTitleCorrection,
     groundPendingPlanCandidate,
@@ -187,6 +187,62 @@ describe('temporal clarification precedence', () => {
     });
 });
 
+describe('Core-owned dialogue reconciliation contract', () => {
+    const pendingTime = dialogueState({
+        pendingClarification: { field: 'time', question: '¿A qué hora?' },
+        openObjective: objective({
+            sourceUtterance: 'Crea un compromiso para mañana',
+            targetEntities: { personHints: [], entityHints: ['Comprar materiales'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }),
+    });
+
+    it('resolves a valid slot before unsupported/defer/suspend metadata', () => {
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'read',
+                interpretation: {
+                    dialogueAct: 'defer',
+                    dialogueControl: 'suspend_current',
+                    followUpAttribute: 'time',
+                },
+                objective: { dialogueAct: 'defer', objectiveType: 'unsupported' },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'A las diez'),
+        });
+
+        expect(result.kind).toBe('slot_filled');
+        if (result.kind === 'slot_filled') {
+            expect(result.field).toBe('time');
+            expect(result.objective.targetEntities.entityHints).toEqual(['Comprar materiales']);
+            expect(result.objective.timeConstraints.rawHint).toBe('A las diez');
+        }
+    });
+
+    it('keeps an explicit cancellation from being consumed as a temporal answer', () => {
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'write',
+                interpretation: { dialogueAct: 'reject', dialogueControl: null, followUpAttribute: null },
+                objective: { dialogueAct: 'reject', objectiveType: 'cancel_existing_commitment' },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'Cancelar para mañana a las diez'),
+            pendingPlanCandidate: objective({
+                objectiveType: 'cancel_existing_commitment',
+                dialogueAct: 'reject',
+                constraints: { decisionHint: 'reject' },
+                sourceUtterance: 'Cancelar para mañana a las diez',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+            }),
+        });
+
+        expect(result.kind).toBe('cancel_active');
+    });
+});
+
 describe('semantic pending-plan reconciliation', () => {
     it('treats a target-less temporal correction as a correction without provider lifecycle metadata', async () => {
         const result = await classifyPlanCorrection(
@@ -234,8 +290,23 @@ describe('semantic pending-plan reconciliation', () => {
     });
 
     it('suspends an incomplete semantic topic switch instead of leaving the old plan active', () => {
-        expect(classifyPendingPlanSemanticRelation({ dialogueAct: 'new_objective' }))
-            .toEqual({ kind: 'suspend' });
+        const result = reconcileDialogueTurn({
+            dialogueState: dialogueState({
+                lifecycle: 'plan_pending_authorization',
+                currentPlanDigestRef: 'pending-digest',
+            }),
+            semantic: {
+                route: 'write',
+                interpretation: { dialogueAct: 'new_objective', dialogueControl: null, followUpAttribute: null },
+                objective: { dialogueAct: 'new_objective', objectiveType: 'unsupported' },
+            },
+            pendingPlanCandidate: objective({
+                dialogueAct: 'new_objective',
+                targetEntities: { personHints: [], entityHints: ['nuevo asunto'] },
+                timeConstraints: { rawHint: null },
+            }),
+        });
+        expect(result.kind).toBe('suspend_current');
     });
 
     it('material slot deltas take precedence over an approval hint', () => {

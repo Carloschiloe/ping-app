@@ -20,7 +20,7 @@
 // bounded-rollout instruction -- see isContinuationEligibleObjectiveType.
 import type { AgentDialogueState } from '../types/agentDialogueState';
 import type { AgentObjective, AgentObjectiveType } from '../types/agentPlan';
-import type { AgentDialogueAct, Interpretation } from '../types/agentContext';
+import type { Interpretation } from '../types/agentContext';
 import { resolvePerson } from './retrieval.service';
 import { resolveEntityHint } from './agentPlanner.service';
 import {
@@ -171,31 +171,170 @@ export function isPendingPlanUnchangedCandidate(input: {
     return !slotDelta?.title?.trim() && !slotDelta?.date?.trim() && !slotDelta?.time?.trim();
 }
 
-export type PendingPlanSemanticRelation =
-    | { kind: 'approve' | 'reject' | 'defer' | 'suspend' }
+export type CoreDialogueReconciliation =
+    | { kind: 'slot_filled'; objective: AgentObjective; field: 'date' | 'time' }
+    | { kind: 'approve' | 'reject' | 'defer' | 'cancel_active' | 'suspend_current' }
     | { kind: 'follow_up'; attribute: 'date' | 'time' | 'responsible' | 'status' | 'details' }
-    | { kind: 'none' };
+    | { kind: 'replace_objective'; objective: AgentObjective }
+    | { kind: 'plan_edit'; objective: AgentObjective }
+    | { kind: 'unchanged' | 'independent' };
 
-/** Core precedence for semantic signals already produced by the turn interpreter. */
-export function classifyPendingPlanSemanticRelation(input: {
-    dialogueAct?: 'confirm' | 'reject' | 'defer' | 'correct' | 'clarify' | 'new_objective' | 'other' | null;
-    dialogueControl?: 'resume_suspended' | 'suspend_current' | null;
-    followUpAttribute?: 'time' | 'date' | 'responsible' | 'status' | 'details' | null;
-}): PendingPlanSemanticRelation {
-    if (input.dialogueAct === 'confirm') return { kind: 'approve' };
-    if (input.dialogueAct === 'reject') return { kind: 'reject' };
-    if (input.dialogueAct === 'defer') return { kind: 'defer' };
-    // A provider may correctly identify a topic switch as a new objective
-    // without having extracted enough independent slots to plan it yet.  The
-    // Core must suspend the currently authorized-but-unexecuted plan in that
-    // case; otherwise the incomplete candidate falls through to the ordinary
-    // route and the old objective remains active by accident.  A complete
-    // replacement is handled by isCompletePendingPlanReplacement before this
-    // relation is consulted.
-    if (input.dialogueAct === 'new_objective') return { kind: 'suspend' };
-    if (input.dialogueControl === 'suspend_current') return { kind: 'suspend' };
-    if (input.followUpAttribute) return { kind: 'follow_up', attribute: input.followUpAttribute };
-    return { kind: 'none' };
+export interface CoreDialogueReconciliationInput {
+    dialogueState: AgentDialogueState | null;
+    semantic: {
+        route?: 'read' | 'write';
+        interpretation?: Pick<Interpretation, 'dialogueAct' | 'dialogueControl' | 'followUpAttribute'> | null;
+        objective?: Pick<AgentObjective, 'dialogueAct' | 'objectiveType'> | null;
+    } | null;
+    temporalCandidate?: AgentObjective | null;
+    pendingPlanCandidate?: AgentObjective | null;
+}
+
+function hasMaterialCurrentTurnData(objective: AgentObjective | null | undefined): boolean {
+    if (!objective) return false;
+    return Boolean(
+        objective.slotDelta?.title?.trim()
+        || objective.slotDelta?.date?.trim()
+        || objective.slotDelta?.time?.trim()
+        || objective.timeConstraints.rawHint?.trim()
+        || objective.targetEntities.entityHints.some((hint) => hint.trim())
+        || objective.targetEntities.personHints.some((hint) => hint.trim()),
+    );
+}
+
+function hasExplicitCancellation(
+    semantic: CoreDialogueReconciliationInput['semantic'],
+    candidate: AgentObjective | null | undefined,
+): boolean {
+    const candidateHasTarget = Boolean(candidate
+        && (candidate.targetEntities.entityHints.some((hint) => hint.trim())
+            || candidate.targetEntities.personHints.some((hint) => hint.trim())));
+    // A targeted cancel is a new write objective (or a correction to a
+    // specific existing entity), not a rejection of the currently pending
+    // plan. Only a targetless control can close the active dialogue here.
+    if (candidateHasTarget) return false;
+    return candidate?.objectiveType === 'cancel_existing_commitment'
+        || candidate?.dialogueAct === 'reject'
+        || semantic?.interpretation?.dialogueAct === 'reject';
+}
+
+function hasExplicitDeferral(
+    semantic: CoreDialogueReconciliationInput['semantic'],
+    candidate: AgentObjective | null | undefined,
+): boolean {
+    // A lifecycle label is not sufficient when the same current turn also
+    // carries a validated slot. In that case the slot contract wins. A
+    // targetless defer remains a genuine control decision.
+    if (hasMaterialCurrentTurnData(candidate)) return false;
+    // `unsupported` is the provider's uncertainty marker, not a lifecycle
+    // command. It must not suspend an active objective by itself.
+    if (candidate?.objectiveType === 'unsupported'
+        || semantic?.objective?.objectiveType === 'unsupported') return false;
+    return candidate?.dialogueAct === 'defer'
+        || semantic?.interpretation?.dialogueAct === 'defer';
+}
+
+/**
+ * Single Core-owned precedence policy for an already-open objective.
+ *
+ * Interpreters contribute evidence only. This function is the sole place
+ * where contradictory lifecycle labels are reconciled with a validated
+ * current-turn slot. It never calls a provider and never mutates state.
+ */
+export function reconcileDialogueTurn(
+    input: CoreDialogueReconciliationInput,
+): CoreDialogueReconciliation {
+    const state = input.dialogueState;
+    const semantic = input.semantic;
+    const candidate = input.pendingPlanCandidate;
+    const interpretationAct = semantic?.interpretation?.dialogueAct ?? null;
+    const candidateIsCompleteReplacement = isCompletePendingPlanReplacement(candidate);
+    const cancellation = hasExplicitCancellation(semantic, candidate);
+    const deferral = hasExplicitDeferral(semantic, candidate);
+
+    // An explicit complete replacement is independent of every prior slot.
+    // It must be selected before any attempt to merge a temporal fragment.
+    if (candidateIsCompleteReplacement) {
+        return { kind: 'replace_objective', objective: candidate! };
+    }
+
+    const activeTemporalField = state?.pendingClarification?.field;
+    const temporalCandidate = input.temporalCandidate;
+    if (temporalCandidate && (activeTemporalField === 'date' || activeTemporalField === 'time'
+        || activeTemporalField === 'dueAt' || activeTemporalField === 'time_ambiguous'
+        || activeTemporalField === 'newDueAt')) {
+        // Explicit cancellation remains authoritative, including when the
+        // utterance happens to contain a date or time expression.
+        if (cancellation) {
+            return { kind: state?.lifecycle === 'plan_pending_authorization' ? 'reject' : 'cancel_active' };
+        }
+        // A targetless explicit deferral is a lifecycle decision. A provider
+        // cannot turn a valid slot delta into a deferral merely by emitting a
+        // contradictory label; the caller supplied the temporal candidate
+        // only after the existing temporal validator accepted it.
+        if (deferral && !hasMaterialCurrentTurnData(candidate)) {
+            return { kind: state?.lifecycle === 'plan_pending_authorization' ? 'defer' : 'suspend_current' };
+        }
+        const contextual = semantic?.interpretation?.followUpAttribute === 'time'
+            || semantic?.interpretation?.followUpAttribute === 'date'
+            || interpretationAct === 'clarify'
+            || semantic?.objective?.dialogueAct === 'clarify';
+        const contradictoryControl = semantic?.interpretation?.dialogueControl === 'suspend_current'
+            || semantic?.route === 'read';
+        // For a contradictory provider signal, require structural evidence
+        // that the turn answers the active slot. This prevents an unrelated
+        // temporal query from being consumed as the pending value.
+        if (!contradictoryControl || contextual) {
+            return {
+                kind: 'slot_filled',
+                objective: temporalCandidate,
+                field: activeTemporalField === 'date' ? 'date' : 'time',
+            };
+        }
+    }
+
+    if (!state?.openObjective) return { kind: 'independent' };
+
+    // A live objective must be suspended only after Core confirms that the
+    // turn is not a valid answer to its pending slot. This is intentionally
+    // after the temporal-slot branch above and prevents a bare provider
+    // suspend label from winning over a contextual answer.
+    if (state.lifecycle === 'plan_pending_authorization') {
+        if (cancellation) return { kind: 'reject' };
+        if (deferral) return { kind: 'defer' };
+        if (!candidate && interpretationAct === 'confirm') return { kind: 'approve' };
+        const decision = classifyPendingPlanDecision(candidate);
+        if (decision) return { kind: decision };
+
+        const sameCreateFamily = isContinuationEligibleObjectiveType(state.openObjective.objectiveType)
+            && isContinuationEligibleObjectiveType(candidate?.objectiveType as AgentObjectiveType);
+        if (candidate && sameCreateFamily && hasMaterialCurrentTurnData(candidate)
+            && candidate.dialogueAct !== 'new_objective') {
+            return { kind: 'plan_edit', objective: candidate };
+        }
+        const followUpAttribute = semantic?.interpretation?.followUpAttribute;
+        if (followUpAttribute) return { kind: 'follow_up', attribute: followUpAttribute };
+        if (interpretationAct === 'new_objective'
+            || semantic?.interpretation?.dialogueControl === 'suspend_current'
+            || semantic?.route === 'read') {
+            return { kind: 'suspend_current' };
+        }
+        if (isPendingPlanUnchangedCandidate({
+            pendingObjectiveType: state.openObjective.objectiveType,
+            candidate,
+        })) {
+            return { kind: 'unchanged' };
+        }
+    }
+
+    if (cancellation) return { kind: 'cancel_active' };
+    if (deferral) return { kind: 'suspend_current' };
+    if (semantic?.interpretation?.dialogueControl === 'suspend_current'
+        || semantic?.route === 'read') {
+        return { kind: 'suspend_current' };
+    }
+
+    return { kind: 'independent' };
 }
 
 export interface PendingPlanEditResult {
@@ -573,10 +712,6 @@ type PendingTemporalSemanticSignals = {
     objective?: Pick<AgentObjective, 'dialogueAct' | 'objectiveType'> | null;
 };
 
-const EXPLICIT_TEMPORAL_OVERRIDE_ACTS: ReadonlySet<AgentDialogueAct> = new Set([
-    'reject', 'defer', 'new_objective',
-]);
-
 /**
  * Resolve the precedence between an active temporal clarification and a
  * contradictory provider control signal in one Core-owned boundary.
@@ -591,28 +726,12 @@ export function resolvePendingTemporalClarificationAnswer(
     rawAnswer: string,
     semantic: PendingTemporalSemanticSignals | null,
 ): AgentObjective | null {
-    const candidate = buildPendingTemporalAnswerObjective(dialogueState, rawAnswer);
-    if (!candidate) return null;
-
-    const interpretationAct = semantic?.interpretation?.dialogueAct ?? null;
-    const objectiveAct = semantic?.objective?.dialogueAct ?? null;
-    if (EXPLICIT_TEMPORAL_OVERRIDE_ACTS.has(interpretationAct as AgentDialogueAct)
-        || EXPLICIT_TEMPORAL_OVERRIDE_ACTS.has(objectiveAct as AgentDialogueAct)) {
-        return null;
-    }
-
-    const hasExplicitSuspension = semantic?.interpretation?.dialogueControl === 'suspend_current';
-    const isContextualClarification = semantic?.interpretation?.followUpAttribute === 'time'
-        || interpretationAct === 'clarify'
-        || objectiveAct === 'clarify';
-    // Legacy/provider-neutral interpreters may omit lifecycle metadata. In
-    // that case the already-open Core slot is sufficient evidence. A bare
-    // suspend signal is the only contradictory control that must be resolved
-    // explicitly before the temporal candidate can win.
-    if (hasExplicitSuspension || semantic?.route === 'read') {
-        return isContextualClarification ? candidate : null;
-    }
-    return candidate;
+    const result = reconcileDialogueTurn({
+        dialogueState,
+        semantic,
+        temporalCandidate: buildPendingTemporalAnswerObjective(dialogueState, rawAnswer),
+    });
+    return result.kind === 'slot_filled' ? result.objective : null;
 }
 
 /** A pending plan can be replaced only by a complete, explicitly new act. */
