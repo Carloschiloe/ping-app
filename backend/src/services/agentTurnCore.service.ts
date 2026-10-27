@@ -326,6 +326,11 @@ export async function runAgentTurn(
         // A read/request escape also abandons the pending dialogue so a later
         // turn cannot inherit stale clarification slots.
         dialogueService.reset({ actorUserId: input.actorUserId, dialogueScopeKey });
+        // The local snapshot was intentionally used for the escape decision,
+        // but it must not be reused for semantic routing after the reset.
+        // Refresh Core's view so the next route cannot inherit an objective
+        // that the dialogue service has already discarded.
+        existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
     }
 
     // A pending plan belongs to the currently active objective, but an
@@ -376,6 +381,15 @@ export async function runAgentTurn(
             conversationId,
             channel,
             dialogueReconciliation: 'active_objective',
+            // Keep the precomputed temporal-follow-up path aligned with the
+            // main semantic boundary: fallback interpreters need the bounded
+            // pending-plan contract to classify a slot answer as a
+            // continuation of the Core-owned objective.
+            pendingPlan: {
+                objectiveType: existingDialogueState.openObjective.objectiveType,
+                desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+                timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+            },
             activeObjective: {
                 lifecycle: existingDialogueState.lifecycle,
                 objectiveType: existingDialogueState.openObjective.objectiveType,
@@ -752,6 +766,17 @@ export async function runAgentTurn(
         conversationId,
         channel,
         priorReadSummary,
+        // The Core-owned dialogue state is the source of truth for an open
+        // write objective.  Pass the same bounded contract to the semantic
+        // boundary as `pendingPlan`, so a provider/input fallback can still
+        // classify a valid slot answer against that objective instead of
+        // downgrading the turn to an unrelated read.  This carries no
+        // canonical IDs, authorization, or executable arguments.
+        pendingPlan: existingDialogueState?.openObjective ? {
+            objectiveType: existingDialogueState.openObjective.objectiveType,
+            desiredOutcome: existingDialogueState.openObjective.desiredOutcome,
+            timeHint: existingDialogueState.openObjective.timeConstraints.rawHint,
+        } : undefined,
         activeObjective: existingDialogueState?.openObjective ? {
             lifecycle: existingDialogueState.lifecycle,
             objectiveType: existingDialogueState.openObjective.objectiveType,
