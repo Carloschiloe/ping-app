@@ -1063,14 +1063,14 @@ describe('Live wiring: create_commitment regression (test area 24)', () => {
 
 describe('Acceptance: incomplete shared commitment is a slot-filling conversation', () => {
     it('Crea un compromiso para mañana -> Comprar materiales -> A las diez yields one guarded proposal', async () => {
-        // Reproduce the production failure boundary: the input interpreter is
-        // conservative and emits a read-shaped ambiguity hint even though it
-        // also carries the structural write signal and objective. Core must
-        // keep this in the write planner, never return topic_too_broad.
+        // Reproduce the production failure boundary: the provider emits a
+        // read-shaped interpretation and no write signal on the incomplete
+        // first turn. The canonical semantic boundary must recover the
+        // structural action frame and keep Core in the write planner, never
+        // return topic_too_broad.
         llmInputInterpretMock
-            .mockResolvedValueOnce(writeInterpretation({
+            .mockResolvedValueOnce(readOnlyInterpretation({
                 intent: 'general_context',
-                ambiguityHints: ['topic_too_broad'],
             }))
             .mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock

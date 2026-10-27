@@ -61,6 +61,28 @@ function looksLikeDeclarativeWriteFrame(input: string): boolean {
     return /^\s*(?:tengo\s+que|debo|necesito|recuerda(?:me)?\s+que|acuerda(?:me)?\s+que|agenda(?:r)?|anota(?:r)?|crea(?:r)?|recu[eé]rdame|llama(?:r)?|env[ií]a|dile|mueve|cancela(?:r)?|completa(?:r)?|elimina(?:r)?|marca(?:r)?|pon(?:er)?|programa(?:r)?|guarda(?:r)?|i\s+(?:have\s+to|need\s+to|must)|remember\s+to|remind\s+me\s+to|schedule|create|add|save|call|send|tell|move|assign|cancel|complete|delete|mark|set|put)\b/iu.test(input);
 }
 
+// Keep the question-shape guard in one place. It is a grammatical boundary,
+// not a catalog of commands: voice transcripts may lose punctuation, while a
+// retrieval question still exposes its interrogative at the start.
+const RETRIEVAL_INTERROGATIVE_START = /^\s*(?:¿\s*)?(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu;
+
+function hasQuestionShape(input: string): boolean {
+    return /[?\u061f]\s*$/u.test(input.trim())
+        || RETRIEVAL_INTERROGATIVE_START.test(input);
+}
+
+function startsWithRetrievalInterrogative(input: string): boolean {
+    return RETRIEVAL_INTERROGATIVE_START.test(input);
+}
+
+// A leading negation is a semantic boundary for mutation admission. The
+// downstream planner may still interpret the text as a cancellation or a
+// read, but this fallback must never turn "no quiero que..." into a write.
+function startsWithNegation(input: string): boolean {
+    const firstToken = input.trim().replace(/^¿/u, '').split(/\s+/u, 1)[0]?.toLocaleLowerCase();
+    return new Set(['no', 'nunca', 'jamás', 'jamas', 'not', 'never']).has(firstToken ?? '');
+}
+
 /**
  * Low-risk read fast path.
  *
@@ -183,8 +205,7 @@ export async function interpretAgentSemanticTurn(
         // (qué/cuál/cuándo/etc. at the start), so do not let a provider wobble
         // turn a read question such as "qué tengo para mañana" into a write
         // plan merely because punctuation was lost during transcription.
-        const isQuestionShaped = /[?\u061f]\s*$/u.test(input.trim())
-            || /^\s*(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu.test(input);
+        const isQuestionShaped = hasQuestionShape(input);
         // A question-shaped turn with a read-domain signal is a structural
         // retrieval request even when the provider overstates
         // isWriteActionRequest. This does not enumerate user phrases and
@@ -235,6 +256,7 @@ export async function interpretAgentSemanticTurn(
                 };
             }
         }
+        const structuralInput = await new DeterministicInputInterpreter().interpret(input);
         const structuralObjective = await new DeterministicObjectiveInterpreter().interpret(input, {
             actorUserId: context.actorUserId,
             conversationId: context.conversationId,
@@ -244,11 +266,39 @@ export async function interpretAgentSemanticTurn(
                 && structuralObjective.constraints.commitmentOwnership !== 'third_party')
             || structuralObjective.objectiveType === 'remember_fact'
             || structuralObjective.objectiveType === 'cancel_existing_commitment';
-        if (safeWriteObjective && structuralObjective.confidence >= 0.7) {
-            const structuralInput = await new DeterministicInputInterpreter().interpret(input);
-            if (structuralInput.isWriteActionRequest) {
-                return { route: 'write', interpretation: structuralInput, objective: structuralObjective };
+        // A provider can under-call an explicit write (especially when the
+        // first turn is intentionally incomplete). Admit the structural
+        // action frame before the confidence threshold: Core still owns slot
+        // validation, authorization and execution. Retrieval questions and
+        // negations remain outside this safety-net.
+        const structuralActionFrame = structuralInput.isWriteActionRequest
+            && !startsWithRetrievalInterrogative(input)
+            && !startsWithNegation(input);
+        if (safeWriteObjective && structuralActionFrame) {
+            const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
+            const objectiveContext: ObjectiveInterpreterContext = {
+                actorUserId: context.actorUserId,
+                conversationId: context.conversationId,
+                pendingPlan: context.pendingPlan,
+                activeObjective: context.activeObjective,
+                dialogueReconciliation: context.dialogueReconciliation,
+            };
+            let candidate = structuralObjective;
+            try {
+                const interpreted = await objectiveInterpreter.interpret(input, objectiveContext);
+                if (interpreted.objectiveType !== 'unsupported') candidate = interpreted;
+            } catch {
+                // The deterministic objective remains the bounded fallback.
             }
+            return {
+                route: 'write',
+                interpretation: {
+                    ...structuralInput,
+                    interactionMode: 'task',
+                    isWriteActionRequest: true,
+                },
+                objective: candidate,
+            };
         }
     }
 
