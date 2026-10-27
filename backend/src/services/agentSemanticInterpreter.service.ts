@@ -64,7 +64,7 @@ function looksLikeDeclarativeWriteFrame(input: string): boolean {
 // Keep the question-shape guard in one place. It is a grammatical boundary,
 // not a catalog of commands: voice transcripts may lose punctuation, while a
 // retrieval question still exposes its interrogative at the start.
-const RETRIEVAL_INTERROGATIVE_START = /^\s*(?:¿\s*)?(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu;
+const RETRIEVAL_INTERROGATIVE_START = /^\s*(?:¿\s*)?(?:qué|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu;
 
 function hasQuestionShape(input: string): boolean {
     return /[?\u061f]\s*$/u.test(input.trim())
@@ -81,6 +81,17 @@ function startsWithRetrievalInterrogative(input: string): boolean {
 function startsWithNegation(input: string): boolean {
     const firstToken = input.trim().replace(/^¿/u, '').split(/\s+/u, 1)[0]?.toLocaleLowerCase();
     return new Set(['no', 'nunca', 'jamás', 'jamas', 'not', 'never']).has(firstToken ?? '');
+}
+
+function hasCurrentTurnObjectiveEvidence(objective: AgentObjective): boolean {
+    return objective.targetEntities.entityHints.some((hint) => hint.trim().length > 0)
+        || objective.targetEntities.personHints.some((hint) => hint.trim().length > 0)
+        || !!objective.timeConstraints.rawHint?.trim()
+        || !!objective.slotDelta?.title?.trim()
+        || !!objective.slotDelta?.date?.trim()
+        || !!objective.slotDelta?.time?.trim()
+        || objective.dialogueAct === 'correct'
+        || objective.dialogueAct === 'new_objective';
 }
 
 /**
@@ -212,6 +223,9 @@ export async function interpretAgentSemanticTurn(
         // does not override a deterministic write signal for an action.
         const isInterrogativeRead = isQuestionShaped && hasReadDomainSignal;
         const isStructuredRead = (isRetrievalIntent && isInterrogativeRead)
+            || (safeRead.intent === 'commitment_query'
+                && !safeRead.isWriteActionRequest
+                && safeRead.textQuery === null)
             || isTemporalComparisonQuery(input)
             || !!extractUrgencyComparison(input)
             || isInterrogativeRead;
@@ -266,6 +280,23 @@ export async function interpretAgentSemanticTurn(
                 && structuralObjective.constraints.commitmentOwnership !== 'third_party')
             || structuralObjective.objectiveType === 'remember_fact'
             || structuralObjective.objectiveType === 'cancel_existing_commitment';
+        const structuralReadDomainSignal = structuralInput.wantsCommitments
+            || structuralInput.wantsMessages
+            || structuralInput.wantsTranscriptions
+            || structuralInput.wantsAttachments
+            || structuralInput.intent === 'commitment_query'
+            || !!structuralInput.timeExpression
+            || !!structuralInput.temporalIntent;
+        const isReadQuestionFrame = hasQuestionShape(input)
+            && !structuralInput.isWriteActionRequest
+            && ((structuralReadDomainSignal
+                    && structuralInput.textQuery === null)
+                || (structuralInput.requestedTransition?.length ?? 0) > 0
+                || !!context.priorReadSummary);
+        const isRetrievalQuestionFrame = (structuralInput.intent === 'commitment_query'
+            && structuralInput.textQuery === null)
+            || isReadQuestionFrame
+            || startsWithRetrievalInterrogative(input);
         // A provider can under-call an explicit write (especially when the
         // first turn is intentionally incomplete). Admit the structural
         // action frame before the confidence threshold: Core still owns slot
@@ -299,6 +330,45 @@ export async function interpretAgentSemanticTurn(
                 },
                 objective: candidate,
             };
+        }
+
+        // If the deterministic input grammar cannot recognize an indirect or
+        // colloquial action, let the semantic objective interpreter decide it
+        // rather than silently converting the turn into a read. This is still
+        // bounded by grammatical retrieval/negation guards; any unsupported
+        // objective remains on the read path, and Core remains the authority
+        // for slots, permissions, confirmation and execution.
+        const canAskObjectiveInterpreter = !isRetrievalQuestionFrame
+            && !startsWithNegation(input)
+            && (interpretation.intent === 'general_context'
+                || !!context.pendingPlan
+                || !!context.activeObjective
+                || !!context.dialogueReconciliation);
+        if (canAskObjectiveInterpreter) {
+            const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
+            try {
+                const candidate = await objectiveInterpreter.interpret(input, {
+                    actorUserId: context.actorUserId,
+                    conversationId: context.conversationId,
+                    pendingPlan: context.pendingPlan,
+                    activeObjective: context.activeObjective,
+                    dialogueReconciliation: context.dialogueReconciliation,
+                });
+                if (candidate.objectiveType !== 'unsupported'
+                    && hasCurrentTurnObjectiveEvidence(candidate)) {
+                    return {
+                        route: 'write',
+                        interpretation: {
+                            ...interpretation,
+                            interactionMode: 'task',
+                            isWriteActionRequest: true,
+                        },
+                        objective: candidate,
+                    };
+                }
+            } catch {
+                // A failed semantic objective must never invent a write.
+            }
         }
     }
 
