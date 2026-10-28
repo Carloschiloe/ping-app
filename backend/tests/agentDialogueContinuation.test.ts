@@ -1270,6 +1270,37 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
         expect(executeAuthorizationSpy).not.toHaveBeenCalled();
     });
 
+
+    it('Crea un compromiso para mañana -> A las 13:00 asks for the missing title instead of naming it after the time', async () => {
+        llmInputInterpretMock
+            .mockResolvedValueOnce(readOnlyInterpretation({ intent: 'general_context' }))
+            .mockResolvedValue(writeInterpretation());
+        llmObjectiveInterpretMock
+            .mockResolvedValueOnce(writeObjective({
+                objectiveType: 'create_commitment_or_proposal',
+                sourceUtterance: 'Crea un compromiso para mañana',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'mañana' },
+            }))
+            .mockResolvedValueOnce(writeObjective({
+                objectiveType: 'create_personal_commitment',
+                sourceUtterance: 'A las 13:00',
+                targetEntities: { personHints: [], entityHints: ['A las 13:00'] },
+                contentHint: 'A las 13:00',
+                timeConstraints: { rawHint: 'A las 13:00' },
+            }));
+
+        const turnContext = { timezone: 'America/Santiago', locale: 'es-CL' };
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Crea un compromiso para mañana', ...turnContext });
+        expect(first.kind).toBe('clarification');
+
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'A las 13:00', ...turnContext });
+        expect(second.kind).toBe('clarification');
+        if (second.kind === 'clarification') {
+            expect(second.questions.map((question) => question.field)).toContain('title');
+        }
+    });
+
     it('reconciles a structured temporal answer when the provider marks the fragment unsupported', async () => {
         llmInputInterpretMock
             .mockResolvedValueOnce(writeInterpretation())
