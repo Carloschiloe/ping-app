@@ -943,7 +943,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             obj.constraints.memoryTimeReference = { subjectHint: preferPersonHint ?? null };
             obj.confidence = entity ? 0.7 : 0.3;
             if (!entity) {
-                obj.ambiguities.push({ field: 'title', kind: 'blocking', reason: 'No pude identificar qué quieres agendar.' });
+                obj.ambiguities.push({ field: 'title', kind: 'blocking', reason: '¿Qué quieres agendar? Necesito un título o actividad para crear el compromiso.' });
             }
             return obj;
         }
@@ -973,7 +973,7 @@ export class DeterministicObjectiveInterpreter implements AgentObjectiveInterpre
             obj.timeConstraints.rawHint = timeHint;
             obj.confidence = entityHint ? 0.75 : 0.3;
             if (!entityHint) {
-                obj.ambiguities.push({ field: 'title', kind: 'blocking', reason: 'No pude identificar qué quieres agendar.' });
+                obj.ambiguities.push({ field: 'title', kind: 'blocking', reason: '¿Qué quieres agendar? Necesito un título o actividad para crear el compromiso.' });
             }
             return obj;
         }
