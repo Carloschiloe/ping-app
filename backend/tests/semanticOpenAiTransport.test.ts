@@ -22,6 +22,24 @@ describe('shared Semantic OpenAI transport policy', () => {
     it('uses one policy for both adapter call sites', () => {
         expect(buildSemanticOpenAiRequest({ modelName: 'gpt-6-luna', messages, family: 'modern_reasoning' })).toEqual(buildSemanticOpenAiRequest({ modelName: 'gpt-6-luna', messages, family: 'modern_reasoning' }));
     });
+    it('forwards a strict structured response format without changing the shared default', () => {
+        const responseFormat = {
+            type: 'json_schema' as const,
+            json_schema: {
+                name: 'objective',
+                strict: true,
+                schema: {
+                    type: 'object',
+                    properties: { value: { type: 'string' } },
+                    required: ['value'],
+                    additionalProperties: false,
+                },
+            },
+        };
+        const request = buildSemanticOpenAiRequest({ modelName: 'gpt-4o-mini', messages, responseFormat });
+        expect(request.response_format).toEqual(responseFormat);
+        expect(buildSemanticOpenAiRequest({ modelName: 'gpt-4o-mini', messages }).response_format).toEqual({ type: 'json_object' });
+    });
     it('resolves one configurable model for both semantic interpreters', () => {
         const previousModel = process.env.PING_SEMANTIC_MODEL;
         const previousFamily = process.env.PING_SEMANTIC_MODEL_FAMILY;

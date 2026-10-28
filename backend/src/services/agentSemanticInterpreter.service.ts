@@ -61,6 +61,39 @@ function looksLikeDeclarativeWriteFrame(input: string): boolean {
     return /^\s*(?:tengo\s+que|debo|necesito|recuerda(?:me)?\s+que|acuerda(?:me)?\s+que|agenda(?:r)?|anota(?:r)?|crea(?:r)?|recu[eé]rdame|llama(?:r)?|env[ií]a|dile|mueve|cancela(?:r)?|completa(?:r)?|elimina(?:r)?|marca(?:r)?|pon(?:er)?|programa(?:r)?|guarda(?:r)?|i\s+(?:have\s+to|need\s+to|must)|remember\s+to|remind\s+me\s+to|schedule|create|add|save|call|send|tell|move|assign|cancel|complete|delete|mark|set|put)\b/iu.test(input);
 }
 
+// Keep the question-shape guard in one place. It is a grammatical boundary,
+// not a catalog of commands: voice transcripts may lose punctuation, while a
+// retrieval question still exposes its interrogative at the start.
+const RETRIEVAL_INTERROGATIVE_START = /^\s*(?:¿\s*)?(?:qué|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu;
+
+function hasQuestionShape(input: string): boolean {
+    return /[?\u061f]\s*$/u.test(input.trim())
+        || RETRIEVAL_INTERROGATIVE_START.test(input);
+}
+
+function startsWithRetrievalInterrogative(input: string): boolean {
+    return RETRIEVAL_INTERROGATIVE_START.test(input);
+}
+
+// A leading negation is a semantic boundary for mutation admission. The
+// downstream planner may still interpret the text as a cancellation or a
+// read, but this fallback must never turn "no quiero que..." into a write.
+function startsWithNegation(input: string): boolean {
+    const firstToken = input.trim().replace(/^¿/u, '').split(/\s+/u, 1)[0]?.toLocaleLowerCase();
+    return new Set(['no', 'nunca', 'jamás', 'jamas', 'not', 'never']).has(firstToken ?? '');
+}
+
+function hasCurrentTurnObjectiveEvidence(objective: AgentObjective): boolean {
+    return objective.targetEntities.entityHints.some((hint) => hint.trim().length > 0)
+        || objective.targetEntities.personHints.some((hint) => hint.trim().length > 0)
+        || !!objective.timeConstraints.rawHint?.trim()
+        || !!objective.slotDelta?.title?.trim()
+        || !!objective.slotDelta?.date?.trim()
+        || !!objective.slotDelta?.time?.trim()
+        || objective.dialogueAct === 'correct'
+        || objective.dialogueAct === 'new_objective';
+}
+
 /**
  * Low-risk read fast path.
  *
@@ -183,14 +216,16 @@ export async function interpretAgentSemanticTurn(
         // (qué/cuál/cuándo/etc. at the start), so do not let a provider wobble
         // turn a read question such as "qué tengo para mañana" into a write
         // plan merely because punctuation was lost during transcription.
-        const isQuestionShaped = /[?\u061f]\s*$/u.test(input.trim())
-            || /^\s*(?:qu[eé]|cu[aá]l(?:es)?|cu[aá]ndo|d[oó]nde|qui[eé]n(?:es)?|c[oó]mo|cu[aá]nt(?:o|a|os|as)|mu[eé]strame|dime|hay|what|which|when|where|who|how|show\s+me|tell\s+me|are\s+there)(?=$|[^\p{L}\p{N}_])/iu.test(input);
+        const isQuestionShaped = hasQuestionShape(input);
         // A question-shaped turn with a read-domain signal is a structural
         // retrieval request even when the provider overstates
         // isWriteActionRequest. This does not enumerate user phrases and
         // does not override a deterministic write signal for an action.
         const isInterrogativeRead = isQuestionShaped && hasReadDomainSignal;
         const isStructuredRead = (isRetrievalIntent && isInterrogativeRead)
+            || (safeRead.intent === 'commitment_query'
+                && !safeRead.isWriteActionRequest
+                && safeRead.textQuery === null)
             || isTemporalComparisonQuery(input)
             || !!extractUrgencyComparison(input)
             || isInterrogativeRead;
@@ -235,6 +270,7 @@ export async function interpretAgentSemanticTurn(
                 };
             }
         }
+        const structuralInput = await new DeterministicInputInterpreter().interpret(input);
         const structuralObjective = await new DeterministicObjectiveInterpreter().interpret(input, {
             actorUserId: context.actorUserId,
             conversationId: context.conversationId,
@@ -244,10 +280,94 @@ export async function interpretAgentSemanticTurn(
                 && structuralObjective.constraints.commitmentOwnership !== 'third_party')
             || structuralObjective.objectiveType === 'remember_fact'
             || structuralObjective.objectiveType === 'cancel_existing_commitment';
-        if (safeWriteObjective && structuralObjective.confidence >= 0.7) {
-            const structuralInput = await new DeterministicInputInterpreter().interpret(input);
-            if (structuralInput.isWriteActionRequest) {
-                return { route: 'write', interpretation: structuralInput, objective: structuralObjective };
+        const structuralReadDomainSignal = structuralInput.wantsCommitments
+            || structuralInput.wantsMessages
+            || structuralInput.wantsTranscriptions
+            || structuralInput.wantsAttachments
+            || structuralInput.intent === 'commitment_query'
+            || !!structuralInput.timeExpression
+            || !!structuralInput.temporalIntent;
+        const isReadQuestionFrame = hasQuestionShape(input)
+            && !structuralInput.isWriteActionRequest
+            && ((structuralReadDomainSignal
+                    && structuralInput.textQuery === null)
+                || (structuralInput.requestedTransition?.length ?? 0) > 0
+                || !!context.priorReadSummary);
+        const isRetrievalQuestionFrame = (structuralInput.intent === 'commitment_query'
+            && structuralInput.textQuery === null)
+            || isReadQuestionFrame
+            || startsWithRetrievalInterrogative(input);
+        // A provider can under-call an explicit write (especially when the
+        // first turn is intentionally incomplete). Admit the structural
+        // action frame before the confidence threshold: Core still owns slot
+        // validation, authorization and execution. Retrieval questions and
+        // negations remain outside this safety-net.
+        const structuralActionFrame = structuralInput.isWriteActionRequest
+            && !startsWithRetrievalInterrogative(input)
+            && !startsWithNegation(input);
+        if (safeWriteObjective && structuralActionFrame) {
+            const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
+            const objectiveContext: ObjectiveInterpreterContext = {
+                actorUserId: context.actorUserId,
+                conversationId: context.conversationId,
+                pendingPlan: context.pendingPlan,
+                activeObjective: context.activeObjective,
+                dialogueReconciliation: context.dialogueReconciliation,
+            };
+            let candidate = structuralObjective;
+            try {
+                const interpreted = await objectiveInterpreter.interpret(input, objectiveContext);
+                if (interpreted.objectiveType !== 'unsupported') candidate = interpreted;
+            } catch {
+                // The deterministic objective remains the bounded fallback.
+            }
+            return {
+                route: 'write',
+                interpretation: {
+                    ...structuralInput,
+                    interactionMode: 'task',
+                    isWriteActionRequest: true,
+                },
+                objective: candidate,
+            };
+        }
+
+        // If the deterministic input grammar cannot recognize an indirect or
+        // colloquial action, let the semantic objective interpreter decide it
+        // rather than silently converting the turn into a read. This is still
+        // bounded by grammatical retrieval/negation guards; any unsupported
+        // objective remains on the read path, and Core remains the authority
+        // for slots, permissions, confirmation and execution.
+        const canAskObjectiveInterpreter = !isRetrievalQuestionFrame
+            && !startsWithNegation(input)
+            && (interpretation.intent === 'general_context'
+                || !!context.pendingPlan
+                || !!context.activeObjective
+                || !!context.dialogueReconciliation);
+        if (canAskObjectiveInterpreter) {
+            const objectiveInterpreter = options.objectiveInterpreter ?? new LlmObjectiveInterpreter();
+            try {
+                const candidate = await objectiveInterpreter.interpret(input, {
+                    actorUserId: context.actorUserId,
+                    conversationId: context.conversationId,
+                    pendingPlan: context.pendingPlan,
+                    activeObjective: context.activeObjective,
+                    dialogueReconciliation: context.dialogueReconciliation,
+                });
+                if (candidate.objectiveType !== 'unsupported'
+                    && hasCurrentTurnObjectiveEvidence(candidate)) {
+                    return {
+                        route: 'write',
+                        interpretation: {
+                            ...interpretation,
+                            interactionMode: 'task',
+                            isWriteActionRequest: true,
+                        },
+                        objective: candidate,
+                    };
+                }
+            } catch {
+                // A failed semantic objective must never invent a write.
             }
         }
     }

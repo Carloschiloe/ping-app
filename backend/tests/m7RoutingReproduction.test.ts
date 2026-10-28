@@ -84,4 +84,165 @@ describe('M-7 reproduction: deterministic routing cannot own natural-language un
         expect(routing.objective?.objectiveType).toBe('create_commitment_or_proposal');
         expect(routing.objective?.constraints.commitmentOwnership).toBe('personal');
     });
+
+    it('keeps an incomplete creation in the write planner when the provider under-calls the intent', async () => {
+        const inputInterpreter = new LlmInputInterpreter({
+            model: { modelName: 'm7-incomplete-read-wobble-double', interpret: async () => JSON.stringify({
+                intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                timeExpression: null, temporalComparison: null, urgencyComparison: null,
+                requestedSources: [], commitmentFilterHints: { status: null, statusBasis: null },
+                attachmentKindHints: [], ambiguityHints: [], wantsOverdueFocus: false,
+                proposalFocus: null, isWriteActionRequest: false,
+            }) },
+        });
+        const objectiveInterpreter = new LlmObjectiveInterpreter({
+            model: { modelName: 'm7-incomplete-create-double', interpret: async () => JSON.stringify({
+                objectiveType: 'create_commitment_or_proposal', personHints: [], entityHints: [],
+                timeHint: 'mañana', decisionHint: null, draftOnly: false,
+                responsibleHint: null, followUpObjectiveType: null, additionalPersonHint: null,
+                desiredOutcomeHint: null, verbatimMessageHint: null, dialogueAct: 'new_objective',
+                slotDelta: { title: null, date: 'mañana', time: null },
+            }) },
+        });
+
+        const routing = await interpretAgentSemanticTurn(
+            'Crea un compromiso para mañana',
+            CONTEXT,
+            { inputInterpreter, objectiveInterpreter },
+        );
+
+        expect(routing.route).toBe('write');
+        expect(routing.objective?.objectiveType).toBe('create_commitment_or_proposal');
+        expect(routing.objective?.targetEntities.entityHints).toEqual([]);
+        expect(routing.objective?.timeConstraints.rawHint).toBe('mañana');
+        expect(routing.objective?.ambiguities?.map((item) => item.field)).toContain('title');
+    });
+
+    it('does not convert a retrieval question containing a create verb into a write', async () => {
+        const inputInterpreter = new LlmInputInterpreter({
+            model: { modelName: 'm7-retrieval-question-wobble-double', interpret: async () => JSON.stringify({
+                intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                timeExpression: 'mañana', temporalComparison: null, urgencyComparison: null,
+                requestedSources: [], commitmentFilterHints: { status: null, statusBasis: null },
+                attachmentKindHints: [], ambiguityHints: [], wantsOverdueFocus: false,
+                proposalFocus: null, isWriteActionRequest: false,
+            }) },
+        });
+        const objectiveInterpreter = new LlmObjectiveInterpreter({
+            model: { modelName: 'm7-incorrect-objective-on-read-double', interpret: async () => JSON.stringify({
+                objectiveType: 'create_commitment_or_proposal', personHints: [],
+                entityHints: ['invented write'], timeHint: 'mañana', decisionHint: null,
+                draftOnly: false, responsibleHint: null, followUpObjectiveType: null,
+                additionalPersonHint: null, desiredOutcomeHint: null, verbatimMessageHint: null,
+            }) },
+        });
+        const routing = await interpretAgentSemanticTurn(
+            '¿Qué compromisos puedo crear para mañana?',
+            CONTEXT,
+            { inputInterpreter, objectiveInterpreter },
+        );
+
+        expect(routing.route).toBe('read');
+        expect(routing.objective).toBeNull();
+    });
+
+    it('delegates unseen indirect action frames to the semantic objective interpreter', async () => {
+        const inputInterpreter = new LlmInputInterpreter({
+            model: { modelName: 'm7-indirect-action-wobble-double', interpret: async () => JSON.stringify({
+                intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                timeExpression: null, temporalComparison: null, urgencyComparison: null,
+                requestedSources: [], commitmentFilterHints: { status: null, statusBasis: null },
+                attachmentKindHints: [], ambiguityHints: [], wantsOverdueFocus: false,
+                proposalFocus: null, isWriteActionRequest: false,
+            }) },
+        });
+        const objectiveInterpreter = new LlmObjectiveInterpreter({
+            model: { modelName: 'm7-indirect-action-objective-double', interpret: async ({ input }) => JSON.stringify({
+                objectiveType: input.includes('recordatorio')
+                    ? 'create_personal_commitment'
+                    : 'edit_existing_commitment',
+                personHints: [],
+                entityHints: input.includes('recordatorio') ? ['llevar los documentos'] : ['revisar contratos'],
+                timeHint: input.includes('recordatorio') ? 'el jueves a las nueve' : null,
+                decisionHint: null, draftOnly: false, responsibleHint: null,
+                followUpObjectiveType: null, additionalPersonHint: null,
+                desiredOutcomeHint: null, verbatimMessageHint: null,
+                dialogueAct: input.includes('recordatorio') ? 'new_objective' : 'correct',
+                slotDelta: input.includes('recordatorio')
+                    ? { title: 'llevar los documentos', date: 'el jueves', time: 'a las nueve' }
+                    : { title: 'revisar contratos', date: null, time: null },
+            }) },
+        });
+        const utterances = [
+            'Déjame listo un recordatorio para llevar los documentos el jueves a las nueve',
+            'Mejor cambia el título a revisar contratos',
+        ];
+
+        for (const utterance of utterances) {
+            const routing = await interpretAgentSemanticTurn(
+                utterance,
+                { ...CONTEXT, activeObjective: utterance.startsWith('Mejor') ? { objectiveType: 'create_personal_commitment' } : undefined },
+                { inputInterpreter, objectiveInterpreter },
+            );
+            expect(routing.route).toBe('write');
+            expect(routing.objective?.objectiveType).not.toBe('unsupported');
+        }
+    });
+
+    it('does not inherit a pending write objective from a question with no current-turn evidence', async () => {
+        const inputInterpreter = new LlmInputInterpreter({
+            model: { modelName: 'm7-pending-read-input-double', interpret: async () => JSON.stringify({
+                intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                timeExpression: null, temporalComparison: null, urgencyComparison: null,
+                requestedSources: [], commitmentFilterHints: { status: null, statusBasis: null },
+                attachmentKindHints: [], ambiguityHints: [], wantsOverdueFocus: false,
+                proposalFocus: null, isWriteActionRequest: false,
+            }) },
+        });
+        const objectiveInterpreter = new LlmObjectiveInterpreter({
+            model: { modelName: 'm7-inherited-objective-double', interpret: async () => JSON.stringify({
+                objectiveType: 'create_personal_commitment', personHints: [], entityHints: [],
+                timeHint: null, decisionHint: null, draftOnly: false,
+                responsibleHint: null, followUpObjectiveType: null, additionalPersonHint: null,
+                desiredOutcomeHint: null, verbatimMessageHint: null,
+            }) },
+        });
+
+        const routing = await interpretAgentSemanticTurn(
+            '¿Puedes decirme el estado del plan?',
+            {
+                ...CONTEXT,
+                activeObjective: {
+                    lifecycle: 'plan_pending_authorization',
+                    objectiveType: 'create_personal_commitment',
+                    desiredOutcome: 'revisar informe técnico',
+                    timeHint: 'mañana',
+                },
+            },
+            { inputInterpreter, objectiveInterpreter },
+        );
+
+        expect(routing.route).toBe('read');
+        expect(routing.objective).toBeNull();
+    });
+
+    it('does not admit a negated creation as a write fallback', async () => {
+        const inputInterpreter = new LlmInputInterpreter({
+            model: { modelName: 'm7-negated-write-wobble-double', interpret: async () => JSON.stringify({
+                intent: 'general_context', personHints: [], topicHints: [], textQuery: null,
+                timeExpression: 'mañana', temporalComparison: null, urgencyComparison: null,
+                requestedSources: [], commitmentFilterHints: { status: null, statusBasis: null },
+                attachmentKindHints: [], ambiguityHints: [], wantsOverdueFocus: false,
+                proposalFocus: null, isWriteActionRequest: false,
+            }) },
+        });
+        const routing = await interpretAgentSemanticTurn(
+            'No quiero que crees un compromiso para mañana; dime qué tengo.',
+            CONTEXT,
+            { inputInterpreter },
+        );
+
+        expect(routing.route).toBe('read');
+        expect(routing.objective).toBeNull();
+    });
 });

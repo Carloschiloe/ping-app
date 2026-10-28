@@ -19,6 +19,7 @@
 // objective (sección 1: "LLM may propose... Core validates"), swapping
 // interpreters never changes what the validator will accept.
 import OpenAI from 'openai';
+import { zodResponseFormat } from 'openai/helpers/zod';
 import {
     buildSemanticOpenAiRequest,
     getSemanticRuntimeConfig,
@@ -36,6 +37,11 @@ import { tracePlan } from '../utils/planTrace';
 import { extractDateTextSpans, extractTemporalHint, parseDateFromText } from './date-parser.service';
 import { filterTemporalPersonHints } from '../utils/personHintSemantics';
 import { isGenericCommitmentTitleHint } from '../utils/commitmentTitleSemantics';
+
+const OBJECTIVE_RESPONSE_FORMAT = zodResponseFormat(
+    agentObjectiveInterpretationPayloadSchema,
+    'ping_agent_objective_interpretation',
+);
 
 export interface ObjectiveInterpreterContext {
     conversationId?: string;
@@ -1103,6 +1109,7 @@ export class OpenAiAgentObjectiveModel implements AgentObjectiveModel {
                 buildSemanticOpenAiRequest({
                     modelName: this.modelName,
                     family: this.modelFamily,
+                    responseFormat: OBJECTIVE_RESPONSE_FORMAT,
                     messages: [{ role: 'user', content: buildObjectivePrompt(request.input, request.context) }],
                 }) as never,
             );
@@ -1361,7 +1368,7 @@ export async function proposeSemanticContentCandidate(
         return null;
     }
 
-    const validation = agentObjectiveInterpretationPayloadSchema.safeParse(parsedJson);
+    const validation = agentObjectiveInterpretationPayloadSchema.safeParse(normalizeNullableNullSentinels(parsedJson));
     if (!validation.success) {
         trace(false, 'schema_invalid');
         return null;
@@ -1379,6 +1386,50 @@ export interface LlmObjectiveInterpreterOptions {
     model?: AgentObjectiveModel;
     fallback?: AgentObjectiveInterpreter;
     timeoutMs?: number;
+}
+
+const NULLABLE_OBJECTIVE_FIELDS = [
+    'dialogueAct',
+    'contentHint',
+    'timeHint',
+    'decisionHint',
+    'responsibleHint',
+    'commitmentOwnership',
+    'followUpObjectiveType',
+    'additionalPersonHint',
+    'desiredOutcomeHint',
+    'verbatimMessageHint',
+] as const;
+
+const NULLABLE_SLOT_FIELDS = ['title', 'date', 'time'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Some legacy JSON-object responses represented JSON null as the literal
+ * string "null". Normalize only that exact sentinel, and only at fields whose
+ * Zod contract explicitly permits null. All enums, required fields, arrays,
+ * booleans and arbitrary non-null strings remain subject to safeParse().
+ */
+function normalizeNullableNullSentinels(payload: unknown): unknown {
+    if (!isRecord(payload)) return payload;
+
+    const normalized: Record<string, unknown> = { ...payload };
+    for (const field of NULLABLE_OBJECTIVE_FIELDS) {
+        if (normalized[field] === 'null') normalized[field] = null;
+    }
+
+    if (isRecord(normalized.slotDelta)) {
+        const slotDelta: Record<string, unknown> = { ...normalized.slotDelta };
+        for (const field of NULLABLE_SLOT_FIELDS) {
+            if (slotDelta[field] === 'null') slotDelta[field] = null;
+        }
+        normalized.slotDelta = slotDelta;
+    }
+
+    return normalized;
 }
 
 export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
@@ -1410,7 +1461,7 @@ export class LlmObjectiveInterpreter implements AgentObjectiveInterpreter {
             return this.fallbackWith(input, context, 'invalid_json');
         }
 
-        const validation = agentObjectiveInterpretationPayloadSchema.safeParse(parsedJson);
+        const validation = agentObjectiveInterpretationPayloadSchema.safeParse(normalizeNullableNullSentinels(parsedJson));
         if (!validation.success) {
             return this.fallbackWith(input, context, 'schema_invalid');
         }

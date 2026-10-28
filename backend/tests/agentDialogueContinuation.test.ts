@@ -28,11 +28,12 @@ import {
     reconcileContinuationObjective,
     isContinuationEligibleObjectiveType,
     classifyPendingPlanDecision,
-    classifyPendingPlanSemanticRelation,
     isIndependentWriteObjective,
     isSelfContainedPendingPlanCandidate,
     buildPendingPlanEdit,
     buildPendingTemporalAnswerObjective,
+    resolvePendingTemporalClarificationAnswer,
+    reconcileDialogueTurn,
     classifyPlanCorrection,
     buildPlanTitleCorrection,
     groundPendingPlanCandidate,
@@ -133,6 +134,115 @@ describe('isContinuationEligibleObjectiveType', () => {
     });
 });
 
+describe('temporal clarification precedence', () => {
+    const pendingTime = dialogueState({
+        pendingClarification: { field: 'time', question: '¿A qué hora?' },
+        openObjective: objective({
+            sourceUtterance: 'Crea un compromiso para mañana',
+            targetEntities: { personHints: [], entityHints: ['Comprar materiales'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }),
+    });
+
+    it('accepts a valid contextual time answer even with suspend_current and unsupported objective', () => {
+        const resolved = resolvePendingTemporalClarificationAnswer(pendingTime, 'A las diez', {
+            interpretation: {
+                dialogueAct: 'clarify',
+                dialogueControl: 'suspend_current',
+                followUpAttribute: 'time',
+            },
+            objective: { dialogueAct: 'clarify' },
+        });
+
+        expect(resolved?.timeConstraints.rawHint).toBe('A las diez');
+        expect(resolved?.targetEntities.entityHints).toEqual(['Comprar materiales']);
+    });
+
+    it.each([
+        ['explicit rejection', { dialogueAct: 'reject', dialogueControl: 'suspend_current' }],
+        ['explicit deferral', { dialogueAct: 'defer', dialogueControl: 'suspend_current' }],
+        ['explicit topic change', { dialogueAct: 'new_objective', dialogueControl: 'suspend_current' }],
+        ['uncontextualized suspension', { dialogueAct: null, dialogueControl: 'suspend_current', followUpAttribute: null }],
+    ])('does not consume the temporal slot for %s', (_label, interpretation) => {
+        expect(resolvePendingTemporalClarificationAnswer(pendingTime, 'mañana a las diez', {
+            interpretation,
+            objective: { dialogueAct: interpretation.dialogueAct },
+        })).toBeNull();
+    });
+
+    it('rejects an ambiguous temporal answer and a turn without an active clarification', () => {
+        expect(resolvePendingTemporalClarificationAnswer(pendingTime, 'cuando pueda', {
+            interpretation: { dialogueAct: 'clarify', followUpAttribute: 'time' },
+            objective: { dialogueAct: 'clarify' },
+        })).toBeNull();
+        expect(resolvePendingTemporalClarificationAnswer(pendingTime, '¿Qué compromisos tengo mañana?', {
+            route: 'read',
+            interpretation: { dialogueAct: null, followUpAttribute: null },
+            objective: { dialogueAct: null },
+        })).toBeNull();
+        expect(resolvePendingTemporalClarificationAnswer(null, 'A las diez', {
+            interpretation: { dialogueAct: 'clarify', followUpAttribute: 'time' },
+            objective: { dialogueAct: 'clarify' },
+        })).toBeNull();
+    });
+});
+
+describe('Core-owned dialogue reconciliation contract', () => {
+    const pendingTime = dialogueState({
+        pendingClarification: { field: 'time', question: '¿A qué hora?' },
+        openObjective: objective({
+            sourceUtterance: 'Crea un compromiso para mañana',
+            targetEntities: { personHints: [], entityHints: ['Comprar materiales'] },
+            timeConstraints: { rawHint: 'mañana' },
+        }),
+    });
+
+    it('resolves a valid slot before unsupported/defer/suspend metadata', () => {
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'read',
+                interpretation: {
+                    dialogueAct: 'defer',
+                    dialogueControl: 'suspend_current',
+                    followUpAttribute: 'time',
+                },
+                objective: { dialogueAct: 'defer', objectiveType: 'unsupported' },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'A las diez'),
+        });
+
+        expect(result.kind).toBe('slot_filled');
+        if (result.kind === 'slot_filled') {
+            expect(result.field).toBe('time');
+            expect(result.objective.targetEntities.entityHints).toEqual(['Comprar materiales']);
+            expect(result.objective.timeConstraints.rawHint).toBe('A las diez');
+        }
+    });
+
+    it('keeps an explicit cancellation from being consumed as a temporal answer', () => {
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'write',
+                interpretation: { dialogueAct: 'reject', dialogueControl: null, followUpAttribute: null },
+                objective: { dialogueAct: 'reject', objectiveType: 'cancel_existing_commitment' },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'Cancelar para mañana a las diez'),
+            pendingPlanCandidate: objective({
+                objectiveType: 'cancel_existing_commitment',
+                dialogueAct: 'reject',
+                constraints: { decisionHint: 'reject' },
+                sourceUtterance: 'Cancelar para mañana a las diez',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: null },
+            }),
+        });
+
+        expect(result.kind).toBe('cancel_active');
+    });
+});
+
 describe('semantic pending-plan reconciliation', () => {
     it('treats a target-less temporal correction as a correction without provider lifecycle metadata', async () => {
         const result = await classifyPlanCorrection(
@@ -180,8 +290,23 @@ describe('semantic pending-plan reconciliation', () => {
     });
 
     it('suspends an incomplete semantic topic switch instead of leaving the old plan active', () => {
-        expect(classifyPendingPlanSemanticRelation({ dialogueAct: 'new_objective' }))
-            .toEqual({ kind: 'suspend' });
+        const result = reconcileDialogueTurn({
+            dialogueState: dialogueState({
+                lifecycle: 'plan_pending_authorization',
+                currentPlanDigestRef: 'pending-digest',
+            }),
+            semantic: {
+                route: 'write',
+                interpretation: { dialogueAct: 'new_objective', dialogueControl: null, followUpAttribute: null },
+                objective: { dialogueAct: 'new_objective', objectiveType: 'unsupported' },
+            },
+            pendingPlanCandidate: objective({
+                dialogueAct: 'new_objective',
+                targetEntities: { personHints: [], entityHints: ['nuevo asunto'] },
+                timeConstraints: { rawHint: null },
+            }),
+        });
+        expect(result.kind).toBe('suspend_current');
     });
 
     it('material slot deltas take precedence over an approval hint', () => {
@@ -1063,14 +1188,14 @@ describe('Live wiring: create_commitment regression (test area 24)', () => {
 
 describe('Acceptance: incomplete shared commitment is a slot-filling conversation', () => {
     it('Crea un compromiso para mañana -> Comprar materiales -> A las diez yields one guarded proposal', async () => {
-        // Reproduce the production failure boundary: the input interpreter is
-        // conservative and emits a read-shaped ambiguity hint even though it
-        // also carries the structural write signal and objective. Core must
-        // keep this in the write planner, never return topic_too_broad.
+        // Reproduce the production failure boundary: the provider emits a
+        // read-shaped interpretation and no write signal on the incomplete
+        // first turn. The canonical semantic boundary must recover the
+        // structural action frame and keep Core in the write planner, never
+        // return topic_too_broad.
         llmInputInterpretMock
-            .mockResolvedValueOnce(writeInterpretation({
+            .mockResolvedValueOnce(readOnlyInterpretation({
                 intent: 'general_context',
-                ambiguityHints: ['topic_too_broad'],
             }))
             .mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock
@@ -1107,6 +1232,52 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
             expect(third.confirmationState).toBe('required');
             expect(third.plan.steps).toHaveLength(1);
             expect(third.plan.steps[0]?.toolId).toBe('create_commitment');
+            expect(third.presentation.stepPresentations[0]?.targetLabel).toBe('Comprar materiales');
+            expect(third.presentation.stepPresentations[0]?.dateLabel).toContain('10:00');
+        }
+        expect(authorizePlanSpy).not.toHaveBeenCalled();
+        expect(executeAuthorizationSpy).not.toHaveBeenCalled();
+    });
+
+    it('reconciles a structured temporal answer when the provider marks the fragment unsupported', async () => {
+        llmInputInterpretMock
+            .mockResolvedValueOnce(writeInterpretation())
+            .mockResolvedValue(readOnlyInterpretation({
+                intent: 'commitment_query',
+                dialogueAct: 'clarify',
+                dialogueControl: 'suspend_current',
+                followUpAttribute: 'time',
+                timeExpression: 'A las diez',
+                isWriteActionRequest: false,
+            }));
+        llmObjectiveInterpretMock
+            .mockResolvedValueOnce(writeObjective({
+                objectiveType: 'create_commitment_or_proposal',
+                sourceUtterance: 'Crea un compromiso para mañana',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'mañana' },
+            }))
+            .mockResolvedValue(writeObjective({
+                objectiveType: 'unsupported',
+                dialogueAct: 'clarify',
+                sourceUtterance: 'A las diez',
+                targetEntities: { personHints: [], entityHints: [] },
+                timeConstraints: { rawHint: 'A las diez' },
+                slotDelta: { title: null, date: null, time: 'A las diez' },
+            }));
+
+        const turnContext = { timezone: 'America/Santiago', locale: 'es-CL' };
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Crea un compromiso para mañana', ...turnContext })).kind)
+            .toBe('clarification');
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Comprar materiales', ...turnContext })).kind)
+            .toBe('clarification');
+
+        const third = await runAgentTurn({ actorUserId: ACTOR_A, input: 'A las diez', ...turnContext });
+
+        expect(third.kind).toBe('plan');
+        if (third.kind === 'plan') {
+            expect(third.confirmationState).toBe('required');
+            expect(third.presentation.stepPresentations).toHaveLength(1);
             expect(third.presentation.stepPresentations[0]?.targetLabel).toBe('Comprar materiales');
             expect(third.presentation.stepPresentations[0]?.dateLabel).toContain('10:00');
         }
