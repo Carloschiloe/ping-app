@@ -258,6 +258,18 @@ export function reconcileDialogueTurn(
         return { kind: 'replace_objective', objective: candidate! };
     }
 
+    // An incomplete explicit new objective is still a topic switch. It must
+    // suspend the active objective before the temporal-slot branch below can
+    // consume a date/time fragment as if it answered the old clarification.
+    // A complete replacement was handled above; only the incomplete form
+    // needs this escape hatch.
+    const incompleteNewObjective = interpretationAct === 'new_objective'
+        || candidate?.dialogueAct === 'new_objective'
+        || semantic?.objective?.dialogueAct === 'new_objective';
+    if (incompleteNewObjective && state?.openObjective) {
+        return { kind: 'suspend_current' };
+    }
+
     const activeTemporalField = state?.pendingClarification?.field;
     const temporalCandidate = input.temporalCandidate;
     if (temporalCandidate && (activeTemporalField === 'date' || activeTemporalField === 'time'
@@ -1315,3 +1327,4 @@ export function buildPlanTitleCorrection(
     dialogueService.applyCorrection({ actorUserId, dialogueScopeKey, slotName: 'targetEntities.entityHints', previousValue: previousTitle, newValue: newTitle, reason: 'user_correction', turnId, turnSequence });
     return { correctedObjective: { ...priorObjective, targetEntities: { ...priorObjective.targetEntities, entityHints: [newTitle] }, desiredOutcome: newTitle, sourceUtterance: priorObjective.sourceUtterance.trim() + ' ' + companionPersonHint, ambiguities: [] }, turnSequence };
 }
+
