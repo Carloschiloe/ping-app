@@ -838,6 +838,7 @@ async function classifyExplicitEscape(
 
 export type PendingClarificationAnswerOutcome =
     | { outcome: 'escaped'; newObjective?: AgentObjective }
+    | { outcome: 'temporal_answer'; reconciledObjective: AgentObjective }
     | { outcome: 'zero_match' }
     | { outcome: 'multi_match'; candidates: RetrievalPerson[] }
     | { outcome: 'multi_match_entity'; candidates: RetrievalCommitment[] }
@@ -880,6 +881,25 @@ async function tryAnswerTitleClarification(
 ): Promise<PendingClarificationAnswerOutcome> {
     const trimmedAnswer = rawAnswer.trim();
     if (!trimmedAnswer) return { outcome: 'escaped' };
+
+    // A temporal answer is not a free-text title. Let the main Core
+    // reconciliation path consume it as the pending date/time slot while
+    // keeping the title clarification open; otherwise a reply such as
+    // "A las 13:00" becomes the commitment name and the planner believes the
+    // objective is complete.
+    const temporalAnswer = extractTimeHint(trimmedAnswer);
+    if (temporalAnswer && normalizeContinuationText(trimmedAnswer) === normalizeContinuationText(temporalAnswer)) {
+        const priorObjective = dialogueState.openObjective as AgentObjective;
+        return {
+            outcome: 'temporal_answer',
+            reconciledObjective: {
+                ...priorObjective,
+                timeConstraints: { rawHint: temporalAnswer },
+                sourceUtterance: `${priorObjective.sourceUtterance.trim()} ${trimmedAnswer}`.trim(),
+            },
+        };
+    }
+
 
     const escape = await classifyExplicitEscape(trimmedAnswer, actorUserId, conversationId);
     if (escape.escaped) return { outcome: 'escaped', newObjective: escape.newObjective };
