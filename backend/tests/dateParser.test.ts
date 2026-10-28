@@ -177,6 +177,15 @@ describe('parseDateFromText', () => {
         expect(mergeTemporalCorrection('mañana a las 10', 'para las 12')).toBe('mañana para las 12');
     });
 
+
+    it('reconoce unidades de hora escritas como hrs, h y horas', () => {
+        expect(extractExplicitTimeHint('A las 13:00 hrs')).toBe('A las 13:00 hrs');
+        expect(extractExplicitTimeHint('A las 13:00 h')).toBe('A las 13:00 h');
+        expect(extractExplicitTimeHint('A las 13:00 horas')).toBe('A las 13:00 horas');
+        expect(parseDateFromText('mañana a las 13:00 hrs', TUESDAY_SEPTEMBER_1, 'America/Santiago')?.date.toISOString())
+            .toBe('2026-09-02T17:00:00.000Z');
+    });
+
     it('reconoce una hora explícita inglesa en el mismo extractor canónico', () => {
         const input = 'Agenda tomorrow at 10 call an unregistered person';
 
