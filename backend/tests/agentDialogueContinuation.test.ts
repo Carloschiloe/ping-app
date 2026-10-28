@@ -1298,6 +1298,7 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
         expect(second.kind).toBe('clarification');
         if (second.kind === 'clarification') {
             expect(second.questions.map((question) => question.field)).toContain('title');
+            expect(second.questions.some((question) => question.question.includes('¿Qué quieres agendar?'))).toBe(true);
         }
     });
 
