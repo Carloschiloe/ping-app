@@ -443,6 +443,21 @@ describe('PING — CREATE_COMMITMENT TITLE FIDELITY FIX: LlmObjectiveInterpreter
         ]));
     });
 
+
+    it('a temporal follow-up proposed as an entity hint never becomes the commitment title', async () => {
+        const model = fakeModel(JSON.stringify({
+            objectiveType: 'create_personal_commitment',
+            personHints: [], entityHints: ['A las 13:00'], contentHint: 'A las 13:00', timeHint: 'A las 13:00',
+            decisionHint: null, draftOnly: false, responsibleHint: null,
+            followUpObjectiveType: null, additionalPersonHint: null, desiredOutcomeHint: null,
+        }));
+        const interpreter = new LlmObjectiveInterpreter({ model });
+        const obj = await interpreter.interpret('A las 13:00', CTX);
+
+        expect(obj.timeConstraints.rawHint).toMatch(/13:00/);
+        expect(obj.targetEntities.entityHints).toEqual([]);
+    });
+
     it('no explicit marker in the source text -- the model\'s own entityHints proposal is trusted unchanged (override never fires without a real marker)', async () => {
         const model = fakeModel(JSON.stringify({
             objectiveType: 'create_commitment_or_proposal',

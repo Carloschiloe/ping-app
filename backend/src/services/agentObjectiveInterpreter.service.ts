@@ -519,6 +519,21 @@ function normalizeMutationTargetHint(hint: string, sourceUtterance: string, isRe
     return normalized.length > 0 ? normalized : hint;
 }
 
+
+function normalizeHintText(value: string): string {
+    return value.trim().toLocaleLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/gu, '').replace(/\\s+/gu, ' ');
+}
+
+function isTemporalOnlyTitleHint(hint: string, sourceUtterance: string): boolean {
+    const normalizedHint = normalizeHintText(hint);
+    const temporalFromSource = extractTimeHint(sourceUtterance);
+    const temporalFromHint = extractTimeHint(hint);
+    return Boolean(
+        (temporalFromSource && normalizedHint === normalizeHintText(temporalFromSource))
+        || (temporalFromHint && normalizedHint === normalizeHintText(temporalFromHint)),
+    );
+}
+
 // PING — COMPLETE_COMMITMENT TARGET / RESOLUTION RESULT EXTRACTION FIX:
 // the LLM is the PRIMARY interpreter in production (same principle as
 // normalizeMutationTargetHint's own comment above for reschedule) --
@@ -1217,7 +1232,15 @@ function mapPayloadToObjective(payload: AgentObjectiveInterpretationPayload, inp
             const modelTitle = [payload.contentHint, ...payload.entityHints]
                 .map((hint) => hint?.trim())
                 .find((hint): hint is string => !!hint && !isGenericCommitmentTitleHint(hint));
-            obj.targetEntities.entityHints = modelTitle ? [modelTitle] : [];
+            // A temporal answer can be echoed by the provider as an entity
+            // hint (for example, "A las 13:00"). That value belongs only to
+            // the date/time slots; accepting it here creates a commitment
+            // literally titled with its time and skips the required title
+            // clarification. Explicitly named or quoted titles still win
+            // above, including titles that happen to contain temporal words.
+            obj.targetEntities.entityHints = modelTitle && !isTemporalOnlyTitleHint(modelTitle, input)
+                ? [modelTitle]
+                : [];
         }
     }
     // PING — RESCHEDULE EXISTING COMMITMENT RESOLUTION FIX: for the

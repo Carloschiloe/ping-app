@@ -239,7 +239,8 @@ export async function runAgentTurn(
 
         if (pendingResult.outcome === 'resolved'
             || pendingResult.outcome === 'resolved_entity'
-            || pendingResult.outcome === 'resolved_title') {
+            || pendingResult.outcome === 'resolved_title'
+            || pendingResult.outcome === 'temporal_answer') {
             // TASK 7 -- the planner (never this module) decides whether the
             // now-completed objective is fully specified or still needs
             // another clarification (e.g. a missing date). Reuses the exact
