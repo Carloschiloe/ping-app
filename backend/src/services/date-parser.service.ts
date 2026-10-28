@@ -95,9 +95,10 @@ function normalizeSpanish(value: string) {
 // differently at the next one.
 const SPANISH_HOUR_WORD_PATTERN = '(?:una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintid[oó]s|veintitr[eé]s)';
 const ENGLISH_HOUR_WORD_PATTERN = '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|twenty[- ]one|twenty[- ]two|twenty[- ]three)';
+const CLOCK_TIME_SUFFIX_PATTERN = '(?:\\s+(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:ma[ñn]ana|tarde|noche)|hrs?\\.?|horas?|h\\.?))?';
 const EXPLICIT_TIME_PATTERN = new RegExp(
-    `\\b(?:a|para)\\s+las?\\s+(?:[01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:ma[ñn]ana|tarde|noche))?`
-    + `|\\b(?:a|para)\\s+las?\\s+${SPANISH_HOUR_WORD_PATTERN}(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:ma[ñn]ana|tarde|noche))?`
+    `\\b(?:a|para)\\s+las?\\s+(?:[01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?${CLOCK_TIME_SUFFIX_PATTERN}`
+    + `|\\b(?:a|para)\\s+las?\\s+${SPANISH_HOUR_WORD_PATTERN}(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?${CLOCK_TIME_SUFFIX_PATTERN}`
     + `|\\bat\\s+(?:[01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?)?`
     + `|\\bat\\s+${ENGLISH_HOUR_WORD_PATTERN}\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?)?`,
     'iu',

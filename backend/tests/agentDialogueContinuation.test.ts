@@ -1271,7 +1271,7 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
     });
 
 
-    it('Crea un compromiso para mañana -> A las 13:00 asks for the missing title instead of naming it after the time', async () => {
+    it('Crea un compromiso para mañana -> A las 13:00 hrs asks for the missing title instead of naming it after the time', async () => {
         llmInputInterpretMock
             .mockResolvedValueOnce(readOnlyInterpretation({ intent: 'general_context' }))
             .mockResolvedValue(writeInterpretation());
@@ -1284,17 +1284,17 @@ describe('Acceptance: incomplete shared commitment is a slot-filling conversatio
             }))
             .mockResolvedValueOnce(writeObjective({
                 objectiveType: 'create_personal_commitment',
-                sourceUtterance: 'A las 13:00',
-                targetEntities: { personHints: [], entityHints: ['A las 13:00'] },
-                contentHint: 'A las 13:00',
-                timeConstraints: { rawHint: 'A las 13:00' },
+                sourceUtterance: 'A las 13:00 hrs',
+                targetEntities: { personHints: [], entityHints: ['A las 13:00 hrs'] },
+                contentHint: 'A las 13:00 hrs',
+                timeConstraints: { rawHint: 'A las 13:00 hrs' },
             }));
 
         const turnContext = { timezone: 'America/Santiago', locale: 'es-CL' };
         const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Crea un compromiso para mañana', ...turnContext });
         expect(first.kind).toBe('clarification');
 
-        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'A las 13:00', ...turnContext });
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'A las 13:00 hrs', ...turnContext });
         expect(second.kind).toBe('clarification');
         if (second.kind === 'clarification') {
             expect(second.questions.map((question) => question.field)).toContain('title');
