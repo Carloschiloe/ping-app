@@ -577,7 +577,7 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     const title = titleCandidate && !isGenericCommitmentTitleHint(titleCandidate) ? titleCandidate : null;
     const blockingAmbiguities: AgentObjectiveAmbiguity[] = [];
     let timeMissing = false;
-    if (!title) blockingAmbiguities.push({ field: 'title', kind: 'blocking', reason: 'No identifiqué qué quieres agendar.' });
+    if (!title) blockingAmbiguities.push({ field: 'title', kind: 'blocking', reason: '¿Qué quieres agendar? Necesito un título o actividad para crear el compromiso.' });
 
     const timezone = resolveTimeZone(input.timezone);
     const canonicalOnly = input.canonicalFacts?.canonicalOnly === true;
@@ -684,7 +684,7 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
     // cannot infer that because title/parsed are mutable while memory/date
     // resolution runs.
     if (!title) {
-        return { steps: [], blockingAmbiguities: [{ field: 'title', kind: 'blocking', reason: 'No identifiqué qué quieres agendar.' }] };
+        return { steps: [], blockingAmbiguities: [{ field: 'title', kind: 'blocking', reason: '¿Qué quieres agendar? Necesito un título o actividad para crear el compromiso.' }] };
     }
     if (!parsed) {
         return { steps: [], blockingAmbiguities: [{ field: 'dueAt', kind: 'blocking', reason: 'No indicaste una fecha/hora para este compromiso.' }] };
