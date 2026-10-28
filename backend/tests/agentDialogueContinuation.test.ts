@@ -220,6 +220,37 @@ describe('Core-owned dialogue reconciliation contract', () => {
         }
     });
 
+    it('suspends an incomplete new objective instead of consuming its time as the old slot', () => {
+        const candidate = objective({
+            objectiveType: 'create_commitment_or_proposal',
+            dialogueAct: 'new_objective',
+            sourceUtterance: 'Crea otro compromiso para mañana',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: 'mañana' },
+            slotDelta: { title: null, date: 'mañana', time: null },
+        });
+
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'write',
+                interpretation: {
+                    dialogueAct: 'new_objective',
+                    dialogueControl: null,
+                    followUpAttribute: null,
+                },
+                objective: {
+                    dialogueAct: 'new_objective',
+                    objectiveType: 'create_commitment_or_proposal',
+                },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'mañana'),
+            pendingPlanCandidate: candidate,
+        });
+
+        expect(result).toEqual({ kind: 'suspend_current' });
+    });
+
     it('keeps an explicit cancellation from being consumed as a temporal answer', () => {
         const result = reconcileDialogueTurn({
             dialogueState: pendingTime,
@@ -1470,3 +1501,4 @@ describe('M-7 physical defect regressions: pending edits and cancellation', () =
         if (confirmed.kind === 'plan') expect(confirmed.confirmationState).toBe('received');
     });
 });
+
