@@ -27,19 +27,19 @@ ningún cambio manual posterior.
 
 ## A qué proyecto se aplica
 
-La cadena completa de migraciones canónicas se valida primero localmente. Las
-operaciones remotas actuales deben seguir el gate de producción en
-`docs/production-readiness/` y apuntar únicamente al proyecto Supabase
-`wbigqhtuzfmpnxservlf`. El procedimiento histórico de validación V2 está
-conservado en este documento, pero no debe ejecutarse contra staging.
-`docs/25-COMMITMENT-CORE-VALIDATION.md`.
+La cadena completa de migraciones canónicas se valida primero localmente
+(Supabase/Postgres local desechable). Las operaciones remotas apuntan
+únicamente al proyecto de producción `wbigqhtuzfmpnxservlf`, siguen el gate de
+`docs/production-readiness/` y requieren autorización explícita por cada
+aplicación. No existe un entorno staging intermedio. El procedimiento histórico
+de validación V2 se conserva más abajo sólo como evidencia.
 
-**NO aplicar sobre el proyecto Supabase antiguo.** El proyecto antiguo tiene
-datos reales, tablas con historia (`conversations`/`conversation_participants`
-sin DDL propio) y una estructura que este baseline no intenta replicar 1:1 —
-lo reconstruye desde cero con un diseño simplificado. Aplicarlo sobre el
-proyecto antiguo generaría conflictos de nombres y, en el peor caso, podría
-chocar contra objetos ya existentes con una forma distinta.
+**Producción solo recibe migraciones nuevas, nunca el baseline completo.**
+Producción tiene datos reales y su historial ya registrado en
+`supabase_migrations.schema_migrations`; `supabase db push --linked --dry-run`
+debe listar únicamente las migraciones nuevas aprobadas. Si el dry-run propone
+el baseline u otra migración ya aplicada, detenerse: indica drift de historial,
+no algo que deba ejecutarse.
 
 ## Compatibilidad con el backend y mobile actuales
 
@@ -117,8 +117,9 @@ Este orden es obligatorio y no debe alterarse ni saltarse pasos:
 > Esta sección se conserva para explicar auditorías y evidencias antiguas. No
 > vincules ni ejecutes el CLI contra ese proyecto.
 
-1. Confirmar mediante `supabase projects list` que `Ping Staging V2` tiene el
-   project ref `oonijgmddgyymhrlnvuu`. No usar el proyecto histórico `Ping`.
+1. (Histórico) Se confirmaba mediante `supabase projects list` que
+   `Ping Staging V2` tenía el project ref `oonijgmddgyymhrlnvuu`. Hoy el CLI
+   se vincula sólo a producción: `supabase link --project-ref wbigqhtuzfmpnxservlf`.
 2. Instalar Supabase CLI de forma oficial (binario firmado desde
    `github.com/supabase/cli/releases`, o el método oficial para tu SO).
 3. Autenticarse: `supabase login` (interactivo) o exportar
@@ -244,8 +245,9 @@ Antes de considerar el baseline como definitivo:
 - El backend usa variables de entorno distintas por entorno
   (`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` propios de cada proyecto),
   nunca la misma clave apuntando a dos proyectos.
-- Las migraciones se aplican primero a staging, se verifican, y solo después
-  se aplican a producción con el mismo archivo (nunca se edita una migración
-  ya aplicada a producción; un cambio posterior es una migración nueva).
+- En aquella etapa las migraciones se aplicaban primero a staging. Hoy se
+  validan localmente y se aplican directamente a producción con autorización
+  (nunca se edita una migración ya aplicada a producción; un cambio posterior
+  es una migración nueva).
 - Los datos de producción nunca se copian a staging sin anonimizar
   información personal.

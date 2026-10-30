@@ -10,6 +10,7 @@ const integrationTests = [
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'attachmentCore.integration.sql'),
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'audioTranscription.integration.sql'),
   join(repositoryRoot, 'backend', 'tests', 'postgres', 'memoryAtomic.integration.sql'),
+  join(repositoryRoot, 'backend', 'tests', 'postgres', 'clientWritePrivileges.integration.sql'),
 ];
 const postgresBin = process.env.POSTGRES_BIN ?? 'C:\\Program Files\\PostgreSQL\\16\\bin';
 const psql = join(postgresBin, 'psql.exe');

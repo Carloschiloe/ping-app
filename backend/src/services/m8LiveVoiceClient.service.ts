@@ -20,6 +20,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500, TRANSCRIPT_WAIT_MS=1500;
   let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,outputPlaybackPending=false,pendingPlaybackInterruption=false,coreResultReady=false,responseActive=false,responseHasAudio=false,responseProviderId=null,responseTurnId=null,responseOutputText='',responseAudioDeltaCount=0,responsePurpose='tool_selection',coreTurnInFlight=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle',pendingTranscript=null,pendingTranscriptTurnId=null,pendingTranscriptWaiter=null,resolvePendingTranscript=null;
+  let pendingVoicePlan=null,lastCoreInputSource=null;
   const id=()=>{try{return crypto.randomUUID()}catch{return 'm8-'+Date.now()+'-'+Math.random().toString(16).slice(2)}};
   const post=(message)=>{try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(message))}catch{}};
   const setStatus=(text,hint,active=false)=>{statusEl.textContent=text;hintEl.textContent=hint||'';orb.className=active?'orb active':'orb'};
@@ -52,17 +53,61 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const beginTurnTranscript=()=>{pendingTranscript=null;pendingTranscriptTurnId=activeTurnId;resolvePendingTranscript=null;pendingTranscriptWaiter=new Promise(resolve=>{resolvePendingTranscript=resolve})};
   const rememberFinalTranscript=(value)=>{if(!activeTurnId||!usableTranscript(value))return;pendingTranscript=value.trim();pendingTranscriptTurnId=activeTurnId;if(resolvePendingTranscript){resolvePendingTranscript(pendingTranscript);resolvePendingTranscript=null}};
   const chooseCoreInput=async(providerInput,turnId)=>{
-    if(turnId&&pendingTranscriptTurnId===turnId&&usableTranscript(pendingTranscript)){telemetry('transcript_received',{transcript:safeText(pendingTranscript,500),detailCode:'input_transcription_selected_for_core',sideEffects:0});return pendingTranscript}
+    lastCoreInputSource=null;
+    if(turnId&&pendingTranscriptTurnId===turnId&&usableTranscript(pendingTranscript)){telemetry('transcript_received',{transcript:safeText(pendingTranscript,500),detailCode:'input_transcription_selected_for_core',sideEffects:0});lastCoreInputSource='transcript';return pendingTranscript}
     if(turnId&&pendingTranscriptTurnId===turnId&&pendingTranscriptWaiter){
       const waiter=pendingTranscriptWaiter;
       const resolved=await Promise.race([waiter,new Promise(resolve=>setTimeout(()=>resolve(null),TRANSCRIPT_WAIT_MS))]);
-      if(usableTranscript(resolved)){pendingTranscript=resolved.trim();telemetry('transcript_received',{transcript:safeText(pendingTranscript,500),detailCode:'input_transcription_selected_for_core',sideEffects:0});return pendingTranscript}
+      if(usableTranscript(resolved)){pendingTranscript=resolved.trim();telemetry('transcript_received',{transcript:safeText(pendingTranscript,500),detailCode:'input_transcription_selected_for_core',sideEffects:0});lastCoreInputSource='transcript';return pendingTranscript}
     }
-    if(usableTranscript(providerInput)){telemetry('transcript_received',{transcript:safeText(providerInput,500),detailCode:'provider_tool_input_fallback',sideEffects:0});return providerInput.trim()}
+    if(usableTranscript(providerInput)){telemetry('transcript_received',{transcript:safeText(providerInput,500),detailCode:'provider_tool_input_fallback',sideEffects:0});lastCoreInputSource='provider';return providerInput.trim()}
     return null;
   };
   const completeAssistantResponse=(detailCode)=>{const wasSpeaking=assistantSpeaking||lastAudioState==='playing';const shouldReturnToListening=responseHasAudio||wasSpeaking||lastAudioState==='playing';outputPlaybackPending=shouldReturnToListening;pendingPlaybackInterruption=false;assistantSpeaking=false;responseActive=false;lastAudioState='provider_done';telemetry('voice_stage',{stage:'provider_audio_generation_done',detailCode,responseHasAudio,realtimeOutputText:responseOutputText||undefined,audioDeltaCount:responseAudioDeltaCount,sideEffects:0});if(shouldReturnToListening&&!closed&&!failed&&currentStage!=='listening')stage('listening','Ping está listo','Habla cuando quieras.',{detailCode,sideEffects:0});responseHasAudio=false;responseProviderId=null;responseTurnId=null;responseOutputText='';responseAudioDeltaCount=0};
   const createResponse=(cause,toolChoice)=>{if(toolChoice==='required')setAudioGate(false);responseActive=true;responsePurpose=toolChoice==='required'?'tool_selection':'core_presentation';responseHasAudio=toolChoice!=='required';responseProviderId=null;responseTurnId=activeTurnId;responseOutputText='';responseAudioDeltaCount=0;responseCreateCount+=1;telemetry('response_create',{detailCode:cause,responseCreateCount,responseHasAudio,sideEffects:0});sendEvent({type:'response.create',response:toolChoice==='required'?{tool_choice:'required',output_modalities:['text'],instructions:'Selecciona únicamente la herramienta ping_core_turn para entregar la transcripción exacta. No generes texto narrativo ni audio en esta fase.'}:{tool_choice:'none',output_modalities:['audio'],instructions:'Habla siempre en español de Chile. Verbaliza únicamente authorizedText de core_presentation y, cuando confirmationRequired sea true, verbaliza también confirmationPrompt para ofrecer claramente la confirmación y la cancelación. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones que no estén contenidos en ese payload.'}})};
+  // A voice confirmation is only a Core plan with confirmationState
+  // 'received'; nothing has been written yet. Like the text client, the voice
+  // adapter must authorize the exact digest and execute it, and only the
+  // verified execution result may be spoken as done. Authorization re-derives
+  // the plan server-side, and a repeated confirmation keeps the same plan
+  // turn key so the server replays the bound execution instead of writing twice.
+  const spokenSummary=(value)=>typeof value==='string'?value.split('\\n').map(line=>line.replace(/^[\\s\\u2713\\u2717\\u23f3]+/u,'').trim()).filter(Boolean).join(' '):'';
+  const voiceResponse=(text)=>({kind:'response',authorizedText:text,confirmationRequired:false});
+  async function executeConfirmedVoicePlan(core,confirmBody,turnId){
+    const digest=core.plan?.planDigest;const steps=Array.isArray(core.plan?.steps)?core.plan.steps:[];
+    // Kept after execution on purpose: a repeated confirmation of the same plan
+    // must carry the same plan turn key so the server replays it instead of
+    // executing twice. A new plan replaces it; the digest check keeps it scoped.
+    const pending=pendingVoicePlan&&pendingVoicePlan.digest===digest?pendingVoicePlan:null;
+    if(typeof digest!=='string'||!digest||steps.length===0)return voiceResponse('No pude completar la acción porque el plan ya no está disponible. No hice ningún cambio.');
+    const headers={Authorization:cfg.authorization,'Content-Type':'application/json'};
+    let authorization=null;
+    try{
+      const authResponse=await withTimeout(fetch(cfg.apiUrl+'/agent/authorize',{method:'POST',headers,body:JSON.stringify({...(pending?pending.body:confirmBody),planDigest:digest,stepIds:steps.map(step=>step.stepId),confirm:true})}),25000,'authorize_timeout');
+      let raw=null;try{raw=JSON.parse(await authResponse.text())}catch{}
+      telemetry('voice_stage',{stage:'plan_authorization',turnId,httpStatus:authResponse.status,detailCode:authResponse.ok?'plan_authorized':'plan_authorization_rejected',sideEffects:0});
+      if(!authResponse.ok||!raw||typeof raw.authorizationId!=='string'){
+        if(authResponse.status===409)return voiceResponse('El plan cambió antes de confirmarlo. No hice ningún cambio; dime de nuevo qué necesitas.');
+        if(authResponse.status===403||authResponse.status===422)return voiceResponse('No puedo ejecutar ese plan con tu permiso o con el estado actual. No hice ningún cambio.');
+        return voiceResponse('No pude autorizar la acción. No hice ningún cambio.');
+      }
+      authorization=raw;
+    }catch(error){telemetry('error',{turnId,detailCode:'plan_authorization_failed',...errorDetails(error),sideEffects:0});return voiceResponse('No pude autorizar la acción. No hice ningún cambio.')}
+    try{
+      const executeBody={authorizationId:authorization.authorizationId};
+      if(cfg.conversationId&&pending){executeBody.conversationId=cfg.conversationId;executeBody.sourceTurnKey=pending.turnKey}
+      const executeResponse=await withTimeout(fetch(cfg.apiUrl+'/agent/execute',{method:'POST',headers,body:JSON.stringify(executeBody)}),25000,'execute_timeout');
+      let execution=null;try{execution=JSON.parse(await executeResponse.text())}catch{}
+      const executed=Array.isArray(execution?.executedSteps)?execution.executedSteps:[];
+      const verified=executeResponse.ok&&execution?.status==='done'&&executed.length>0&&executed.every(step=>step.status==='succeeded'&&step.verified===true);
+      telemetry('voice_stage',{stage:'plan_execution',turnId,httpStatus:executeResponse.status,detailCode:verified?'verified_execution_result':'execution_not_verified',sideEffects:0});
+      if(verified)return voiceResponse('Listo. '+(spokenSummary(execution.humanReadableSummary)||'La acción quedó hecha.'));
+      const waitingVerified=executeResponse.ok&&execution?.status==='waiting'&&executed.every(step=>step.status==='succeeded'&&step.verified===true)&&spokenSummary(execution.humanReadableSummary);
+      if(waitingVerified)return voiceResponse(spokenSummary(execution.humanReadableSummary));
+      const summary=spokenSummary(execution?.humanReadableSummary);
+      return voiceResponse('No pude confirmar que la acción se completara.'+(summary?' '+summary:'')+' Revísalo en la app antes de repetirla.');
+    }catch(error){telemetry('error',{turnId,detailCode:'plan_execution_unknown',...errorDetails(error),sideEffects:0});return voiceResponse('No pude confirmar si la acción se completó. Revísalo en la app antes de repetirla.')}
+  }
   async function callCore(input,callId,turnId){
     outputPlaybackPending=false;pendingPlaybackInterruption=false;setAudioGate(false);
     const coreStartedAt=Date.now();
@@ -79,8 +124,10 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     telemetry('core_response_received',{turnId:turnId||activeTurnId,httpStatus:response.status,latencyMs:Date.now()-coreStartedAt,detailCode:'agent_turn_completed',sideEffects:0});
     const confirmationState=resolveM8VoiceConfirmationState(core);
     if(confirmationState==='received')telemetry('confirmation_received',{coreKind:kind,confirmationState,sideEffects:0});
-    if(kind==='plan'&&confirmationState==='required'&&typeof core.plan?.planDigest==='string'&&Array.isArray(core.plan?.steps)){telemetry('confirmation_requested',{coreKind:'plan',confirmationState,confirmationRequired:true,sideEffects:0});telemetry('plan_pending_confirmation',{turnId:turnId||activeTurnId,planDigestPresent:true,stepCount:core.plan.steps.length,confirmationState,sideEffects:0})}
-    sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core_presentation:presentation})}});telemetry('function_call_output',{turnId:turnId||activeTurnId,detailCode:confirmationState==='received'?'verified_execution_result':'ping_core_turn_output',coreKind:presentation.kind,coreAnswer:safeText(presentation.authorizedText,800),confirmationRequired:presentation.confirmationRequired,confirmationState,sideEffects:0});createResponse('core_result_authorized','none');setAudioGate(true);
+    if(kind==='plan'&&confirmationState==='required'&&typeof core.plan?.planDigest==='string'&&Array.isArray(core.plan?.steps)){telemetry('confirmation_requested',{coreKind:'plan',confirmationState,confirmationRequired:true,sideEffects:0});telemetry('plan_pending_confirmation',{turnId:turnId||activeTurnId,planDigestPresent:true,stepCount:core.plan.steps.length,confirmationState,sideEffects:0});pendingVoicePlan={body,turnKey,digest:core.plan.planDigest}}
+    if(kind==='plan'&&confirmationState==='received'&&lastCoreInputSource!=='transcript'){telemetry('input_ignored',{turnId:turnId||activeTurnId,detailCode:'confirmation_without_user_transcript',sideEffects:0});presentation=voiceResponse('No alcancé a escucharte con claridad, así que no hice ningún cambio. Si quieres confirmarlo, dímelo otra vez.')}
+    else if(kind==='plan'&&confirmationState==='received'){stage('core_request_started','Ping está ejecutando','Confirmando la acción con Ping Core.',{sideEffects:0});presentation=await executeConfirmedVoicePlan(core,body,turnId||activeTurnId)}
+    sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core_presentation:presentation})}});telemetry('function_call_output',{turnId:turnId||activeTurnId,detailCode:confirmationState==='received'?'confirmed_plan_execution_output':'ping_core_turn_output',coreKind:presentation.kind,coreAnswer:safeText(presentation.authorizedText,800),confirmationRequired:presentation.confirmationRequired,confirmationState,sideEffects:0});createResponse('core_result_authorized','none');setAudioGate(true);
   }
   function onEvent(raw){
     let event;try{event=JSON.parse(raw.data||raw)}catch{telemetry('error',{detailCode:'provider_event_invalid_json',sideEffects:0});return}

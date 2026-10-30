@@ -114,7 +114,40 @@ export function isStepReadyNow(step: AgentPlanStep, succeededStepIds: Set<string
     return step.dependsOn.every((id) => succeededStepIds.has(id));
 }
 
+// A repeated confirmation of the SAME plan turn (double tap, retry after a
+// client timeout, voice and text both confirming, a replayed "sí") re-derives
+// the same digest and gets a fresh authorization row, because consumed rows
+// are never reused at authorize time. Executing that row would repeat the
+// side effect. The plan-producing turn key is the identity of the user's
+// intent: when it is already bound to an execution of the same digest under
+// another authorization, replay that one instead. A deliberate repeat is a
+// new request with its own plan turn key, so it still executes.
+async function findExecutedAuthorizationForSourceTurn(input: ExecuteAuthorizationInput): Promise<string | null> {
+    if (!input.historyConversationId || !input.historySourceTurnKey) return null;
+    const current = await getAuthorizationById(input.authorizationId, input.actorUserId);
+    if (!current || current.status !== 'authorized') return null;
+    const { data, error } = await supabaseAdmin
+        .from('agent_execution_history_outbox')
+        .select('authorization_id')
+        .eq('actor_user_id', input.actorUserId)
+        .eq('conversation_id', input.historyConversationId)
+        .eq('source_turn_key', input.historySourceTurnKey)
+        .neq('authorization_id', input.authorizationId)
+        .limit(5);
+    if (error) throw new AppError(error.message, 500);
+    for (const row of data ?? []) {
+        const prior = await getAuthorizationById(row.authorization_id, input.actorUserId);
+        if (prior && prior.status === 'consumed' && prior.planDigest === current.planDigest) return prior.id;
+    }
+    return null;
+}
+
 export async function executeAuthorization(input: ExecuteAuthorizationInput): Promise<AgentExecutionResult> {
+    const priorAuthorizationId = await findExecutedAuthorizationForSourceTurn(input);
+    if (priorAuthorizationId) {
+        traceExecution(input.traceId, 'SOURCE_TURN_REPLAY', { authorizationId: input.authorizationId, priorAuthorizationId });
+        return executeAuthorization({ ...input, authorizationId: priorAuthorizationId });
+    }
     const authorization = await claimAuthorization(input);
     traceExecution(input.traceId, 'AUTHORIZATION_CLAIMED', { authorizationId: authorization.id, status: authorization.status });
 

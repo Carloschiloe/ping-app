@@ -9,14 +9,28 @@ import { safeErrorLog } from '../utils/safeError';
 // not consume this budget. This is a defense against token spraying and
 // repeated malformed Authorization headers, not a replacement for Supabase
 // Auth's own abuse controls.
+//
+// "Failed" means this middleware rejected the credentials. The response
+// status is not enough: an authenticated request that a later handler or
+// limiter answers with 4xx (validation, 409, a route's own 429) must not count
+// as an auth failure, or a burst of them locks the user out of every
+// authenticated endpoint.
+const AUTH_FAILED = 'authFailed';
+
 const authFailureRateLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 20,
     standardHeaders: true,
     legacyHeaders: false,
     skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req, res) => res.locals[AUTH_FAILED] !== true,
     keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
 });
+
+function rejectAuthentication(res: Response, next: NextFunction, message: string): void {
+    res.locals[AUTH_FAILED] = true;
+    next(new AppError(message, 401));
+}
 
 // Extend Express Request interface to include user
 declare global {
@@ -42,20 +56,20 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
             const authHeader = req.headers.authorization;
 
             if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                next(new AppError('Missing or invalid Authorization header', 401));
+                rejectAuthentication(res, next, 'Missing or invalid Authorization header');
                 return;
             }
 
             const token = authHeader.slice('Bearer '.length).trim();
             if (!token || /\s/.test(token)) {
-                next(new AppError('Missing or invalid Authorization header', 401));
+                rejectAuthentication(res, next, 'Missing or invalid Authorization header');
                 return;
             }
 
             const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
             if (error || !user) {
-                next(new AppError('Invalid token or unauthorized', 401));
+                rejectAuthentication(res, next, 'Invalid token or unauthorized');
                 return;
             }
 
