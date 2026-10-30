@@ -116,8 +116,21 @@ export function isDeterministicReadFastPathEligible(
     if (interpretation.ambiguityHints.includes('unresolved_pronoun')) return false;
     if (looksLikeDeclarativeWriteFrame(input)) return false;
     if (isSocialConversationInput(input)) return true;
-    if (DETERMINISTIC_READ_INTENTS.has(interpretation.intent)) return true;
     if (interpretation.followUpAttribute) return true;
+    // A statement that carries commitment slots (a time or a person) is
+    // ambiguous between a read and a write, and deterministic intent labels are
+    // lexical: "el viernes debo pagar la luz" is labelled commitment_query and
+    // "mañana tengo que llamar a Marcelo" general_context, yet both are
+    // commitments whatever their word order. Without question shape such a
+    // turn goes to the semantic model; it still reads fine there, only slower.
+    // A leading "¿" also counts ("¿Y cuándo lo completamos? Ver Spiderman"),
+    // but not a parenthetical question inside a statement.
+    const questionShaped = hasQuestionShape(input) || /^\s*¿/u.test(input);
+    const carriesCommitmentSlots = !!interpretation.timeExpression
+        || !!interpretation.temporalIntent
+        || interpretation.personHints.length > 0;
+    if (!questionShaped && carriesCommitmentSlots) return false;
+    if (DETERMINISTIC_READ_INTENTS.has(interpretation.intent)) return true;
     return interpretation.intent === 'general_context'
         && (interpretation.wantsCommitments
             || interpretation.wantsMessages

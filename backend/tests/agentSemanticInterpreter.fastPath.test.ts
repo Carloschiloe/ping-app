@@ -51,6 +51,30 @@ describe('deterministic semantic read fast path', () => {
         expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
     });
 
+    // Word order must not decide whether a write reaches the semantic model:
+    // a leading time expression or a non-listed verb used to make these
+    // statements look like plain reads and silently drop the commitment.
+    it.each([
+        'mañana tengo que llamar a Marcelo a las diez',
+        'el viernes debo pagar la luz',
+        'no olvides que mañana llamo a Marcelo',
+        'a las nueve tengo reunión con Laura',
+        'pasado mañana hay que llevar el auto al taller',
+        'el viernes debo pagar la luz (¿o era el sábado?)',
+    ])('does not bypass a declarative statement regardless of word order: %s', async (input) => {
+        const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
+        expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
+    });
+
+    it.each([
+        'qué tengo mañana',
+        'cuándo es la reunión con Laura',
+        '¿Tengo algo el viernes?',
+    ])('keeps the fast path for question-shaped reads without punctuation: %s', async (input) => {
+        const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
+        expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(true);
+    });
+
     it('does not bypass dialogue reconciliation', async () => {
         const input = '¿Qué tengo para mañana?';
         const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
