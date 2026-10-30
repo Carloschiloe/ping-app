@@ -34,7 +34,7 @@ describe('private file authorization', () => {
                     id: messageId,
                     conversation_id: conversationId,
                     media_bucket: 'chat-media',
-                    media_object_path: `${conversationId}/evidence.pdf`,
+                    media_object_path: `conversations/${conversationId}/attachments/${userId}/evidence.pdf`,
                 },
                 error: null,
             }],
@@ -51,7 +51,7 @@ describe('private file authorization', () => {
         expect(result.expiresIn).toBe(PRIVATE_FILE_READ_TTL_SECONDS);
         expect(storage.from).toHaveBeenCalledWith('chat-media');
         expect(storage.createSignedUrl).toHaveBeenCalledWith(
-            `${conversationId}/evidence.pdf`,
+            `conversations/${conversationId}/attachments/${userId}/evidence.pdf`,
             PRIVATE_FILE_READ_TTL_SECONDS
         );
     });
@@ -63,7 +63,7 @@ describe('private file authorization', () => {
                     id: messageId,
                     conversation_id: conversationId,
                     media_bucket: 'chat-media',
-                    media_object_path: `${conversationId}/evidence.pdf`,
+                    media_object_path: `conversations/${conversationId}/attachments/${userId}/evidence.pdf`,
                 },
                 error: null,
             }],
@@ -84,7 +84,7 @@ describe('private file authorization', () => {
                 id: messageId,
                 conversation_id: conversationId,
                 media_bucket: 'chat-media',
-                media_object_path: `${conversationId}/evidence.pdf`,
+                media_object_path: `conversations/${conversationId}/attachments/${userId}/evidence.pdf`,
             },
             error: null,
         };
@@ -200,5 +200,49 @@ describe('private file authorization', () => {
             `conversations/${conversationId}/attachments/${otherUserId}/evidence.pdf`
         )).rejects.toMatchObject({ statusCode: 403 });
         expect(storage.list).not.toHaveBeenCalled();
+    });
+    it('nunca firma un archivo de otra conversación aunque la fila del mensaje lo referencie', async () => {
+        const foreignConversationId = '55555555-5555-4555-8555-555555555555';
+        const db = createSupabaseAdminMock({
+            messages: [{
+                data: {
+                    id: messageId,
+                    conversation_id: conversationId,
+                    media_bucket: 'chat-media',
+                    media_object_path: `conversations/${foreignConversationId}/attachments/${otherUserId}/secret.jpg`,
+                },
+                error: null,
+            }],
+            conversation_participants: [{ data: { conversation_id: conversationId, role: 'member' }, error: null }],
+            conversations: [{ data: { id: conversationId, deleted_at: null }, error: null }],
+            attachments: [{ data: null, error: null }],
+        });
+        const storage = createSupabaseStorageMock();
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(createPrivateFileReadUrl(userId, 'message', messageId))
+            .rejects.toMatchObject({ statusCode: 404 });
+        expect(storage.createSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it('nunca firma como avatar de perfil una ruta fuera del avatar de ese perfil', async () => {
+        const db = createSupabaseAdminMock({
+            profiles: [{
+                data: {
+                    id: userId,
+                    avatar_bucket: 'chat-media',
+                    avatar_object_path: `conversations/${conversationId}/attachments/${otherUserId}/secret.jpg`,
+                },
+                error: null,
+            }],
+        });
+        const storage = createSupabaseStorageMock();
+        setSupabaseAdminMock(db);
+        setSupabaseStorageMock(storage);
+
+        await expect(createPrivateFileReadUrl(userId, 'profile', userId))
+            .rejects.toMatchObject({ statusCode: 404 });
+        expect(storage.createSignedUrl).not.toHaveBeenCalled();
     });
 });

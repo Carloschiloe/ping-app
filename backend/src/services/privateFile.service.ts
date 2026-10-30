@@ -85,6 +85,17 @@ function assertStoredReference(bucket: unknown, objectPath: unknown): StoredRefe
     return { bucket, objectPath };
 }
 
+// The stored row is not trusted to point at its own file: a path copied from
+// another conversation (legacy direct table writes, forged profile fields)
+// must never be signed with the service role. Every path Ping generates is
+// scoped under its owning resource, so bind the reference to that prefix.
+function assertReferenceOwnedBy(reference: StoredReference, requiredPrefix: string): StoredReference {
+    if (!reference.objectPath.startsWith(requiredPrefix)) {
+        throw new AppError('Private file reference is not available', 404);
+    }
+    return reference;
+}
+
 async function getMessageReference(userId: string, resourceId: string): Promise<StoredReference> {
     const { data, error } = await supabaseAdmin
         .from('messages')
@@ -114,9 +125,9 @@ async function getMessageReference(userId: string, resourceId: string): Promise<
         if (attachment.lifecycle_status !== 'attached') {
             throw new AppError('Private file reference is not available', 404);
         }
-        return assertStoredReference(attachment.bucket, attachment.object_path);
+        return assertReferenceOwnedBy(assertStoredReference(attachment.bucket, attachment.object_path), `conversations/${data.conversation_id}/`);
     }
-    return assertStoredReference(data.media_bucket, data.media_object_path);
+    return assertReferenceOwnedBy(assertStoredReference(data.media_bucket, data.media_object_path), `conversations/${data.conversation_id}/`);
 }
 
 async function getConversationReference(userId: string, resourceId: string): Promise<StoredReference> {
@@ -130,7 +141,7 @@ async function getConversationReference(userId: string, resourceId: string): Pro
 
     if (error) throw new AppError(error.message, 500);
     if (!data || data.deleted_at) throw new AppError('Conversation not found', 404);
-    return assertStoredReference(data.avatar_bucket, data.avatar_object_path);
+    return assertReferenceOwnedBy(assertStoredReference(data.avatar_bucket, data.avatar_object_path), `conversations/${resourceId}/avatar/`);
 }
 
 async function getProfileReference(userId: string, resourceId: string): Promise<StoredReference> {
@@ -149,7 +160,7 @@ async function getProfileReference(userId: string, resourceId: string): Promise<
 
     if (error) throw new AppError(error.message, 500);
     if (!data) throw new AppError('Profile not found', 404);
-    return assertStoredReference(data.avatar_bucket, data.avatar_object_path);
+    return assertReferenceOwnedBy(assertStoredReference(data.avatar_bucket, data.avatar_object_path), `profiles/${resourceId}/avatar/`);
 }
 
 export async function createPrivateFileReadUrl(
