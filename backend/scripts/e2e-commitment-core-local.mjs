@@ -5,26 +5,18 @@ for (const name of ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_
   if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
 }
 
-const EXPECTED_STAGING_REF = 'oonijgmddgyymhrlnvuu';
+// This E2E creates and mutates its own users and commitments, so it only runs
+// against a disposable local Supabase stack. Ping has no staging environment
+// and this script must never point at production.
 const certificationTarget = process.env.PING_C2_TARGET ?? 'local';
 const target = new URL(process.env.SUPABASE_URL);
 const isLocalTarget = target.protocol === 'http:'
   && ['127.0.0.1', 'localhost'].includes(target.hostname);
-const isStagingTarget = target.protocol === 'https:'
-  && target.hostname === `${EXPECTED_STAGING_REF}.supabase.co`;
-if (
-  (certificationTarget === 'local' && !isLocalTarget)
-  || (certificationTarget === 'staging' && !isStagingTarget)
-  || !['local', 'staging'].includes(certificationTarget)
-) {
-  throw new Error(`C-2 backend E2E target mismatch for ${certificationTarget}`);
+if (certificationTarget !== 'local' || !isLocalTarget) {
+  throw new Error(`C-2 backend E2E only runs against a local Supabase stack (target: ${certificationTarget})`);
 }
 
-if (certificationTarget === 'staging') {
-  process.env.PING_EXPECTED_SUPABASE_PROJECT_REF = EXPECTED_STAGING_REF;
-} else {
-  delete process.env.PING_EXPECTED_SUPABASE_PROJECT_REF;
-}
+delete process.env.PING_EXPECTED_SUPABASE_PROJECT_REF;
 Object.assign(process.env, {
   NODE_ENV: 'test',
   PING_ENVIRONMENT: `${certificationTarget}-c2`,
@@ -402,7 +394,7 @@ try {
   check('owner reopens cancelled Commitment',
     reopenedByOwner.response.status === 200 && reopenedByOwner.payload.status === 'accepted');
 
-  if (certificationTarget === 'staging') {
+  {
     const [{ count: eventsBeforeRace }, { count: auditsBeforeRace }] = await Promise.all([
       admin.from('commitment_events').select('*', { count: 'exact', head: true }).eq('commitment_id', commitmentId),
       admin.from('commitment_audit_records').select('*', { count: 'exact', head: true }).eq('commitment_id', commitmentId),
@@ -494,7 +486,6 @@ try {
       && events.length === audits.length);
 
   console.log(JSON.stringify({
-    projectRef: certificationTarget === 'staging' ? EXPECTED_STAGING_REF : undefined,
     target: `${certificationTarget}-supabase`,
     status: 'passed',
     checks: checks.length,

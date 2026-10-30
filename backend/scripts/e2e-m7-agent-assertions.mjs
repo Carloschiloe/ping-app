@@ -29,12 +29,12 @@ function assert(condition, message) {
 }
 
 /**
- * Checks the semantic invariants of the deliberately small staging dialogue.
+ * Checks the semantic invariants of the deliberately small M7 smoke dialogue.
  * This is a harness assertion over structured checkpoint fields; it does not
  * classify language, route requests, or alter product behavior.
  */
 export function assertStrongM7Sequence(turns) {
-  assert(Array.isArray(turns) && turns.length === 8, 'Expected exactly eight staging turns');
+  assert(Array.isArray(turns) && turns.length === 8, 'Expected exactly eight smoke turns');
   for (let index = 0; index < turns.length; index += 1) {
     const turn = turns[index];
     assert(turn.status === 200, `Turn ${index + 1} did not return HTTP 200`);
@@ -97,7 +97,7 @@ export function assertStrongM7Sequence(turns) {
     excludedEntity: ['proveedor'],
     excludedTime: ['jueves', 'viernes'],
   }), 'Turn 7 confirmation was not bound to the current objective');
-  // The canonical staging runtime now owns the complete confirmation path:
+  // The canonical runtime now owns the complete confirmation path:
   // /agent/turn binds the confirmation, then the server performs the
   // canonical authorization/execution boundary before returning its final
   // response.  The old assertion that required a dry-run plan described the

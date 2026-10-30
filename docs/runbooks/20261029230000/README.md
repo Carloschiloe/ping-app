@@ -14,10 +14,10 @@ Revoca las escrituras directas del cliente (PostgREST con la sesión del usuario
 
 Todos se ejecutan desde la carpeta de la rama (`Ping-audit`).
 
-1. **Comprobar a qué proyecto apunta la CLI.** La CLI local está enlazada a **staging** (`oonijgmddgyymhrlnvuu`). Hay que enlazarla a producción y confirmar el ref antes de seguir:
+1. **Comprobar a qué proyecto apunta la CLI.** Debe estar enlazada a producción (`wbigqhtuzfmpnxservlf`), el único proyecto de Ping. Si el archivo muestra otro ref, no sigas y vuelve a enlazar:
    ```
-   supabase link --project-ref wbigqhtuzfmpnxservlf
    type supabase\.temp\project-ref
+   supabase link --project-ref wbigqhtuzfmpnxservlf
    ```
 2. **Hacer un backup** desde el panel de Supabase (Database → Backups), o confirmar que hay uno reciente.
 3. **Guardar el estado actual.** Ejecuta `01-precheck.sql` en el SQL Editor de producción y guarda el resultado. El rollback restaura exactamente ese estado.
