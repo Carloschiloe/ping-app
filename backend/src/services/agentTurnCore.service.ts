@@ -40,7 +40,7 @@ import type {
     AgentPlanStepPresentation,
 } from '../types/agentTurn';
 import type { AgentContext } from '../types/agentContext';
-import type { AgentReadContext } from '../types/agentDialogueState';
+import type { AgentDialogueState, AgentReadContext } from '../types/agentDialogueState';
 import { hasUnresolvedPersonReference, type AgentInputInterpreter } from './agentInputInterpreter.service';
 import { resolveAgentRequestInput } from './agentInputEnvelope.service';
 import { generateTraceId } from '../utils/overdueTrace';
@@ -120,6 +120,31 @@ function turnSequenceFor(
     admittedTurnSequence?: number,
 ): number {
     return admittedTurnSequence ?? ((existing?.lastTurnSequence ?? 0) + 1);
+}
+
+// Once executed, the objective is resolved and the persisted data is the
+// source of truth: reads go through retrieval, never through the draft the
+// dialogue kept for a short time.
+export function openObjectiveForAttributeRead(
+    state: Pick<AgentDialogueState, 'lifecycle' | 'openObjective'> | null | undefined,
+): AgentObjective | null {
+    if (!state || state.lifecycle === 'resolved') return null;
+    return state.openObjective ?? null;
+}
+
+// Answers a date/time question about the objective still being built in this
+// dialogue. It names what the user is building; "the objective" is internal
+// vocabulary and does not tell the user which item is meant.
+export function describeOpenObjectiveSchedule(objective: AgentObjective, language: 'es' | 'en'): string {
+    const subject = objective.slotDelta?.title?.trim()
+        || objective.desiredOutcome?.trim()
+        || objective.targetEntities.entityHints.find((hint) => hint.trim())?.trim()
+        || '';
+    const when = objective.timeConstraints.rawHint;
+    if (language === 'es') {
+        return subject ? `«${subject}» está previsto para ${when}.` : `Lo que estamos preparando está previsto para ${when}.`;
+    }
+    return subject ? `"${subject}" is set for ${when}.` : `What we are preparing is set for ${when}.`;
 }
 
 // Sección 20/34 del ticket — ejemplos honestos de lo que SÍ existe hoy,
@@ -531,7 +556,10 @@ export async function runAgentTurn(
                 kind: 'response',
                 response: {
                     status: 'answered',
-                    answer: `El objetivo pendiente está previsto para ${existingDialogueState.openObjective.timeConstraints.rawHint}.`,
+                    answer: describeOpenObjectiveSchedule(
+                        existingDialogueState.openObjective,
+                        detectAgentLanguage(content, locale) === 'es' ? 'es' : 'en',
+                    ),
                     citations: [],
                 },
             }, traceId);
@@ -784,14 +812,13 @@ export async function runAgentTurn(
     // only bounded user-proposed fields; it does not authorize or execute a
     // write. This keeps a pending objective useful across short follow-ups
     // without requiring it to have already been persisted as a commitment.
-    const activeObjective = existingDialogueState?.openObjective;
+    const activeObjective = openObjectiveForAttributeRead(existingDialogueState);
     const followUpAttribute = semantic.interpretation.followUpAttribute;
     if (activeObjective
         && semantic.route === 'read'
         && (followUpAttribute === 'date' || followUpAttribute === 'time')
         && activeObjective.timeConstraints.rawHint) {
         const language = detectAgentLanguage(content, locale);
-        const temporalHint = activeObjective.timeConstraints.rawHint;
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
             path: 'active_objective_attribute_read', dialogueScopeKey, followUpAttribute,
         });
@@ -799,9 +826,7 @@ export async function runAgentTurn(
             kind: 'response',
             response: {
                 status: 'answered',
-                answer: language === 'es'
-                    ? `El objetivo pendiente está previsto para ${temporalHint}.`
-                    : `The pending objective is set for ${temporalHint}.`,
+                answer: describeOpenObjectiveSchedule(activeObjective, language === 'es' ? 'es' : 'en'),
                 citations: [],
             },
         }, traceId);
