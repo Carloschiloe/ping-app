@@ -139,17 +139,26 @@ function dateFromCanonicalTemporal(temporal: TemporalCoreResult | undefined): Da
 // multiple candidate commitments must go through this SAME live,
 // substring-verified resolution, never a second, divergent lookup.
 export async function resolveEntityHint(actorUserId: string, hint: string, preloadedCommitments?: RetrievalCommitment[]): Promise<RetrievalCommitment[]> {
-    const [commitments, proposals] = preloadedCommitments
+    // The read context of the same turn may have retrieved nothing under its
+    // own text query; that is no evidence the named commitment is absent, so
+    // an empty preloaded set falls back to the actor's own retrieval.
+    const [commitments, proposals] = preloadedCommitments && preloadedCommitments.length > 0
         ? [preloadedCommitments, [] as RetrievalCommitment[]]
         : await Promise.all([
             retrieveCommitments({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
             retrieveCommitmentProposals({ actorUserId, query: hint }, ENTITY_CANDIDATE_LIMIT),
         ]);
-    const needle = hint.trim().toLowerCase();
     // Nunca confía ciegamente en el ranking de relevancia textual del FTS —
-    // exige que el título REAL devuelto contenga el hint, honestamente
-    // (sección 13: "no best guess").
-    return [...commitments, ...proposals].filter((c) => c.title.toLowerCase().includes(needle));
+    // exige que el título REAL devuelto contenga cada palabra de contenido
+    // del hint (sección 13: "no best guess"). Palabras, no la frase literal:
+    // "lo de prueba ping" nombra "llamar a prueba ping".
+    const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const needleWords = fold(hint).split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 2);
+    const needle = fold(hint.trim());
+    return [...commitments, ...proposals].filter((c) => {
+        const title = fold(c.title);
+        return needleWords.length > 0 ? needleWords.every((word) => title.includes(word)) : title.includes(needle);
+    });
 }
 
 function riskLevelFor(sideEffectClass: SideEffectClass, isShared: boolean): 'low' | 'medium' | 'high' {
@@ -612,12 +621,16 @@ async function planCreateCommitment(objective: AgentObjective, input: AgentPlann
             || objective.timeConstraints.rawHint
             || parsed.textRef
             || objective.sourceUtterance;
-        const hasExplicitClockTime = canonicalHasClockTime || !!extractExplicitTimeHint(temporalSource);
-        // Shared commitments need an explicit appointment time. Personal
-        // reminders retain their existing date-only behavior; the reported
-        // failure is the shared "crea un compromiso" flow and must not
-        // regress ordinary date-only reminders.
-        timeMissing = !personal && !hasExplicitClockTime;
+        // The parsed date reads its clock time from the whole utterance, so a
+        // shorter provider hint ("mañana") must not hide "a las 10" there.
+        const parsedFromUtterance = !canonicalTemporalIsCurrentTurn && !dateFromMemory;
+        const hasExplicitClockTime = canonicalHasClockTime
+            || !!extractExplicitTimeHint(temporalSource)
+            || (parsedFromUtterance && !!extractExplicitTimeHint(objective.sourceUtterance));
+        // A commitment is due at a moment. A bare day ("mañana") carries no
+        // clock time, and the parser would otherwise stamp it with the
+        // current time of day, so the time is asked for, personal or shared.
+        timeMissing = !hasExplicitClockTime;
     }
     // When the title is also absent, return both missing creation slots in a
     // single clarification. If the title is known, defer the time question

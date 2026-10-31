@@ -54,6 +54,9 @@ export const agentInterpretationPayloadSchema = z.object({
     timeExpression: z.string().trim().max(60).nullable().default(null),
     temporalIntent: TEMPORAL_INTENT_SCHEMA.nullable().default(null),
     priorReferenceIntent: z.enum(['single_entity', 'result_set']).nullable().default(null),
+    // 1-based position of one item picked from the prior result ("el
+    // segundo"), or -1 for the last one. Core selects and re-authorizes it.
+    priorReferenceOrdinal: z.number().int().min(-1).max(50).refine((value) => value !== 0).nullable().default(null),
     followUpAttribute: z.enum(FOLLOW_UP_ATTRIBUTE_VALUES).nullable().default(null),
     dialogueAct: z.enum(DIALOGUE_ACT_VALUES).nullable().default(null),
     dialogueControl: z.enum(DIALOGUE_CONTROL_VALUES).nullable().default(null),

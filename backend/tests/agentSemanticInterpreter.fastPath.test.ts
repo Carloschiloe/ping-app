@@ -16,7 +16,6 @@ describe('deterministic semantic read fast path', () => {
     it.each([
         '¿Qué compromisos tengo para mañana?',
         '¿Qué tengo vencido?',
-        '¿Qué hablamos del viaje?',
         '¿Qué le prometí a Laura?',
         '¿Cuántos pendientes tengo?',
     ])('accepts a clear read: %s', async (input) => {
@@ -68,11 +67,31 @@ describe('deterministic semantic read fast path', () => {
 
     it.each([
         'qué tengo mañana',
-        'cuándo es la reunión con Laura',
         '¿Tengo algo el viernes?',
     ])('keeps the fast path for question-shaped reads without punctuation: %s', async (input) => {
         const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
         expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(true);
+    });
+
+    // Words the deterministic parser cannot map to structure become a residual
+    // text query. Some are real topics, others fillers or indefinite objects
+    // it misreads ("onda", "puedes", "alguien"); none of them is understood
+    // lexically, so all of them go to the semantic model.
+    it.each([
+        '¿Qué hablamos del viaje?',
+        'cuándo es la reunión con Laura',
+        'Oye, ¿qué onda con lo de mañana?',
+        '¿Tengo que llamar a alguien?',
+        '¿Qué puedes hacer?',
+    ])('sends a question with words it cannot place to the semantic model: %s', async (input) => {
+        const previousKey = process.env.OPENAI_API_KEY;
+        process.env.OPENAI_API_KEY = 'test-key';
+        try {
+            const interpretation = await new DeterministicInputInterpreter().interpret(input, {});
+            expect(isDeterministicReadFastPathEligible(input, interpretation, noDialogue)).toBe(false);
+        } finally {
+            if (previousKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousKey;
+        }
     });
 
     it('does not bypass dialogue reconciliation', async () => {

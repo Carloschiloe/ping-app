@@ -15,6 +15,7 @@ import {
 import { getOrCreateSelfConversationId } from '../services/conversation.service';
 import { resolveAgentRequestInput, resolveTextSurface } from '../services/agentInputEnvelope.service';
 import { buildDialogueScopeKey, getAgentDialogueReadContextSnapshot } from '../services/agentDialogueState.service';
+import { isM8VoiceTranscriptionPromptEcho } from '../services/m8VoiceTranscriptionPrompt';
 
 type PersistTurnInput = Parameters<typeof persistAgentConversationTurn>[0];
 
@@ -88,6 +89,17 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 }, false);
             }
             res.status(200).json(result);
+            return;
+        }
+
+        // A voice turn whose text is the transcription model echoing its own
+        // prompt is not something the user said. Answer without running Core
+        // or recording it as a user turn.
+        if (req.body.channel === 'mobile_voice' && isM8VoiceTranscriptionPromptEcho(req.body.input)) {
+            res.status(200).json({
+                kind: 'response',
+                response: { status: 'answered', answer: 'No te escuché bien. ¿Puedes repetirlo?', citations: [] },
+            });
             return;
         }
 

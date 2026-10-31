@@ -9,6 +9,8 @@ export interface SemanticOpenAiTransportPolicy {
     outputTokenBudget: number;
     temperature: number | null;
     timeoutMs: number;
+    /** A second identical request starts when the first has not answered by then. */
+    hedgeAfterMs: number;
 }
 
 export interface SemanticRuntimeConfig {
@@ -42,12 +44,12 @@ export interface SemanticProviderResponseMetadata {
 
 const LEGACY_POLICY: SemanticOpenAiTransportPolicy = {
     family: 'legacy_chat', outputTokenParameter: 'max_tokens', outputTokenBudget: 300,
-    temperature: 0.1, timeoutMs: 8000,
+    temperature: 0.1, timeoutMs: 8000, hedgeAfterMs: 4000,
 };
 
 const MODERN_REASONING_POLICY: SemanticOpenAiTransportPolicy = {
     family: 'modern_reasoning', outputTokenParameter: 'max_completion_tokens',
-    outputTokenBudget: 1024, temperature: null, timeoutMs: 12000,
+    outputTokenBudget: 1024, temperature: null, timeoutMs: 12000, hedgeAfterMs: 6000,
 };
 
 export function resolveSemanticModelFamily(): SemanticModelFamily {
@@ -131,4 +133,58 @@ export function semanticProviderResponseMetadata(response: unknown): SemanticPro
         finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
         contentPresent: typeof choice?.message?.content === 'string' && choice.message.content.length > 0,
     };
+}
+
+export interface HedgedSemanticRequestOptions {
+    hedgeAfterMs: number;
+    onHedge?: () => void;
+}
+
+/**
+ * Provider latency has a long tail (a request that usually answers in ~3 s
+ * occasionally takes 20 s). When the first request has not answered after
+ * `hedgeAfterMs`, an identical second one starts and the first answer wins;
+ * the other is aborted. A failure only surfaces when every started request
+ * has failed.
+ */
+export function hedgedSemanticRequest<T>(
+    send: (signal: AbortSignal) => Promise<T>,
+    { hedgeAfterMs, onHedge }: HedgedSemanticRequestOptions,
+): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const controllers: AbortController[] = [];
+        let pending = 0;
+        let settled = false;
+        let lastError: unknown;
+        let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
+        const start = () => {
+            const controller = new AbortController();
+            controllers.push(controller);
+            pending += 1;
+            send(controller.signal).then((value) => {
+                if (settled) return;
+                settled = true;
+                if (hedgeTimer) clearTimeout(hedgeTimer);
+                controllers.filter((other) => other !== controller).forEach((other) => other.abort());
+                resolve(value);
+            }, (error) => {
+                pending -= 1;
+                lastError = error;
+                if (settled || pending > 0) return;
+                // The SDK already retried; a failure before the hedge is final.
+                if (hedgeTimer) clearTimeout(hedgeTimer);
+                settled = true;
+                reject(lastError);
+            });
+        };
+        start();
+        if (hedgeAfterMs > 0) {
+            hedgeTimer = setTimeout(() => {
+                hedgeTimer = null;
+                if (settled) return;
+                onHedge?.();
+                start();
+            }, hedgeAfterMs);
+        }
+    });
 }

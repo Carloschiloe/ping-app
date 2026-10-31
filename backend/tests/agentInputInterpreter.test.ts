@@ -256,6 +256,18 @@ describe('M-1D.1: LlmInputInterpreter — mapping y validación de schema', () =
         expect(result.isWriteActionRequest).toBe(false);
     });
 
+    it('no trata una lectura como seguimiento cuando no hay nada previo a lo que referirse', async () => {
+        const model = fakeModel(validPayload({ intent: 'commitment_query', followUpAttribute: 'time', timeExpression: 'mañana' }));
+        const interpreter = new LlmInputInterpreter({ model });
+        const cold = await interpreter.interpret('eh... mañana qué tengo', {});
+        expect(cold.followUpAttribute).toBeNull();
+
+        const followUp = await interpreter.interpret('¿a qué hora?', {
+            priorReadSummary: { kind: 'commitment_query', referentCount: 1, uniqueReferent: true, entityTypes: ['commitment'], hasTimeRange: true },
+        });
+        expect(followUp.followUpAttribute).toBe('time');
+    });
+
     it('conserva el operador temporal estructurado entregado por el LLM', async () => {
         const model = fakeModel(validPayload({ intent: 'general_context', temporalComparison: 'latest' }));
         const interpreter = new LlmInputInterpreter({ model });

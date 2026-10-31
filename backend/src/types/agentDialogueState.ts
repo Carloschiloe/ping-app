@@ -72,6 +72,9 @@ export interface AgentReadContext {
         canonicalId?: string;
     }>;
     statuses?: CanonicalCommitmentStatus[] | null;
+    // The item of the list the conversation last narrowed to; the list stays
+    // so a later position or qualifier still refers to the presented result.
+    focusCanonicalId?: string;
 }
 
 export interface NonExecutablePlanDigestRef {

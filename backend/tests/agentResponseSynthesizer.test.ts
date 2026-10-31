@@ -1635,12 +1635,12 @@ describe('M-1H: COUNT CONTRACT (sección 10) -- el Core calcula, el modelo nunca
         expect(response.answer).toContain('3');
     });
 
-    it('countResult=0 nunca produce un answer roto ("0 resultados" es válido)', async () => {
+    it('countResult=0 nunca produce un answer roto (dice que no hay compromisos)', async () => {
         const ctx = baseContext({ evidenceFound: false, queryCardinality: 'count' as any, countResult: 0 as any });
         const synthesizer = new LlmResponseSynthesizer({ model: fakeModel('{}') });
         const response = await synthesizer.synthesize({ input: '¿Cuántos tengo vencidos?', context: ctx });
 
-        expect(response.answer).toContain('0');
+        expect(response.answer).toBe('No tienes compromisos.');
     });
 });
 
@@ -3088,5 +3088,92 @@ describe('A-H: enforceCanonicalDominance — linaje estructurado tiene precedenc
 
         const result = enforceCanonicalDominance(claims, ctx, allowedSourceRefs, 'es');
         expect(result.some((c) => c.sourceRefs.some((r) => r.sourceId === SPIDERMAN_VIERNES_ID))).toBe(false);
+    });
+});
+
+describe('social and conversational turns answer the speech act', () => {
+    const socialContext = (input: string, overrides: Partial<AgentContext> = {}) => baseContext({
+        input,
+        intent: { type: 'general_context', confidence: 0.3 },
+        interactionMode: 'conversation',
+        ...overrides,
+    } as Partial<AgentContext>);
+
+    it.each([
+        ['gracias', 'De nada. Aquí estoy si necesitas algo más.'],
+        ['muchas gracias', 'De nada. Aquí estoy si necesitas algo más.'],
+        ['hola, ¿cómo estás?', '¡Hola! Bien, gracias. ¿En qué te ayudo?'],
+        ['¿qué tal?', 'Bien, gracias. ¿En qué te ayudo?'],
+        ['hola', '¡Hola! ¿En qué te ayudo?'],
+        ['perfecto', 'Perfecto. Aquí estoy si necesitas algo.'],
+    ])('"%s" -> "%s"', async (input, answer) => {
+        const model = fakeModel(claimPayload([]));
+        const response = await new LlmResponseSynthesizer({ model }).synthesize({ input, locale: 'es-CL', context: socialContext(input) });
+        expect(response.answer).toBe(answer);
+        expect(model.synthesize).not.toHaveBeenCalled();
+    });
+
+    it('answers a question about Ping itself with what it can do', async () => {
+        const model = fakeModel(claimPayload([]));
+        const response = await new LlmResponseSynthesizer({ model }).synthesize({
+            input: '¿Qué puedes hacer?',
+            locale: 'es-CL',
+            context: socialContext('¿Qué puedes hacer?'),
+        });
+        expect(response.status).toBe('answered');
+        expect(response.answer).toContain('crear recordatorios');
+        expect(response.answer).not.toContain('No encontré');
+    });
+
+    it('names the picked commitment and its time when it has no recorded details', async () => {
+        const model = fakeModel(claimPayload([]));
+        const response = await new LlmResponseSynthesizer({ model }).synthesize({
+            input: '¿Y el último?',
+            locale: 'es-CL',
+            context: baseContext({
+                evidenceFound: true,
+                followUpAttribute: 'details',
+                commitments: [commitment('c1', { title: 'Revisar el auto', dueAt: '2026-09-12T10:00:00Z' })] as any,
+            } as Partial<AgentContext>),
+        });
+        expect(response.answer).toContain('«Revisar el auto»');
+        expect(response.answer).toContain('10:00');
+        expect(response.answer).not.toContain('No tengo detalles');
+    });
+
+    it('lists open commitments without the model even when their history was attached', async () => {
+        const model = fakeModel(claimPayload([]));
+        const response = await new LlmResponseSynthesizer({ model }).synthesize({
+            input: '¿Tengo que llamar a alguien?',
+            locale: 'es-CL',
+            context: baseContext({
+                evidenceFound: true,
+                queryCardinality: 'exhaustive_list',
+                commitments: [
+                    commitment('c1', { title: 'llamar a Juan' }),
+                    commitment('c2', { title: 'llamar a Ana' }),
+                ] as any,
+                events: [retrievalEvent('e1', { commitmentId: 'c1', eventType: 'created' })] as any,
+            } as Partial<AgentContext>),
+        });
+        expect(model.synthesize).not.toHaveBeenCalled();
+        expect(response.answer).toContain('llamar a Juan');
+        expect(response.answer).toContain('llamar a Ana');
+    });
+
+    it('counts commitments in a period in plain words', async () => {
+        const model = fakeModel(claimPayload([]));
+        const response = await new LlmResponseSynthesizer({ model }).synthesize({
+            input: '¿Cuántos compromisos tengo mañana?',
+            locale: 'es-CL',
+            context: baseContext({
+                evidenceFound: true,
+                queryCardinality: 'count',
+                countResult: 5,
+                timeExpression: 'mañana',
+                commitments: [commitment('c1')] as any,
+            } as Partial<AgentContext>),
+        });
+        expect(response.answer).toBe('Mañana tienes 5 compromisos.');
     });
 });

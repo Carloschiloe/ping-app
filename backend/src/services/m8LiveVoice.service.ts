@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { AppError } from '../utils/AppError';
 import type { M8LiveVoiceSessionRequest, M8LiveVoiceTelemetry } from '../schemas/m8LiveVoice.schema';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { M8_VOICE_TRANSCRIPTION_PROMPT } from './m8VoiceTranscriptionPrompt';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const DEFAULT_MODEL = 'gpt-realtime-2.1';
@@ -141,7 +142,7 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
                 transcription: {
                     model: process.env.M8_LIVE_VOICE_TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-mini-transcribe',
                     language,
-                    prompt: 'Transcribe en español de Chile. Conserva nombres propios, fechas, horas y números; no traduzcas ni agregues palabras.',
+                    prompt: M8_VOICE_TRANSCRIPTION_PROMPT,
                 },
                 turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: false, interrupt_response: true },
             },

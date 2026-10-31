@@ -27,6 +27,7 @@ import {
     type AgentObjectiveInterpreter,
     type ObjectiveInterpreterContext,
 } from './agentObjectiveInterpreter.service';
+import { isAiConfigured } from './synthesis.service';
 import type { Interpretation } from '../types/agentContext';
 import type { AgentObjective } from '../types/agentPlan';
 
@@ -130,6 +131,14 @@ export function isDeterministicReadFastPathEligible(
         || !!interpretation.temporalIntent
         || interpretation.personHints.length > 0;
     if (!questionShaped && carriesCommitmentSlots) return false;
+    // The deterministic interpreter only understands a question completely
+    // when every word maps to structure (period, status, person, count). A
+    // residual text query is the words it could not place, and those are
+    // exactly where lexical parsing misreads speech: fillers ("qué onda con
+    // lo de mañana"), indefinite objects ("¿tengo que llamar a alguien?").
+    // Such a turn is read by the semantic model whenever one is configured;
+    // without it the deterministic reading is still the best available.
+    if (interpretation.textQuery && isAiConfigured()) return false;
     if (DETERMINISTIC_READ_INTENTS.has(interpretation.intent)) return true;
     return interpretation.intent === 'general_context'
         && (interpretation.wantsCommitments
@@ -138,8 +147,7 @@ export function isDeterministicReadFastPathEligible(
             || interpretation.wantsAttachments
             || !!interpretation.timeExpression
             || !!interpretation.temporalIntent
-            || interpretation.personHints.length > 0
-            || !!interpretation.textQuery);
+            || interpretation.personHints.length > 0);
 }
 
 async function interpretInput(

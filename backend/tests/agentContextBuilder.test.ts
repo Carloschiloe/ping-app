@@ -47,6 +47,11 @@ vi.mock('../src/services/retrieval.service', () => ({
     }),
 }));
 
+// The self-conversation check reads conversation_participants; tests decide
+// it explicitly instead of reaching a real database.
+const { isSelfConversationMock } = vi.hoisted(() => ({ isSelfConversationMock: vi.fn(async () => false) }));
+vi.mock('../src/services/conversation.service', () => ({ isSelfConversation: isSelfConversationMock }));
+
 // M-2 — sólo se mockea retrieveMemory (la llamada a la base); el resto del
 // módulo (enforceMemoryCanonicalDominance, pura/determinística) se deja
 // real -- así los tests de dominancia canónica ejercitan la lógica
@@ -687,6 +692,74 @@ describe('M-1D: buildAgentContext — sin evidencia (sección 21)', () => {
         expect(mockRetrieveVisibleCommitmentById).toHaveBeenCalledWith('u1', 'cm-juan');
     });
 
+    it.each([
+        ['¿Y el primero a qué hora es?', 1, 'cm-a'],
+        ['¿Y el último?', -1, 'cm-c'],
+        ['el segundo', 2, 'cm-b'],
+        ['¿Y el primero a qué hora es?', null, 'cm-a'],
+        ['¿y la penúltima con quién es?', -1, 'cm-b'],
+    ])('elige por posición del resultado presentado: %s', async (input, ordinal, expectedId) => {
+        const byId: Record<string, any> = {
+            'cm-a': commitmentFixture({ id: 'cm-a', title: 'llamar a prueba ping' }),
+            'cm-b': commitmentFixture({ id: 'cm-b', title: 'llamar a prueba pink' }),
+            'cm-c': commitmentFixture({ id: 'cm-c', title: 'llamar a prueba bingo' }),
+        };
+        mockRetrieveVisibleCommitmentById.mockImplementation(async (_actor: string, id: string) => byId[id] ?? null);
+        const interpreter = mockInterpreter(interpretationFixture({
+            intent: 'commitment_query', textQuery: null, wantsCommitments: true,
+            priorReferenceIntent: 'single_entity', priorReferenceOrdinal: ordinal,
+        } as any));
+        const ctx = await withDeterministicInterpreter({
+            actorUserId: 'u1',
+            input,
+            priorReadContext: {
+                kind: 'commitment_query',
+                timeRange: null,
+                sourceTurnId: 'prior-turn',
+                commitmentReferents: [
+                    { rawText: 'llamar a prueba ping', entityType: 'commitment', canonicalId: 'cm-a' },
+                    { rawText: 'llamar a prueba pink', entityType: 'commitment', canonicalId: 'cm-b' },
+                    { rawText: 'llamar a prueba bingo', entityType: 'commitment', canonicalId: 'cm-c' },
+                ],
+            },
+        }, { interpreter });
+
+        expect(ctx.needsClarification).toBe(false);
+        expect(ctx.commitments.map((commitment) => commitment.id)).toEqual([expectedId]);
+    });
+
+    it('una pregunta elíptica sigue al elemento en foco y un periodo nuevo no lo hereda', async () => {
+        const byId: Record<string, any> = {
+            'cm-a': commitmentFixture({ id: 'cm-a', title: 'llamar a prueba ping' }),
+            'cm-c': commitmentFixture({ id: 'cm-c', title: 'llamar a prueba bingo' }),
+        };
+        mockRetrieveVisibleCommitmentById.mockImplementation(async (_actor: string, id: string) => byId[id] ?? null);
+        const priorReadContext = {
+            kind: 'commitment_query' as const,
+            timeRange: null,
+            sourceTurnId: 'prior-turn',
+            focusCanonicalId: 'cm-c',
+            commitmentReferents: [
+                { rawText: 'llamar a prueba ping', entityType: 'commitment' as const, canonicalId: 'cm-a' },
+                { rawText: 'llamar a prueba bingo', entityType: 'commitment' as const, canonicalId: 'cm-c' },
+            ],
+        };
+        const focused = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿A qué hora?', priorReadContext }, {
+            interpreter: mockInterpreter(interpretationFixture({
+                intent: 'commitment_query', textQuery: null, wantsCommitments: true, followUpAttribute: 'time',
+            } as any)),
+        });
+        expect(focused.needsClarification).toBe(false);
+        expect(focused.commitments.map((commitment) => commitment.id)).toEqual(['cm-c']);
+
+        const newPeriod = await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo el lunes?', priorReadContext }, {
+            interpreter: mockInterpreter(interpretationFixture({
+                intent: 'commitment_query', textQuery: null, wantsCommitments: true, timeExpression: 'el lunes', source: 'llm',
+            } as any)),
+        });
+        expect(newPeriod.clarification?.reason).not.toBe('entity_ambiguous');
+    });
+
     it('mantiene la aclaración cuando el calificador coincide con dos candidatos', async () => {
         const { buildAgentContext } = await import('../src/services/agentContextBuilder.service');
         const ctx = await withDeterministicInterpreter({
@@ -815,6 +888,17 @@ describe('M-1D: buildAgentContext — authorization (sección 23)', () => {
         await withDeterministicInterpreter({ actorUserId: 'u1', input: 'algo', conversationId: 'conv-real' }, { interpreter: maliciousInterpreter as any });
 
         expect(mockRetrieveMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv-real' }), expect.any(Number));
+    });
+
+    it('el chat personal del actor no acota la lectura: voz y texto ven los mismos datos', async () => {
+        // Observed on device: voice sent the self conversation (history scope)
+        // and every agent-created commitment, which has no conversation, was
+        // filtered out ("no encontré compromisos").
+        isSelfConversationMock.mockResolvedValueOnce(true);
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo pendiente mañana?', conversationId: 'self-conv' });
+        expect(isSelfConversationMock).toHaveBeenCalledWith('u1', 'self-conv');
+        expect(mockRetrieveCommitments).toHaveBeenCalled();
+        for (const call of mockRetrieveCommitments.mock.calls) expect(call[0].conversationId).toBeUndefined();
     });
 
     it('sin conversationId explícito del caller, ninguna llamada usa un conversationId inventado', async () => {
@@ -1262,6 +1346,22 @@ describe('M-1G.1: buildAgentContext propaga now y wantsOverdueFocus al AgentCont
 
         expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: 'entrenar' }), expect.any(Number));
         expect(ctx.commitments).toHaveLength(1);
+    });
+
+    it.each([
+        'eh... mañana qué tengo',
+        'Oye, ¿qué onda con lo de mañana?',
+    ])('una consulta por período sin tema según el modelo no filtra por las palabras sobrantes: %s', async (input) => {
+        mockRetrieveCommitments.mockResolvedValue([commitmentFixture({ title: 'llamar a prueba ping' })] as any);
+        const interpreter = mockInterpreter(interpretationFixture({
+            source: 'llm', intent: 'commitment_query', textQuery: null, topicHints: [], wantsCommitments: true,
+            timeExpression: 'mañana', temporalIntent: { kind: 'calendar_day', offsetDays: 1, futureOnly: false },
+        } as any));
+        const ctx = await withDeterministicInterpreter({ actorUserId: 'u1', input }, { interpreter });
+
+        expect(mockRetrieveCommitments).toHaveBeenCalledWith(expect.objectContaining({ query: undefined }), expect.any(Number));
+        expect(ctx.entities.topics).toEqual([]);
+        expect(ctx.entities.timeRange).not.toBeNull();
     });
 
     // ═══════════════════════════════════════════════════════════════════
@@ -3938,5 +4038,21 @@ describe('M-2: dominancia canónica sobre memoria -- integración real con enfor
         const found = ctx.historicalMemoryFacts.find((m) => m.id === 'mem-entrenar-accepted');
         expect(found).toBeDefined();
         expect(found?.observedAt).toBe('2026-09-07T00:00:00Z');
+    });
+});
+
+describe('parseListPositionOrdinal', () => {
+    it.each([
+        ['y el primero a que hora es', 1],
+        ['a que hora es la tercera', 3],
+        ['y el ultimo', -1],
+        ['la penultima', -2],
+        ['what time is the second to last', -2],
+        ['and the third one', 3],
+        ['espera un segundo', null],
+        ['primero llama a juan', null],
+    ])('%s', async (text, expected) => {
+        const { parseListPositionOrdinal } = await import('../src/services/agentContextBuilder.service');
+        expect(parseListPositionOrdinal(text)).toBe(expected);
     });
 });

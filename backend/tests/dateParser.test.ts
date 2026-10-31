@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     extractExplicitTimeHint,
     extractTemporalHint,
+    hasClockTime,
     mergeTemporalCorrection,
     parseDateFromText,
 } from '../src/services/date-parser.service';
@@ -194,4 +195,48 @@ describe('parseDateFromText', () => {
         expect(parseDateFromText(input, TUESDAY_SEPTEMBER_1, 'America/Santiago')?.date.toISOString())
             .toBe('2026-09-02T14:00:00.000Z');
     });
+});
+
+describe('clock hours without a meridiem', () => {
+    const chileClock = (date: Date) => new Intl.DateTimeFormat('es-CL', {
+        timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(date);
+
+    it.each([
+        ['dentista el martes a las 4', '16:00'],
+        ['mejor a las 5', '17:00'],
+        ['mañana a las 1', '13:00'],
+        ['mañana a las 7', '07:00'],
+        ['mañana a las 9', '09:00'],
+        ['mañana a las 4 de la mañana', '04:00'],
+        ['mañana a las 4 am', '04:00'],
+        ['mañana a las 04:00', '04:00'],
+        ['mañana a las 16:00', '16:00'],
+    ])('"%s" se agenda a las %s', (text, clock) => {
+        const result = parseDateFromText(text, TUESDAY_SEPTEMBER_1, 'America/Santiago');
+        expect(chileClock(result!.date)).toBe(clock);
+    });
+});
+
+describe('mergeTemporalCorrection', () => {
+    it('keeps the agreed hour when only the day changes', () => {
+        expect(mergeTemporalCorrection('viernes a las 8', 'el sábado')).toBe('el sábado a las 8');
+    });
+
+    it('keeps the agreed day when only the hour changes', () => {
+        expect(mergeTemporalCorrection('el sábado a las 8', 'a las 12')).toBe('el sábado a las 12');
+    });
+
+    it('takes a complete new slot as is', () => {
+        expect(mergeTemporalCorrection('viernes a las 8', 'el lunes a las 10')).toBe('el lunes a las 10');
+    });
+});
+
+describe('hasClockTime', () => {
+    it.each(['a las 10', 'a las seis', '10:30', 'las 5 de la tarde', '6 de la tarde', 'al mediodía'])(
+        '"%s" states a time of day', (text) => { expect(hasClockTime(text)).toBe(true); },
+    );
+    it.each(['¿qué tengo mañana?', 'el viernes', 'pasado mañana'])(
+        '"%s" states only a day', (text) => { expect(hasClockTime(text)).toBe(false); },
+    );
 });
