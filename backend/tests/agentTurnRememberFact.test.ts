@@ -105,7 +105,7 @@ describe('runAgentTurn — "recuerda que..." reaches a real, authorization-ready
         // requires the "que"/"that" clause; PERSONAL_REMINDER_VERB requires
         // the reflexive "-me" suffix -- the two share the "recuerd-" stem but
         // must never cross-match).
-        const res = await runAgentTurn({ actorUserId: ACTOR, input: 'Recuérdame comprar pan mañana', channel: 'mobile', locale: 'es-CL' });
+        const res = await runAgentTurn({ actorUserId: ACTOR, input: 'Recuérdame comprar pan mañana a las 9', channel: 'mobile', locale: 'es-CL' });
         expect(res.kind).toBe('plan');
         if (res.kind === 'plan') expect(res.plan.steps.map((s) => s.toolId)).toEqual(['create_commitment']);
     });

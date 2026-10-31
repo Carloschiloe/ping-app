@@ -703,6 +703,7 @@ export async function runAgentTurn(
         kind: priorReadContext.kind,
         referentCount: priorReadContext.commitmentReferents?.length ?? 0,
         uniqueReferent: (priorReadContext.commitmentReferents?.length ?? 0) === 1,
+        focusedReferent: !!priorReadContext.focusCanonicalId,
         entityTypes: Array.from(new Set((priorReadContext.commitmentReferents ?? []).map((referent) => referent.entityType))),
         hasTimeRange: priorReadContext.timeRange !== null,
     } : null;
@@ -731,11 +732,59 @@ export async function runAgentTurn(
         } : undefined,
     }, { inputInterpreter: options.inputInterpreter, objectiveInterpreter: options.objectiveInterpreter });
 
+    // Selected before reconciliation: a turn returning to a suspended task
+    // ("vuelve a lo del auto, a las 10") must reach it, not be read as a new
+    // objective that merely shares its words.
+    // A read-shaped turn can explicitly name a previously suspended objective
+    // (for example, returning to an earlier task after changing topics). The
+    // match is structural over interpreter-provided topic hints and requires a
+    // unique candidate; Core never guesses among equally plausible objectives.
+    // A provider may classify an explicit return/correction as write-shaped
+    // because it mentions an action/objective. The unique Core-side topic
+    // match is stronger evidence of which suspended objective is being
+    // addressed than that route label; the ordinary planner and authorization
+    // gates still decide what the resumed turn may do.
+    if (!resumedSuspendedObjective && existingDialogueState?.suspendedObjectives?.length) {
+        const topicHints = [
+            ...semantic.interpretation.topicHints,
+            ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
+            // The current utterance is an additional bounded topic signal.
+            // A read-shaped return can explicitly name a suspended objective
+            // even when the input interpreter omits that topic from its
+            // optional hints. Core still requires a unique structural match;
+            // this does not invent or resolve an objective from free text.
+            content,
+        ];
+        const candidates = existingDialogueState.suspendedObjectives
+            .map((entry, index) => ({ entry, index, score: suspendedObjectiveMatchScore(entry.objective, topicHints) }))
+            .filter((candidate) => candidate.score > 0
+                || (semantic.interpretation.dialogueControl === 'resume_suspended'
+                    && existingDialogueState!.suspendedObjectives.length === 1))
+            .sort((left, right) => right.score - left.score);
+        if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
+            const selected = candidates[0];
+            existingDialogueState = dialogueService.resumeObjective({
+                actorUserId: input.actorUserId,
+                dialogueScopeKey,
+                suspendedIndex: selected.index,
+                turnId: traceId,
+                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
+            });
+            resumedSuspendedObjective = true;
+            traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
+                dialogueScopeKey,
+                suspendedIndex: selected.index,
+                matchScore: selected.score,
+            });
+        }
+    }
+
     const dialogueReconciliation = reconcileDialogueTurn({
         dialogueState: existingDialogueState,
         semantic,
         temporalCandidate: buildPendingTemporalAnswerObjective(existingDialogueState, content),
         pendingPlanCandidate: semantic.objective,
+        resumedObjective: resumedSuspendedObjective,
     });
     if (dialogueReconciliation.kind === 'slot_filled') {
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
@@ -782,6 +831,7 @@ export async function runAgentTurn(
     // suspend, not discard, the Core-owned objective. No write or execution
     // occurs here; the earlier plan remains non-authorized and can only be
     // resumed later through the unique suspended-objective path.
+    let suspendedForRead = false;
     if (dialogueReconciliation.kind === 'suspend_current'
         && existingDialogueState?.openObjective
         && !resumedSuspendedObjective) {
@@ -794,6 +844,18 @@ export async function runAgentTurn(
         traceAgentDevice(traceId, 'AGENT_ROUTING_DECISION', {
             path: 'core_reconciler_suspend_current_objective', dialogueScopeKey,
         });
+        // A question asked in the middle of a task is answered; the task waits
+        // for the user to come back to it. Only a bare topic switch with
+        // nothing to answer is acknowledged as a pause.
+        if (semantic.route === 'read') {
+            existingDialogueState = dialogueService.getSnapshot(input.actorUserId, dialogueScopeKey);
+            suspendedForRead = true;
+        }
+    }
+    if (dialogueReconciliation.kind === 'suspend_current'
+        && !suspendedForRead
+        && existingDialogueState?.openObjective
+        && !resumedSuspendedObjective) {
         const language = detectAgentLanguage(content, locale);
         return finalizeAgentTurn({
             kind: 'response',
@@ -832,49 +894,6 @@ export async function runAgentTurn(
         }, traceId);
     }
 
-    // A read-shaped turn can explicitly name a previously suspended objective
-    // (for example, returning to an earlier task after changing topics). The
-    // match is structural over interpreter-provided topic hints and requires a
-    // unique candidate; Core never guesses among equally plausible objectives.
-    // A provider may classify an explicit return/correction as write-shaped
-    // because it mentions an action/objective. The unique Core-side topic
-    // match is stronger evidence of which suspended objective is being
-    // addressed than that route label; the ordinary planner and authorization
-    // gates still decide what the resumed turn may do.
-    if (!resumedSuspendedObjective && existingDialogueState?.suspendedObjectives?.length) {
-        const topicHints = [
-            ...semantic.interpretation.topicHints,
-            ...(semantic.interpretation.textQuery ? [semantic.interpretation.textQuery] : []),
-            // The current utterance is an additional bounded topic signal.
-            // A read-shaped return can explicitly name a suspended objective
-            // even when the input interpreter omits that topic from its
-            // optional hints. Core still requires a unique structural match;
-            // this does not invent or resolve an objective from free text.
-            content,
-        ];
-        const candidates = existingDialogueState.suspendedObjectives
-            .map((entry, index) => ({ entry, index, score: suspendedObjectiveMatchScore(entry.objective, topicHints) }))
-            .filter((candidate) => candidate.score > 0
-                || (semantic.interpretation.dialogueControl === 'resume_suspended'
-                    && existingDialogueState!.suspendedObjectives.length === 1))
-            .sort((left, right) => right.score - left.score);
-        if (candidates.length === 1 || (candidates.length > 1 && candidates[0].score > candidates[1].score)) {
-            const selected = candidates[0];
-            existingDialogueState = dialogueService.resumeObjective({
-                actorUserId: input.actorUserId,
-                dialogueScopeKey,
-                suspendedIndex: selected.index,
-                turnId: traceId,
-                turnSequence: turnSequenceFor(existingDialogueState, options.dialogueTurnSequence),
-            });
-            resumedSuspendedObjective = true;
-            traceAgentDevice(traceId, 'AGENT_DIALOGUE_OBJECTIVE_RESUMED', {
-                dialogueScopeKey,
-                suspendedIndex: selected.index,
-                matchScore: selected.score,
-            });
-        }
-    }
     traceAgentDevice(traceId, 'AGENT_SEMANTIC_INTERPRETATION', {
         route: semantic.route,
         inputSource: semantic.interpretation.source,
@@ -1252,10 +1271,20 @@ export async function runAgentTurn(
         kind: 'response', sourceRefCount: response.citations?.length ?? 0,
     });
     traceAgentDevice(traceId, 'AGENT_DEVICE_TRACE_END', {});
+    // Narrowing a presented list to one of its items ("el primero", "el de
+    // bingo") keeps the list and focuses that item, as a listener would.
+    const priorListReferents = priorReadContext?.commitmentReferents ?? [];
+    const narrowedReferentId = context.commitments.length === 1
+        && priorListReferents.length > 1
+        && priorListReferents.some((referent) => referent.canonicalId === context.commitments[0].id)
+        ? context.commitments[0].id
+        : null;
     if (!resumedSuspendedObjective) dialogueService.setReadContext({
         actorUserId: input.actorUserId,
         dialogueScopeKey,
-        context: context.intent.type === 'commitment_query'
+        context: narrowedReferentId && priorReadContext
+            ? { ...priorReadContext, sourceTurnId: traceId, focusCanonicalId: narrowedReferentId }
+            : context.intent.type === 'commitment_query'
             ? {
                 kind: 'commitment_query',
                 timeRange: context.entities?.timeRange ?? null,

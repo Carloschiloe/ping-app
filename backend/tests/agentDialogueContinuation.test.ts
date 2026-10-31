@@ -220,6 +220,55 @@ describe('Core-owned dialogue reconciliation contract', () => {
         }
     });
 
+    it('fills the asked slot when only the objective proposal calls a bare day and hour a new objective', () => {
+        const candidate = objective({
+            objectiveType: 'create_personal_commitment',
+            dialogueAct: 'new_objective',
+            sourceUtterance: 'el viernes a las 6 de la tarde',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: 'el viernes a las 6 de la tarde' },
+            slotDelta: { title: null, date: null, time: '6 de la tarde' },
+        });
+
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'write',
+                interpretation: { dialogueAct: null, dialogueControl: null, followUpAttribute: null },
+                objective: { dialogueAct: 'new_objective', objectiveType: 'create_personal_commitment' },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'el viernes a las 6 de la tarde'),
+            pendingPlanCandidate: candidate,
+        });
+
+        expect(result.kind).toBe('slot_filled');
+    });
+
+    it('fills the resumed objective even when the proposal reads its name as a complete new objective', () => {
+        const candidate = objective({
+            objectiveType: 'create_personal_commitment',
+            dialogueAct: 'new_objective',
+            sourceUtterance: 'ya, vuelve a lo del auto, a las 10',
+            targetEntities: { personHints: [], entityHints: [] },
+            timeConstraints: { rawHint: 'mañana a las 10' },
+            slotDelta: { title: 'lo del auto', date: 'mañana', time: 'a las 10' },
+        });
+
+        const result = reconcileDialogueTurn({
+            dialogueState: pendingTime,
+            semantic: {
+                route: 'write',
+                interpretation: { dialogueAct: null, dialogueControl: 'resume_suspended', followUpAttribute: null },
+                objective: { dialogueAct: 'new_objective', objectiveType: 'create_personal_commitment' },
+            },
+            temporalCandidate: buildPendingTemporalAnswerObjective(pendingTime, 'a las 10'),
+            pendingPlanCandidate: candidate,
+            resumedObjective: true,
+        });
+
+        expect(result.kind).toBe('slot_filled');
+    });
+
     it('suspends an incomplete new objective instead of consuming its time as the old slot', () => {
         const candidate = objective({
             objectiveType: 'create_commitment_or_proposal',
@@ -970,11 +1019,11 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
     it('reuses the pending objective for a structured approval and does not fall into READ', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            sourceUtterance: 'Recuérdame revisar inventario mañana a las 10',
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
             timeConstraints: { rawHint: 'mañana' },
         }));
-        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana a las 10' });
         expect(first.kind).toBe('plan');
 
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
@@ -992,11 +1041,11 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
     it('resets the pending plan for a structured rejection without executing anything', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            sourceUtterance: 'Recuérdame revisar inventario mañana a las 10',
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
             timeConstraints: { rawHint: 'mañana' },
         }));
-        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana a las 10' });
         expect(first.kind).toBe('plan');
 
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
@@ -1015,19 +1064,19 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
     it('replaces a pending plan with a structured independent write objective', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            sourceUtterance: 'Recuérdame revisar inventario mañana a las 10',
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
             timeConstraints: { rawHint: 'mañana' },
         }));
-        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana a las 10' });
         expect(first.kind).toBe('plan');
 
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'En realidad prepara la llamada al proveedor el viernes',
+            sourceUtterance: 'En realidad prepara la llamada al proveedor el viernes a las 10',
             targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },
             timeConstraints: { rawHint: 'el viernes' },
         }));
-        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'En realidad prepara la llamada al proveedor el viernes' });
+        const second = await runAgentTurn({ actorUserId: ACTOR_A, input: 'En realidad prepara la llamada al proveedor el viernes a las 10' });
         expect(second.kind).toBe('plan');
         if (second.kind === 'plan') {
             expect(JSON.stringify(second.plan.steps)).toContain('llamada al proveedor');
@@ -1049,20 +1098,20 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
     it('resumes a uniquely named suspended objective before reconciling the active pending plan', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Necesito coordinar la revision del inventario para el jueves',
+            sourceUtterance: 'Necesito coordinar la revision del inventario para el jueves a las 10',
             targetEntities: { personHints: [], entityHints: ['revision del inventario'] },
-            desiredOutcome: 'Necesito coordinar la revision del inventario para el jueves',
+            desiredOutcome: 'Necesito coordinar la revision del inventario para el jueves a las 10',
             timeConstraints: { rawHint: 'jueves' },
         }));
-        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Coordina la revision del inventario para el jueves' })).kind).toBe('plan');
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Coordina la revision del inventario para el jueves a las 10' })).kind).toBe('plan');
 
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Prepara la llamada al proveedor para el viernes',
+            sourceUtterance: 'Prepara la llamada al proveedor para el viernes a las 10',
             targetEntities: { personHints: [], entityHints: ['llamada al proveedor'] },
-            desiredOutcome: 'Prepara la llamada al proveedor para el viernes',
+            desiredOutcome: 'Prepara la llamada al proveedor para el viernes a las 10',
             timeConstraints: { rawHint: 'viernes' },
         }));
-        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Prepara la llamada al proveedor para el viernes' })).kind).toBe('plan');
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Prepara la llamada al proveedor para el viernes a las 10' })).kind).toBe('plan');
 
         llmInputInterpretMock.mockResolvedValueOnce(readOnlyInterpretation({
             wantsCommitments: true,
@@ -1081,11 +1130,11 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
     it('reconciles a lifecycle rejection even when the route proposal is read-shaped', async () => {
         llmInputInterpretMock.mockResolvedValueOnce(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recu\u00e9rdame revisar inventario ma\u00f1ana',
+            sourceUtterance: 'Recu\u00e9rdame revisar inventario ma\u00f1ana a las 10',
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
             timeConstraints: { rawHint: 'ma\u00f1ana' },
         }));
-        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recu\u00e9rdame revisar inventario ma\u00f1ana' });
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recu\u00e9rdame revisar inventario ma\u00f1ana a las 10' });
         expect(first.kind).toBe('plan');
 
         llmInputInterpretMock.mockResolvedValueOnce(readOnlyInterpretation({ wantsCommitments: true }));
@@ -1115,14 +1164,14 @@ describe('Live wiring: semantic pending-plan reconciliation', () => {
                 timeExpression: 'mañana',
             }));
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recuérdame comprar pan para probar Ping mañana',
+            sourceUtterance: 'Recuérdame comprar pan para probar Ping mañana a las 10',
             targetEntities: { personHints: [], entityHints: ['comprar pan para probar Ping'] },
             timeConstraints: { rawHint: 'mañana' },
         }));
 
         const first = await runAgentTurn({
             actorUserId: ACTOR_A,
-            input: 'Recuérdame comprar pan para probar Ping mañana',
+            input: 'Recuérdame comprar pan para probar Ping mañana a las 10',
         });
         expect(first.kind).toBe('plan');
 
@@ -1467,11 +1516,11 @@ describe('M-7 physical defect regressions: pending edits and cancellation', () =
     it('real Core path cancels the pending plan, tombstones its digest, and cannot resurrect it', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            sourceUtterance: 'Recuérdame revisar inventario mañana a las 10',
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
             timeConstraints: { rawHint: 'mañana' },
         }));
-        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' });
+        const first = await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana a las 10' });
         expect(first.kind).toBe('plan');
         if (first.kind !== 'plan') return;
 
@@ -1507,11 +1556,11 @@ describe('M-7 physical defect regressions: pending edits and cancellation', () =
     it('acknowledges semantic deferral without downgrading it to a clarification', async () => {
         llmInputInterpretMock.mockResolvedValue(writeInterpretation());
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
-            sourceUtterance: 'Recuérdame revisar inventario mañana',
+            sourceUtterance: 'Recuérdame revisar inventario mañana a las 10',
             targetEntities: { personHints: [], entityHints: ['revisar inventario'] },
             timeConstraints: { rawHint: 'mañana' },
         }));
-        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana' })).kind).toBe('plan');
+        expect((await runAgentTurn({ actorUserId: ACTOR_A, input: 'Recuérdame revisar inventario mañana a las 10' })).kind).toBe('plan');
 
         llmObjectiveInterpretMock.mockResolvedValueOnce(writeObjective({
             dialogueAct: 'defer',

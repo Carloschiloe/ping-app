@@ -174,6 +174,11 @@ function wallClockToInstant(parts: WallClockParts, timeZone: string): Date {
     return new Date(guess);
 }
 
+// Without an explicit meridiem, people schedule on a waking-hours clock:
+// "a las 4" means 16:00, while "a las 7" or "a las 9" stay in the morning.
+// Only an explicit "de la mañana"/"am" places an hour from 1 to 6 before dawn.
+const LATEST_IMPLICIT_AFTERNOON_HOUR = 6;
+
 function applyMeridiem(hour: number, meridiem: string): number {
     const normalized = meridiem.replace(/[\s.]/g, '').toLowerCase();
     const isAfternoonOrNight = normalized === 'pm'
@@ -182,6 +187,7 @@ function applyMeridiem(hour: number, meridiem: string): number {
     const isMorning = normalized === 'am' || normalized.includes('manana');
     if (isAfternoonOrNight && hour < 12) return hour + 12;
     if (isMorning && hour === 12) return 0;
+    if (!isMorning && !isAfternoonOrNight && hour >= 1 && hour <= LATEST_IMPLICIT_AFTERNOON_HOUR) return hour + 12;
     return hour;
 }
 
@@ -194,7 +200,8 @@ function explicitTimeFromText(text: string): { hour: number; minute: number } | 
     const twentyFourHour = normalized.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
     if (withPrefix) {
         return {
-            hour: applyMeridiem(Number(withPrefix[1]), withPrefix[3] || ''),
+            // A zero-padded hour ("a las 04:00") is already a 24-hour clock.
+            hour: withPrefix[1].startsWith('0') ? Number(withPrefix[1]) : applyMeridiem(Number(withPrefix[1]), withPrefix[3] || ''),
             minute: Number(withPrefix[2] || 0),
         };
     }
@@ -226,6 +233,18 @@ export function extractExplicitTimeHint(text: string): string | null {
     return text.match(EXPLICIT_TIME_PATTERN)?.[0]?.trim() ?? null;
 }
 
+/**
+ * Whether the text states a time of day ("a las 10", "10:30", "las 5 de la
+ * tarde", "6 de la tarde", "al mediodía"), as opposed to only a day.
+ */
+export function hasClockTime(text: string): boolean {
+    if (extractExplicitTimeHint(text)) return true;
+    const normalized = normalizeSpanish(text);
+    if (/\b\d{1,2}(?:[:.]\d{2})?\s+de\s+la\s+(?:manana|tarde|noche)\b|\b(?:mediodia|medianoche)\b/u.test(normalized)) return true;
+    return chrono.es.parse(text).some((result) => result.start.isCertain('hour'))
+        || chrono.parse(text).some((result) => result.start.isCertain('hour'));
+}
+
 /** Removes only the clock-time part, preserving any calendar date context. */
 export function removeExplicitTimeHint(text: string): string {
     const hint = extractExplicitTimeHint(text);
@@ -241,13 +260,14 @@ export function extractTemporalHint(text: string): string | null {
     return calendarHint || timeHint;
 }
 
-/** A time-only correction keeps the active calendar slot. */
+/** A time-only correction keeps the active day; a day-only one keeps the hour. */
 export function mergeTemporalCorrection(previousHint: string | null, nextHint: string): string {
     const previousDate = previousHint ? removeExplicitTimeHint(previousHint) : '';
+    const previousClock = previousHint ? extractExplicitTimeHint(previousHint) : null;
     const nextDate = removeExplicitTimeHint(nextHint);
-    return previousDate && !nextDate
-        ? `${previousDate} ${nextHint}`.trim()
-        : nextHint.trim();
+    if (previousDate && !nextDate) return `${previousDate} ${nextHint}`.trim();
+    if (previousClock && nextDate && !extractExplicitTimeHint(nextHint)) return `${nextHint.trim()} ${previousClock}`;
+    return nextHint.trim();
 }
 
 function parseExplicitWeekday(

@@ -613,6 +613,31 @@ async function resolveReadConversationScope(actorUserId: string, conversationId?
     }
 }
 
+const SPANISH_ORDINAL_POSITIONS: Record<string, number> = {
+    primer: 1, primero: 1, primera: 1, segundo: 2, segunda: 2, tercer: 3, tercero: 3, tercera: 3,
+    cuarto: 4, cuarta: 4, quinto: 5, quinta: 5, sexto: 6, sexta: 6, septimo: 7, septima: 7,
+    octavo: 8, octava: 8, noveno: 9, novena: 9, decimo: 10, decima: 10,
+    ultimo: -1, ultima: -1, penultimo: -2, penultima: -2, antepenultimo: -3, antepenultima: -3,
+};
+const ENGLISH_ORDINAL_POSITIONS: Record<string, number> = {
+    first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+    last: -1, penultimate: -2,
+};
+
+// Position of an item in a presented list, as an ordinal numeral governed by
+// an article ("el segundo", "the third"); negative counts from the end. The
+// article keeps "un segundo" or an adverbial "primero" from counting.
+export function parseListPositionOrdinal(normalizedText: string): number | null {
+    for (const [, word] of normalizedText.matchAll(/\b(?:el|la|lo)\s+(?:de\s+)?([a-z]+)\b/gu)) {
+        if (word in SPANISH_ORDINAL_POSITIONS) return SPANISH_ORDINAL_POSITIONS[word];
+    }
+    if (/\bthe\s+second\s+to\s+last\b/u.test(normalizedText)) return -2;
+    for (const [, word] of normalizedText.matchAll(/\bthe\s+([a-z]+)\b/gu)) {
+        if (word in ENGLISH_ORDINAL_POSITIONS) return ENGLISH_ORDINAL_POSITIONS[word];
+    }
+    return null;
+}
+
 export async function buildAgentContext(input: AgentContextInput, options: BuildAgentContextOptions = {}): Promise<AgentContext> {
     const startedAt = Date.now();
     if (!input.actorUserId) throw new AppError('actorUserId is required', 400);
@@ -656,15 +681,27 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // señales ganadoras se funden de vuelta en el mismo `Interpretation` que
     // ya viaja por retrieval/synthesis, evitando duplicar el contrato.
     const deterministicSignals = await new DeterministicInputInterpreter().interpret(input.input);
+    // For general_context the deterministic wants* flags are its default
+    // fan-out, not evidence that the user asked about their data. Only a
+    // structural signal it found (a period, a person, a status) can veto the
+    // model's reading of the turn as conversation ("¿Qué puedes hacer?").
     const isSocialConversation = isSocialInput
         || (rawInterpretation.interactionMode === 'conversation'
             && deterministicSignals.intent === 'general_context'
             && deterministicSignals.timeExpression === null
             && deterministicSignals.temporalIntent === null
-            && !deterministicSignals.wantsCommitments
-            && !deterministicSignals.wantsMessages
+            && deterministicSignals.personHints.length === 0
+            && deterministicSignals.statusHints === null
+            && !deterministicSignals.wantsOverdueFocus
             && !rawInterpretation.wantsCommitments
-            && !rawInterpretation.wantsMessages);
+            && !rawInterpretation.wantsMessages
+            // Nor can the model read a turn as conversation while it also
+            // names a topic or points at the previous result ("¿Cuál es el
+            // de bingo?").
+            && !rawInterpretation.textQuery
+            && (rawInterpretation.topicHints ?? []).length === 0
+            && !rawInterpretation.priorReferenceIntent
+            && !rawInterpretation.followUpAttribute);
     // Even when this builder is called directly (outside the unified semantic
     // boundary), social turns must remain conversation-only. This prevents a
     // provider-produced hint from reopening retrieval or clarification for a
@@ -803,6 +840,17 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // found no status signal. Otherwise a provider wobble can turn a neutral
     // date query into an open-only query and produce a false no_evidence
     // response even though today's commitment exists.
+    // When the request is already scoped to a period and the model found no
+    // topic in the whole sentence, the period is the request. The
+    // deterministic residual alone is then not a topic: fillers and
+    // colloquial framing ("eh", "qué onda con") would become a text filter
+    // and hide every item in that period. Without a structured period the
+    // residual is still the only topic signal Core trusts (the model can
+    // also miss a real topic, e.g. "lo de entrenar").
+    const periodIsTheWholeRequest = rawInterpretation.source === 'llm'
+        && !rawInterpretation.textQuery
+        && normalizedTimeExpression !== null;
+    const confidentTextQuery = periodIsTheWholeRequest ? null : deterministicSignals.textQuery;
     const neutralTemporalCollection = deterministicSignals.intent === 'commitment_query'
         && normalizedTimeExpression !== null
         && deterministicSignals.statusHints === null
@@ -837,7 +885,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         textQuery: ungroundedRawTemporalClaim
             ? null
             : commitmentSignalConfident
-                ? deterministicSignals.textQuery
+                ? confidentTextQuery
                 : rawInterpretation.textQuery,
         // El operador de comparación es una decisión del Core sobre la
         // semántica observable del input. La señal determinística gana cuando
@@ -886,7 +934,7 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         topicHints: ungroundedRawTemporalClaim
             ? []
             : commitmentSignalConfident
-                ? (deterministicSignals.textQuery ? [deterministicSignals.textQuery] : [])
+                ? (confidentTextQuery ? [confidentTextQuery] : [])
                 : rawInterpretation.topicHints,
         intentConfidence: commitmentSignalConfident
             ? Math.max(deterministicSignals.intentConfidence, rawInterpretation.intentConfidence)
@@ -1037,25 +1085,37 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
         && (
             interpretation.priorReferenceIntent === 'single_entity'
             || interpretation.followUpAttribute !== null
-            || /\b(?:ese|esa|esto|eso|el|la|lo|hacerlo|hacerla|hacerlos|hacerlas|the|that|this)\b/.test(normalizedFollowUp)
+            // Lexical cue only when the semantic interpreter did not read the
+            // turn; an article before a new period is not a reference.
+            || (rawInterpretation.source !== 'llm' && !explicitTimeRange
+                && /\b(?:ese|esa|esto|eso|el|la|lo|hacerlo|hacerla|hacerlos|hacerlas|the|that|this)\b/.test(normalizedFollowUp))
         );
+    // A position picked from the presented list ("el primero", "el \u00faltimo")
+    // is read from the ordinal numeral itself, a closed grammatical class like
+    // the cardinals the date parser reads; the interpreter's semantic ordinal
+    // covers any other way of naming the position.
+    const priorOrdinal = priorReferents.length > 1
+        ? parseListPositionOrdinal(normalizedFollowUp) ?? interpretation.priorReferenceOrdinal ?? null
+        : null;
+    const priorOrdinalIndex = priorOrdinal === null
+        ? null
+        : priorOrdinal < 0 ? priorReferents.length + priorOrdinal : priorOrdinal - 1;
     const priorMatches = priorReferents.filter((referent) => {
         const label = referent.rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) return false;
-        if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) return false;
+        if (priorOrdinalIndex !== null) return false;
         const followUpTokens = normalizedFollowUp
             .split(/\s+/)
             .map((token) => token.replace(/[^\p{L}\p{N}]/gu, ''))
             .filter((token) => token.length > 2);
         return label && followUpTokens.some((token) => label.includes(token));
     });
+    const focusedPriorReferentId = priorReferents
+        .find((referent) => referent.canonicalId && referent.canonicalId === input.priorReadContext?.focusCanonicalId)
+        ?.canonicalId;
     let priorReferentId: string | undefined;
     let priorReferentCandidates: Array<{ id: string; label: string }> = [];
-    if (/\bsegunda\b|\bsecond\b/.test(normalizedFollowUp)) {
-        const candidate = priorReferents[1];
-        if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
-    } else if (/\bprimera\b|\bfirst\b/.test(normalizedFollowUp)) {
-        const candidate = priorReferents[0];
+    if (priorOrdinalIndex !== null) {
+        const candidate = priorReferents[priorOrdinalIndex];
         if (candidate?.canonicalId) priorReferentId = candidate.canonicalId;
     } else if (priorMatches.length === 1 && priorMatches[0].canonicalId) {
         priorReferentId = priorMatches[0].canonicalId;
@@ -1064,6 +1124,14 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     } else if (priorMatches.length > 1) {
         priorReferentCandidates = priorMatches.filter((candidate) => !!candidate.canonicalId)
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));
+    } else if (
+        focusedPriorReferentId
+        && (interpretation.priorReferenceIntent === 'single_entity' || interpretation.followUpAttribute !== null)
+        && !explicitTimeRange
+    ) {
+        // Only a semantic reference to an item continues the focus; a new
+        // period ("¿y el lunes?") is a new read even with an article.
+        priorReferentId = focusedPriorReferentId;
     } else if (priorReferents.length > 1 && priorPronounCue) {
         priorReferentCandidates = priorReferents.filter((candidate) => !!candidate.canonicalId)
             .map((candidate) => ({ id: candidate.canonicalId!, label: candidate.rawText }));

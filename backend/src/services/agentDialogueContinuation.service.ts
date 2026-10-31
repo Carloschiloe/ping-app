@@ -26,6 +26,7 @@ import { resolveEntityHint } from './agentPlanner.service';
 import {
     extractDateTextSpans,
     extractExplicitTimeHint,
+    hasClockTime,
     mergeTemporalCorrection,
     parseDateFromText,
 } from './date-parser.service';
@@ -188,6 +189,8 @@ export interface CoreDialogueReconciliationInput {
     } | null;
     temporalCandidate?: AgentObjective | null;
     pendingPlanCandidate?: AgentObjective | null;
+    /** This turn named and resumed the open objective ("vuelve a lo del auto"). */
+    resumedObjective?: boolean;
 }
 
 function hasMaterialCurrentTurnData(objective: AgentObjective | null | undefined): boolean {
@@ -258,6 +261,21 @@ export function reconcileDialogueTurn(
     // that the previous objective was paused.
     if (state?.lifecycle === 'resolved') return { kind: 'independent' };
 
+    const activeTemporalField = state?.pendingClarification?.field;
+    const asksForTemporalSlot = activeTemporalField === 'date' || activeTemporalField === 'time'
+        || activeTemporalField === 'dueAt' || activeTemporalField === 'time_ambiguous'
+        || activeTemporalField === 'newDueAt';
+    // A turn that just returned to a suspended objective by name is about
+    // that objective, even when the proposal reads the name as a new title;
+    // the day or hour it carries answers its open question.
+    if (input.resumedObjective && asksForTemporalSlot && input.temporalCandidate && !cancellation) {
+        return {
+            kind: 'slot_filled',
+            objective: input.temporalCandidate,
+            field: activeTemporalField === 'date' ? 'date' : 'time',
+        };
+    }
+
     // An explicit complete replacement is independent of every prior slot.
     // It must be selected before any attempt to merge a temporal fragment.
     if (candidateIsCompleteReplacement) {
@@ -272,11 +290,21 @@ export function reconcileDialogueTurn(
     const incompleteNewObjective = interpretationAct === 'new_objective'
         || candidate?.dialogueAct === 'new_objective'
         || semantic?.objective?.dialogueAct === 'new_objective';
-    if (incompleteNewObjective && state?.openObjective) {
+    // A turn that only supplies the day or hour Ping just asked for answers
+    // that question, even when the objective proposal labels it a new
+    // objective: it names no activity or person of its own and the input
+    // boundary reads no new request in it ("el viernes a las 6 de la tarde",
+    // unlike "crea otro compromiso para mañana").
+    const onlyAnswersTemporalSlot = asksForTemporalSlot
+        && !!input.temporalCandidate
+        && interpretationAct !== 'new_objective'
+        && !(candidate?.targetEntities.entityHints.length)
+        && !(candidate?.targetEntities.personHints.length)
+        && !candidate?.slotDelta?.title?.trim();
+    if (incompleteNewObjective && state?.openObjective && !onlyAnswersTemporalSlot) {
         return { kind: 'suspend_current' };
     }
 
-    const activeTemporalField = state?.pendingClarification?.field;
     const temporalCandidate = input.temporalCandidate;
     if (temporalCandidate && (activeTemporalField === 'date' || activeTemporalField === 'time'
         || activeTemporalField === 'dueAt' || activeTemporalField === 'time_ambiguous'
@@ -428,8 +456,11 @@ export function buildPendingPlanEdit(input: {
         if (input.turnSequence === undefined) turnSequence += 1;
     }
 
+    // A temporal edit is planned from the merged slot ("el sábado a las 8"),
+    // never from the correction alone: "Mejor el sábado" keeps the agreed
+    // hour and "a las 12" keeps the agreed day.
     const sourceUtterance = changedSlots.includes('time') || changedSlots.includes('date')
-        ? `${nextTitle ?? priorTitle ?? ''} ${input.candidate.sourceUtterance}`.trim()
+        ? `${nextTitle ?? priorTitle ?? ''} ${nextTime ?? input.candidate.sourceUtterance}`.trim()
         : `${input.candidate.sourceUtterance} ${prior.sourceUtterance}`.trim();
     return {
         isEdit: true,
@@ -712,6 +743,9 @@ export function buildPendingTemporalAnswerObjective(
     }
     const timeHint = extractTimeHint(rawAnswer.trim());
     if (!timeHint) return null;
+    // When the hour was asked, only a time of day answers it: "¿qué tengo
+    // mañana?" names a day and is a question of its own.
+    if (dialogueState.pendingClarification.field === 'time' && !hasClockTime(rawAnswer)) return null;
     return {
         ...dialogueState.openObjective,
         // Keep the original date phrase in the same semantic source passed to

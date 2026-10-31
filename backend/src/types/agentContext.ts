@@ -144,6 +144,8 @@ export interface AgentPriorReadSummary {
     kind: 'commitment_query';
     referentCount: number;
     uniqueReferent: boolean;
+    /** The conversation last narrowed the result to one of its items. */
+    focusedReferent?: boolean;
     entityTypes: Array<'commitment' | 'commitment_proposal'>;
     hasTimeRange: boolean;
 }
@@ -173,6 +175,8 @@ export interface Interpretation {
     timeExpression: string | null; // frase temporal cruda detectada, ej. "ayer" — la resolución ocurre aparte
     temporalIntent?: TemporalIntent | null; // representación semántica normalizada del rango temporal
     priorReferenceIntent?: PriorReferenceIntent | null;
+    /** 1-based position picked from the prior result, -1 for the last one. */
+    priorReferenceOrdinal?: number | null;
     followUpAttribute?: AgentFollowUpAttribute | null;
     dialogueAct?: AgentDialogueAct | null;
     dialogueControl?: AgentDialogueControl | null;

@@ -96,7 +96,7 @@ function objective(overrides: Partial<AgentObjective> = {}): AgentObjective {
         desiredOutcome: 'revisar informe técnico',
         timeConstraints: { rawHint: 'mañana' },
         actor: ACTOR,
-        sourceUtterance: 'Anota revisar informe técnico mañana',
+        sourceUtterance: 'Anota revisar informe técnico mañana a las 10',
         confidence: 0.9,
         ambiguities: [],
         source: 'llm',
@@ -204,7 +204,7 @@ describe('M-7 real /agent/turn boundary with a precomputed V4 input', () => {
     it('passes a real WRITE turn to the existing planner boundary without authorization or execution', async () => {
         const { runAgentTurn } = await import('../src/services/agentTurn.service');
         const telemetry: any[] = [];
-        const result = await runAgentTurn({ actorUserId: ACTOR, conversationId: CONVERSATION, input: 'Anota revisar informe técnico mañana' }, {
+        const result = await runAgentTurn({ actorUserId: ACTOR, conversationId: CONVERSATION, input: 'Anota revisar informe técnico mañana a las 10' }, {
             inputInterpreter: { interpret: async () => interpretation({ isWriteActionRequest: true }) as any },
             objectiveInterpreter: { interpret: async () => objective() },
             precomputedSemanticV4: {
@@ -212,7 +212,7 @@ describe('M-7 real /agent/turn boundary with a precomputed V4 input', () => {
                     kind: 'write_request',
                     objectiveType: 'create_personal_commitment',
                     readMeaning: null,
-                    slots: { title: 'revisar informe técnico', time: 'mañana' },
+                    slots: { title: 'revisar informe técnico', time: 'mañana a las 10' },
                 }),
                 diagnostics,
             },
@@ -277,11 +277,11 @@ describe('M-7 real /agent/turn boundary with a precomputed V4 input', () => {
             channel: 'mobile',
             locale: 'es-CL',
         };
-        const first = await runAgentTurn({ ...common, input: 'Anota revisar informe técnico mañana' }, {
+        const first = await runAgentTurn({ ...common, input: 'Anota revisar informe técnico mañana a las 10' }, {
             dialogueService,
             inputInterpreter: { interpret: async () => interpretation({ isWriteActionRequest: true }) as any },
             objectiveInterpreter: { interpret: async () => objective() },
-            precomputedSemanticV4: { semantic: semantic({ kind: 'write_request', objectiveType: 'create_personal_commitment', readMeaning: null, slots: { title: 'revisar informe técnico', time: 'mañana' } }), diagnostics },
+            precomputedSemanticV4: { semantic: semantic({ kind: 'write_request', objectiveType: 'create_personal_commitment', readMeaning: null, slots: { title: 'revisar informe técnico', time: 'mañana a las 10' } }), diagnostics },
             semanticV4CoreShadowResolver: new AgentSemanticV4HighFidelityReadOnlyResolver(repository()),
             semanticV4CoreShadowObserver: (value) => telemetry.push(value),
         });
