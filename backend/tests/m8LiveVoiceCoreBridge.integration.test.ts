@@ -364,6 +364,19 @@ describe('M8 Realtime → ping_core_turn → Ping Core bridge', () => {
             expect.objectContaining({ type: 'webview_ready' }),
             expect.objectContaining({ type: 'config_ack' }),
         ]));
+
+        // A barge-in cancel can reach the provider just after the response
+        // finished; the provider rejects that one request and the session
+        // stays open, so the conversation must go on.
+        dataChannel!.onmessage?.({ data: JSON.stringify({
+            type: 'error',
+            error: { type: 'invalid_request_error', code: 'response_cancel_not_active', message: 'Cancellation failed: no active response found' },
+        }) });
+        await sendVoiceTurn('Comprar materiales', 'call-bridge-5');
+        expect(coreResults).toHaveLength(5);
+        expect(postedNativeMessages).not.toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'm8_diagnostic_error' }),
+        ]));
     });
 });
 

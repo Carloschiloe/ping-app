@@ -15,6 +15,7 @@ import {
 import { getOrCreateSelfConversationId } from '../services/conversation.service';
 import { resolveAgentRequestInput, resolveTextSurface } from '../services/agentInputEnvelope.service';
 import { buildDialogueScopeKey, getAgentDialogueReadContextSnapshot } from '../services/agentDialogueState.service';
+import { isAssistantModeEnabled, runAssistantModeTurn } from '../services/assistant/assistantTurn.service';
 
 type PersistTurnInput = Parameters<typeof persistAgentConversationTurn>[0];
 
@@ -85,6 +86,41 @@ export async function turn(req: Request, res: Response): Promise<void> {
                     inputText: req.body.input,
                     inputMode: 'text',
                     result,
+                }, false);
+            }
+            res.status(200).json(result);
+            return;
+        }
+
+        // M9 assistant mode: the assistant keeps its own dialogue memory inside
+        // the persisted turn. Live voice sends its transcript here too, so text
+        // and voice share one conversation and its pending actions. Signed
+        // voice-token turns (push-to-talk) stay on Core.
+        if (isAssistantModeEnabled() && typeof req.body.input === 'string' && req.body.input.trim()
+            && !req.body.voiceInputToken && !req.body.reviewedVoiceInputToken) {
+            phase = 'assistant_turn';
+            const inputText = req.body.input.trim();
+            const dialogueConversationId = typeof req.body.conversationId === 'string' ? req.body.conversationId : undefined;
+            const historyConversationId = isAgentConversationTurnPersistenceEnabled()
+                ? await resolveHistoryConversationId({ actorUserId, explicitConversationId: dialogueConversationId })
+                : undefined;
+            const { result, memory } = await runAssistantModeTurn({
+                actorUserId, text: inputText, timezone: req.body.timezone,
+                historyConversationId, dialogueConversationId, traceId,
+                channel: req.body.channel === 'mobile_voice' ? 'voice' : 'text',
+                userWordsHeard: req.body.voiceInputSource !== 'provider',
+            });
+            if (historyConversationId) {
+                phase = 'persist_conversation_event';
+                await persistTurnWithRuntimePolicy({
+                    actorUserId,
+                    conversationId: historyConversationId,
+                    dialogueConversationId,
+                    clientTurnKey: idempotencyKey ?? traceId,
+                    inputText,
+                    inputMode: 'text',
+                    result,
+                    assistant: memory,
                 }, false);
             }
             res.status(200).json(result);
