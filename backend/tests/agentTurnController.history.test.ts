@@ -142,4 +142,26 @@ describe('Agent Turn controller — main Ping history scope', () => {
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.json).toHaveBeenCalledWith(answer);
     });
+
+    it('answers a voice turn that echoes the transcription prompt without running Core or recording it', async () => {
+        const req: any = {
+            user: { id: 'actor-1' },
+            body: {
+                input: 'contexto:\nTranscribe en español de Chile. Conserva nombres propios, fechas, horas y números; no traduzcas ni agregues palabras.',
+                channel: 'mobile_voice',
+            },
+            get: vi.fn(() => 'm8-voice-session-turn'),
+        };
+        const res = response();
+
+        await turn(req, res);
+
+        expect(runAgentTurnMock).not.toHaveBeenCalled();
+        expect(runDurableTurnMock).not.toHaveBeenCalled();
+        expect(persistMock).not.toHaveBeenCalled();
+        expect(res.json).toHaveBeenCalledWith({
+            kind: 'response',
+            response: { status: 'answered', answer: 'No te escuché bien. ¿Puedes repetirlo?', citations: [] },
+        });
+    });
 });

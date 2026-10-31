@@ -2,6 +2,7 @@ import { AppError } from '../utils/AppError';
 import { M8_VOICE_PROTOCOL_VERSION } from './m8VoiceBootstrapProtocol';
 import { M8_VOICE_CONFIRMATION_BROWSER_SOURCE } from './m8VoiceConfirmationContract.service';
 import { M8_VOICE_PRESENTATION_BROWSER_SOURCE } from './m8VoicePresentation.service';
+import { M8_VOICE_TRANSCRIPTION_ECHO_BROWSER_SOURCE } from './m8VoiceTranscriptionPrompt';
 
 // Credential-free WebView client served by the configured HTTPS Ping origin. The
 // native shell injects the authenticated session envelope; this document
@@ -17,6 +18,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
 (function(){
   ${M8_VOICE_CONFIRMATION_BROWSER_SOURCE}
   ${M8_VOICE_PRESENTATION_BROWSER_SOURCE}
+  ${M8_VOICE_TRANSCRIPTION_ECHO_BROWSER_SOURCE}
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500, TRANSCRIPT_WAIT_MS=1500;
   let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,outputPlaybackPending=false,pendingPlaybackInterruption=false,coreResultReady=false,responseActive=false,responseHasAudio=false,responseProviderId=null,responseTurnId=null,responseOutputText='',responseAudioDeltaCount=0,responsePurpose='tool_selection',coreTurnInFlight=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle',pendingTranscript=null,pendingTranscriptTurnId=null,pendingTranscriptWaiter=null,resolvePendingTranscript=null;
@@ -49,7 +51,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   function fail(stageName,error,httpStatus){if(failed||closed)return;failed=true;clearPending();const details=errorDetails(error);const failedStage=stageName||currentStage||'unknown';telemetry('error',{detailCode:failedStage,httpStatus,...details,sideEffects:0});post({type:'m8_diagnostic_error',stage:failedStage,details});retryEl.hidden=false;setStatus('No se pudo iniciar la voz','Falló la etapa '+failedStage+'. '+(details.errorCode||details.errorMessage||'Revisa la conexión e inténtalo nuevamente.'),false);}
   const setAudioGate=(enabled)=>{coreResultReady=enabled;remote.muted=!enabled;if(enabled)remote.play().catch(()=>{})};
   const cancelResponse=(cause)=>{if(!responseActive){telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_skipped_no_active_response',sideEffects:0});return false}try{responseActive=false;telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'});return true}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0});return false}};
-  const usableTranscript=(value)=>typeof value==='string'&&value.trim().length>0&&value.trim().toLowerCase()!=='[inaudible noise]';
+  const usableTranscript=(value)=>typeof value==='string'&&value.trim().length>0&&value.trim().toLowerCase()!=='[inaudible noise]'&&!isM8VoiceTranscriptionPromptEcho(value);
   const beginTurnTranscript=()=>{pendingTranscript=null;pendingTranscriptTurnId=activeTurnId;resolvePendingTranscript=null;pendingTranscriptWaiter=new Promise(resolve=>{resolvePendingTranscript=resolve})};
   const rememberFinalTranscript=(value)=>{if(!activeTurnId||!usableTranscript(value))return;pendingTranscript=value.trim();pendingTranscriptTurnId=activeTurnId;if(resolvePendingTranscript){resolvePendingTranscript(pendingTranscript);resolvePendingTranscript=null}};
   const chooseCoreInput=async(providerInput,turnId)=>{

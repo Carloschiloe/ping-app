@@ -274,6 +274,44 @@ describe('Core-owned dialogue reconciliation contract', () => {
     });
 });
 
+describe('reconciliation after an executed objective', () => {
+    const executed = dialogueState({
+        lifecycle: 'resolved',
+        pendingClarification: null,
+        currentPlanDigestRef: null,
+        currentAuthorizationIdRef: null,
+    });
+
+    it('treats a bare confirmation as independent instead of suspending the resolved objective', () => {
+        const result = reconcileDialogueTurn({
+            dialogueState: executed,
+            semantic: {
+                route: 'read',
+                interpretation: { dialogueAct: 'confirm', dialogueControl: null, followUpAttribute: null },
+                objective: null,
+            },
+            pendingPlanCandidate: null,
+        });
+
+        expect(result).toEqual({ kind: 'independent' });
+    });
+
+    it('does not cancel or suspend a resolved objective on a later control turn', () => {
+        for (const dialogueAct of ['reject', 'defer', 'new_objective'] as const) {
+            const result = reconcileDialogueTurn({
+                dialogueState: executed,
+                semantic: {
+                    route: 'write',
+                    interpretation: { dialogueAct, dialogueControl: 'suspend_current', followUpAttribute: null },
+                    objective: null,
+                },
+                pendingPlanCandidate: null,
+            });
+            expect(result).toEqual({ kind: 'independent' });
+        }
+    });
+});
+
 describe('semantic pending-plan reconciliation', () => {
     it('treats a target-less temporal correction as a correction without provider lifecycle metadata', async () => {
         const result = await classifyPlanCorrection(

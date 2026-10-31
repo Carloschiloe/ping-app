@@ -252,6 +252,12 @@ export function reconcileDialogueTurn(
     const cancellation = hasExplicitCancellation(semantic, candidate);
     const deferral = hasExplicitDeferral(semantic, candidate);
 
+    // A resolved objective is retained only so short follow-up reads can refer
+    // to it. It is no longer live: nothing on it can be suspended, cancelled
+    // or confirmed, so a bare "sí" after an executed write must not report
+    // that the previous objective was paused.
+    if (state?.lifecycle === 'resolved') return { kind: 'independent' };
+
     // An explicit complete replacement is independent of every prior slot.
     // It must be selected before any attempt to merge a temporal fragment.
     if (candidateIsCompleteReplacement) {
