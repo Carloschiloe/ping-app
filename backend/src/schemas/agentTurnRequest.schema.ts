@@ -13,6 +13,9 @@ export const agentTurnRequestSchema = z.object({
         locale: z.string().trim().max(20).optional(),
         timezone: z.string().trim().max(60).optional(),
         readCapability: z.string().trim().max(80).optional(),
+        // Live voice: whether the input is the user's own transcription or
+        // the realtime model's rendering of it (which cannot confirm actions).
+        voiceInputSource: z.enum(['transcript', 'provider']).optional(),
     }).superRefine((body, context) => {
         if (body.voiceInputToken && (body.input || body.reviewedVoiceInputToken)) {
             context.addIssue({ code: z.ZodIssueCode.custom, message: 'A fresh voice token cannot be combined with text or a reviewed voice token' });

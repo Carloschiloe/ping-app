@@ -114,7 +114,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     telemetry('core_request_started',{turnId:turnId||activeTurnId,transcript:safeText(input,500),detailCode:'agent_turn_started',sideEffects:0});
     stage('core_request_started','Ping está pensando','Consultando el mismo Ping Core.',{sideEffects:0});
     const turnKey='m8-voice-'+cfg.voiceSessionId+'-'+(turnId||activeTurnId||id());
-    const body={input,channel:'mobile_voice',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId,currentCommitmentId:cfg.currentCommitmentId};
+    const body={input,channel:'mobile_voice',voiceInputSource:lastCoreInputSource==='transcript'?'transcript':'provider',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId,currentCommitmentId:cfg.currentCommitmentId};
     const response=await withTimeout(fetch(cfg.apiUrl+'/agent/turn',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json','Idempotency-Key':turnKey},body:JSON.stringify(body)}),20000,'core_request_timeout');
     const text=await response.text();let result=null;try{result=JSON.parse(text)}catch{}
     stage('core_response_received',response.ok?'Respuesta recibida':'Core no disponible','Preparando la respuesta de voz.',{httpStatus:response.status,sideEffects:0});

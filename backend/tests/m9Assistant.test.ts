@@ -7,7 +7,7 @@ vi.mock('../src/services/agentConversationTurn.service', () => ({
 }));
 
 import { listAgentConversationTurns } from '../src/services/agentConversationTurn.service';
-import { runAssistantTurn } from '../src/services/assistant/assistantService';
+import { runAssistantTurn, type AssistantTurnInput } from '../src/services/assistant/assistantService';
 import { AssistantRefTable } from '../src/services/assistant/assistantRefs';
 import { describeLocal, localDateTimeToIso, localDayRangeToIso } from '../src/services/assistant/assistantTime';
 import { compactAssistantMemory, loadAssistantHistory } from '../src/services/assistant/assistantTurn.service';
@@ -54,9 +54,9 @@ class Conversation {
     public readonly world = new BenchWorld();
     public history: AssistantHistory = { turns: [], refs: [], actions: [] };
 
-    async say(text: string, steps: Step[]): Promise<AssistantTurnOutput> {
+    async say(text: string, steps: Step[], voice: Pick<AssistantTurnInput, 'channel' | 'userWordsHeard'> = {}): Promise<AssistantTurnOutput> {
         const output = await runAssistantTurn(
-            { actorUserId: BENCH_ACTOR, text, timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: this.history },
+            { actorUserId: BENCH_ACTOR, text, timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: this.history, ...voice },
             { data: this.world, model: new ScriptedModel(steps) },
         );
         this.history = {
@@ -177,6 +177,30 @@ describe('M9 assistant tools — safety contract', () => {
         const transcript = model.seen[0];
         expect(transcript.some((message) => message.role === 'user' && message.content === 'completa la llamada')).toBe(true);
         expect(transcript.some((message) => message.role === 'system' && message.content.includes('a1 —'))).toBe(true);
+    });
+
+    it('a voice "yes" the user was not heard saying does not execute', async () => {
+        const chat = new Conversation();
+        await chat.say('completa la llamada', [[LIST_TODAY], [['propose_complete', { ref: 'c1', note: null }]], '¿Confirmas?'], { channel: 'voice' });
+        const unheard = await chat.say('sí', [[['confirm_action', { action: 'a1' }]], 'No te escuché bien.'], { channel: 'voice', userWordsHeard: false });
+        expect(toolResults(unheard)[0]).toMatchObject({ error: 'not_heard' });
+        expect(chat.world.executed).toHaveLength(0);
+        expect(unheard.memory.actions[0].state).toBe('pending');
+
+        const heard = await chat.say('sí', [[['confirm_action', { action: 'a1' }]], 'Hecho.'], { channel: 'voice', userWordsHeard: true });
+        expect(toolResults(heard)[0]).toMatchObject({ executed: true });
+        expect(chat.world.executed).toHaveLength(1);
+    });
+
+    it('tells the model when its answer will be spoken', async () => {
+        const spoken = new ScriptedModel(['Ok']);
+        const written = new ScriptedModel(['Ok']);
+        const base = { actorUserId: BENCH_ACTOR, text: 'hola', timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: { turns: [], refs: [], actions: [] } };
+        await runAssistantTurn({ ...base, channel: 'voice' }, { data: new BenchWorld(), model: spoken });
+        await runAssistantTurn(base, { data: new BenchWorld(), model: written });
+        const systemText = (model: ScriptedModel) => model.seen[0].filter((message) => message.role === 'system').map((message) => message.content).join('\n');
+        expect(systemText(spoken)).toContain('talking by voice');
+        expect(systemText(written)).not.toContain('talking by voice');
     });
 });
 

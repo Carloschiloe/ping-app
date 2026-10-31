@@ -29,6 +29,8 @@ export interface AssistantToolContext {
     actions: AssistantActionRecord[];
     /** Action refs that existed before this turn started. */
     priorActionRefs: ReadonlySet<string>;
+    /** False when the user's words were not captured verbatim (voice fallback). */
+    userWordsHeard: boolean;
     trace: AssistantToolTrace[];
     citations: Map<string, AssistantTurnOutput['citations'][number]>;
 }
@@ -405,6 +407,9 @@ const handlers: Record<string, ToolHandler> = {
         // action created in this same turn can never be confirmed here.
         if (!ctx.priorActionRefs.has(entry.ref)) return { error: 'needs_user_confirmation', detail: 'Ask the user first; it can be confirmed only in their next message.' };
         if (record.state !== 'pending') return { error: 'not_pending', detail: `That action is ${record.state}.` };
+        // A "yes" reconstructed by the voice model instead of transcribed from
+        // the user is not consent; the action stays pending.
+        if (!ctx.userWordsHeard) return { error: 'not_heard', detail: 'The answer was not heard clearly; nothing changed. Ask the user to say it again.' };
         const outcome = await ctx.data.confirmPendingAction(entry.id);
         if (!outcome.ok) {
             record.state = outcome.reason === 'failed' ? 'failed' : record.state;

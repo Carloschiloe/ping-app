@@ -127,7 +127,7 @@ Corren contra el backend real con datos de prueba marcados, y verifican el resul
 | Fase | Entrega | Compuerta |
 |---|---|---|
 | F1 | Capa de herramientas, `ref`, acciones pendientes y bucle de texto con `gpt-5.6-luna` detrás de `PING_AGENT_MODE=assistant`. El camino actual queda intacto | Suite verde y banco de texto |
-| F2 | Voz: la sesión de tiempo real recibe las herramientas; el cliente del WebView las reenvía al backend y se retira `ping_core_turn` | Banco y tu prueba en Expo Go |
+| F2 | Voz: la transcripción de la sesión de tiempo real llega al mismo asistente (`/agent/turn`), que razona y usa las herramientas; la voz solo escucha y habla. Un "sí" que el modelo de voz reconstruyó (sin transcripción del usuario) no confirma | Tests y tu prueba en Expo Go |
 | F3 | Confirmación sobre acciones congeladas en texto y voz; tarjeta de confirmación adaptada en la app | 0 escrituras sin confirmar y Expo Go |
 | F4 | Borrado del clasificador y sus pruebas; se retira el flag | Suite completa verde y banco igual o mejor |
 | F5 | Despliegue a producción | Tu autorización |

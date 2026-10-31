@@ -26,13 +26,18 @@ export const ASSISTANT_INSTRUCTIONS = [
     'If what the user wants is unclear, or several items could match, ask one short question instead of guessing. For small talk, thanks or complaints, just reply naturally without tools.',
 ].join('\n\n');
 
-function contextMessage(now: Date, timezone: string): AssistantChatMessage {
-    return { role: 'system', content: `Current local date and time: ${formatLocal(now.toISOString(), timezone)} (${timezone}).` };
+const VOICE_NOTE = 'The user is talking by voice and your answer will be spoken: keep it to one or two short sentences, say dates and times the way people say them, and read a proposal summary naturally before asking for the go-ahead.';
+
+function contextMessage(now: Date, timezone: string, channel: AssistantChannel): AssistantChatMessage {
+    const clock = `Current local date and time: ${formatLocal(now.toISOString(), timezone)} (${timezone}).`;
+    return { role: 'system', content: channel === 'voice' ? `${clock}\n${VOICE_NOTE}` : clock };
 }
 
 function clip(text: string): string {
     return text.length > MAX_TOOL_RESULT_CHARS ? `${text.slice(0, MAX_TOOL_RESULT_CHARS)}…` : text;
 }
+
+export type AssistantChannel = 'text' | 'voice';
 
 export interface AssistantTurnInput {
     actorUserId: string;
@@ -40,6 +45,9 @@ export interface AssistantTurnInput {
     timezone: string;
     now: Date;
     history: AssistantHistory;
+    channel?: AssistantChannel;
+    /** Defaults to true; false keeps confirm_action from executing. */
+    userWordsHeard?: boolean;
 }
 
 export async function runAssistantTurn(
@@ -56,6 +64,7 @@ export async function runAssistantTurn(
         refs,
         actions,
         priorActionRefs: new Set(actions.map((action) => action.ref)),
+        userWordsHeard: input.userWordsHeard ?? true,
         trace: [],
         citations: new Map(),
     };
@@ -67,7 +76,7 @@ export async function runAssistantTurn(
         : [];
     const transcript = (): AssistantChatMessage[] => [
         { role: 'system', content: ASSISTANT_INSTRUCTIONS },
-        contextMessage(input.now, input.timezone),
+        contextMessage(input.now, input.timezone, input.channel ?? 'text'),
         ...input.history.turns.slice(-MAX_HISTORY_TURNS).flat(),
         ...stateNote,
         ...turnMessages,
