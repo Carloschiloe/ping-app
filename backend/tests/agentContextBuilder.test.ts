@@ -47,6 +47,11 @@ vi.mock('../src/services/retrieval.service', () => ({
     }),
 }));
 
+// The self-conversation check reads conversation_participants; tests decide
+// it explicitly instead of reaching a real database.
+const { isSelfConversationMock } = vi.hoisted(() => ({ isSelfConversationMock: vi.fn(async () => false) }));
+vi.mock('../src/services/conversation.service', () => ({ isSelfConversation: isSelfConversationMock }));
+
 // M-2 — sólo se mockea retrieveMemory (la llamada a la base); el resto del
 // módulo (enforceMemoryCanonicalDominance, pura/determinística) se deja
 // real -- así los tests de dominancia canónica ejercitan la lógica
@@ -815,6 +820,17 @@ describe('M-1D: buildAgentContext — authorization (sección 23)', () => {
         await withDeterministicInterpreter({ actorUserId: 'u1', input: 'algo', conversationId: 'conv-real' }, { interpreter: maliciousInterpreter as any });
 
         expect(mockRetrieveMessages).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv-real' }), expect.any(Number));
+    });
+
+    it('el chat personal del actor no acota la lectura: voz y texto ven los mismos datos', async () => {
+        // Observed on device: voice sent the self conversation (history scope)
+        // and every agent-created commitment, which has no conversation, was
+        // filtered out ("no encontré compromisos").
+        isSelfConversationMock.mockResolvedValueOnce(true);
+        await withDeterministicInterpreter({ actorUserId: 'u1', input: '¿Qué tengo pendiente mañana?', conversationId: 'self-conv' });
+        expect(isSelfConversationMock).toHaveBeenCalledWith('u1', 'self-conv');
+        expect(mockRetrieveCommitments).toHaveBeenCalled();
+        for (const call of mockRetrieveCommitments.mock.calls) expect(call[0].conversationId).toBeUndefined();
     });
 
     it('sin conversationId explícito del caller, ninguna llamada usa un conversationId inventado', async () => {

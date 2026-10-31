@@ -11,6 +11,7 @@
 // (passed explicitly by the caller) or from `resolvePerson` (M-1B,
 // authorization-safe) — never from parsed text (sección 23).
 import { AppError } from '../utils/AppError';
+import { isSelfConversation } from './conversation.service';
 import {
     resolvePerson,
     retrieveCommitments,
@@ -600,6 +601,18 @@ export interface BuildAgentContextOptions {
     budget?: AgentContextBudget;
 }
 
+async function resolveReadConversationScope(actorUserId: string, conversationId?: string): Promise<string | undefined> {
+    if (!conversationId) return undefined;
+    try {
+        return await isSelfConversation(actorUserId, conversationId) ? undefined : conversationId;
+    } catch (error: any) {
+        // Keep the narrower scope when the check cannot run: it can hide
+        // data, never expose another conversation's.
+        console.warn('[AgentContext] Self conversation check unavailable; keeping conversation scope.', error?.message ?? error);
+        return conversationId;
+    }
+}
+
 export async function buildAgentContext(input: AgentContextInput, options: BuildAgentContextOptions = {}): Promise<AgentContext> {
     const startedAt = Date.now();
     if (!input.actorUserId) throw new AppError('actorUserId is required', 400);
@@ -615,7 +628,11 @@ export async function buildAgentContext(input: AgentContextInput, options: Build
     // Sección 13: diagnostics debe poder indicar si la timezone vino del
     // caller (validada) o si se usó el fallback técnico (ausente o inválida).
     const timezoneSource: 'input' | 'fallback' = input.timezone?.trim() && timezone === input.timezone.trim() ? 'input' : 'fallback';
-    const conversationId = input.conversationId; // ÚNICA fuente de conversationId — nunca el intérprete.
+    // ÚNICA fuente de conversationId — nunca el intérprete. The main Ping
+    // surface reads across all of the actor's data; voice sends the self
+    // conversation only to bind history, so it must not narrow retrieval
+    // (agent-created commitments carry no conversation and were all hidden).
+    const conversationId = await resolveReadConversationScope(input.actorUserId, input.conversationId);
 
     let rawInterpretation = options.interpretation
         ?? await safeInterpret(interpreter, input.input, { conversationId, channel: input.channel });
