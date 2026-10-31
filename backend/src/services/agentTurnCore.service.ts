@@ -1284,7 +1284,11 @@ export async function runAgentTurn(
         dialogueScopeKey,
         context: narrowedReferentId && priorReadContext
             ? { ...priorReadContext, sourceTurnId: traceId, focusCanonicalId: narrowedReferentId }
+            // An answer about one commitment makes it the referent of the next
+            // turn however the question was classified ("¿Cuál es el de
+            // bingo?" then "¿A qué hora?").
             : context.intent.type === 'commitment_query'
+                || (context.commitments.length === 1 && response.status === 'answered')
             ? {
                 kind: 'commitment_query',
                 timeRange: context.entities?.timeRange ?? null,

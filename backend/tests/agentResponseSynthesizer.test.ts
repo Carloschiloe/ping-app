@@ -3141,6 +3141,26 @@ describe('social and conversational turns answer the speech act', () => {
         expect(response.answer).not.toContain('No tengo detalles');
     });
 
+    it('lists open commitments without the model even when their history was attached', async () => {
+        const model = fakeModel(claimPayload([]));
+        const response = await new LlmResponseSynthesizer({ model }).synthesize({
+            input: '¿Tengo que llamar a alguien?',
+            locale: 'es-CL',
+            context: baseContext({
+                evidenceFound: true,
+                queryCardinality: 'exhaustive_list',
+                commitments: [
+                    commitment('c1', { title: 'llamar a Juan' }),
+                    commitment('c2', { title: 'llamar a Ana' }),
+                ] as any,
+                events: [retrievalEvent('e1', { commitmentId: 'c1', eventType: 'created' })] as any,
+            } as Partial<AgentContext>),
+        });
+        expect(model.synthesize).not.toHaveBeenCalled();
+        expect(response.answer).toContain('llamar a Juan');
+        expect(response.answer).toContain('llamar a Ana');
+    });
+
     it('counts commitments in a period in plain words', async () => {
         const model = fakeModel(claimPayload([]));
         const response = await new LlmResponseSynthesizer({ model }).synthesize({
