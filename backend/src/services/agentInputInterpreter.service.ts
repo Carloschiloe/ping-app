@@ -24,6 +24,7 @@ import {
     semanticProviderResponseMetadata,
     type SemanticModelFamily,
     type SemanticProviderErrorMetadata,
+    hedgedSemanticRequest,
 } from './semanticOpenAiTransport.service';
 import type { AgentInterpretationPayload } from '../schemas/agentInterpretation.schema';
 import { agentInterpretationPayloadSchema } from '../schemas/agentInterpretation.schema';
@@ -1812,6 +1813,7 @@ export interface OpenAiAgentInputModelOptions {
 export class OpenAiAgentInputModel implements AgentInputModel {
     readonly modelName: string;
     readonly timeoutMs: number;
+    private readonly hedgeAfterMs: number;
     private readonly modelFamily: SemanticModelFamily;
     private readonly onProviderRequest?: () => void;
     private readonly onProviderResponse?: (metadata: AgentInputProviderResponseMetadata) => void;
@@ -1822,6 +1824,7 @@ export class OpenAiAgentInputModel implements AgentInputModel {
         this.modelName = runtime.modelName;
         this.modelFamily = runtime.modelFamily;
         this.timeoutMs = runtime.policy.timeoutMs;
+        this.hedgeAfterMs = runtime.policy.hedgeAfterMs;
         this.onProviderRequest = options.onProviderRequest ?? (() => traceSemanticProvider('SEMANTIC_PROVIDER_REQUEST', { modelRequested: this.modelName, modelFamily: this.modelFamily }));
         this.onProviderResponse = options.onProviderResponse ?? ((metadata) => traceSemanticProvider('SEMANTIC_PROVIDER_RESPONSE', { modelRequested: this.modelName, ...metadata, fallbackUsed: false, providerError: 'none' }));
         this.onProviderError = options.onProviderError ?? ((metadata) => traceSemanticProvider('SEMANTIC_PROVIDER_ERROR', { modelRequested: this.modelName, ...metadata, fallbackUsed: true }));
@@ -1832,12 +1835,14 @@ export class OpenAiAgentInputModel implements AgentInputModel {
         const client = getOpenAiInterpreterClient();
         try {
             this.onProviderRequest?.();
-            const response = await client.chat.completions.create(
-                buildSemanticOpenAiRequest({
-                    modelName: this.modelName,
-                    family: this.modelFamily,
-                    messages: [{ role: 'user', content: buildInterpreterPrompt(request.input, request.context) }],
-                }) as never,
+            const payload = buildSemanticOpenAiRequest({
+                modelName: this.modelName,
+                family: this.modelFamily,
+                messages: [{ role: 'user', content: buildInterpreterPrompt(request.input, request.context) }],
+            }) as never;
+            const response = await hedgedSemanticRequest(
+                (signal) => client.chat.completions.create(payload, { signal }) as Promise<OpenAI.Chat.Completions.ChatCompletion>,
+                { hedgeAfterMs: this.hedgeAfterMs, onHedge: () => traceSemanticProvider('SEMANTIC_PROVIDER_HEDGE', { modelRequested: this.modelName }) },
             );
             this.onProviderResponse?.(semanticProviderResponseMetadata(response));
             return response.choices[0]?.message?.content || '{}';
