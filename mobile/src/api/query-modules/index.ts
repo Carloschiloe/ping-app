@@ -5,3 +5,4 @@ export * from './operation';
 export * from './groups';
 export * from './commitments';
 export * from './calendar';
+export * from './memory';

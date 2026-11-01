@@ -31,6 +31,7 @@ export class BenchWorld implements AssistantDataPort {
     public readonly executed: AgentPlanStep[] = [];
     public readonly sentMessages: Array<{ conversationId: string; content: string }> = [];
     public readonly remembered: string[] = [];
+    public readonly forgotten: string[] = [];
 
     public constructor() {
         this.commitments = BENCH_COMMITMENTS.map((item) => ({
@@ -86,7 +87,13 @@ export class BenchWorld implements AssistantDataPort {
 
     async searchMemory(query: string): Promise<AssistantMemoryHit[]> {
         const wanted = words(query);
-        return BENCH_MEMORY.filter((fact) => wanted.length === 0 || wanted.some((word) => fold(fact.content).includes(word)));
+        return BENCH_MEMORY
+            .filter((fact) => !this.forgotten.includes(fact.id))
+            .filter((fact) => wanted.length === 0 || wanted.some((word) => fold(fact.content).includes(word)));
+    }
+
+    async listKnownFacts(): Promise<AssistantMemoryHit[]> {
+        return BENCH_MEMORY.filter((fact) => !this.forgotten.includes(fact.id));
     }
 
     async createPendingAction(input: { steps: AgentPlanStep[] }): Promise<{ id: string; expiresAt: string }> {
@@ -136,6 +143,7 @@ export class BenchWorld implements AssistantDataPort {
             case 'respond_to_proposal': if (target) target.status = args.decision === 'approve' ? 'accepted' : 'rejected'; break;
             case 'send_message': this.sentMessages.push({ conversationId: args.conversationId, content: args.content }); break;
             case 'remember_fact': this.remembered.push(args.factContent); break;
+            case 'forget_fact': this.forgotten.push(args.memoryRecordId); break;
         }
     }
 }

@@ -70,7 +70,7 @@ export const ASSISTANT_TOOL_DEFINITIONS: AssistantToolDefinition[] = [
         text: nullable({ type: 'string', description: 'Words to search for, or null' }),
         person: nullable(REF('a person whose direct conversation to search')),
     }),
-    tool('search_memory', 'Search facts the user asked Ping to remember.', { query: { type: 'string' } }),
+    tool('search_memory', 'Search the facts the user told Ping to remember, beyond the ones already listed in the conversation.', { query: { type: 'string' } }),
     tool('propose_create_commitment', 'Prepare a new commitment for the user to confirm. Nothing is created until the user confirms in a later message.', {
         title: { type: 'string', description: 'Short activity title in the user\'s words, without the date or time' },
         due: LOCAL_DATE_TIME,
@@ -89,7 +89,10 @@ export const ASSISTANT_TOOL_DEFINITIONS: AssistantToolDefinition[] = [
         due: nullable({ ...LOCAL_DATE_TIME, description: 'New local date/time when the decision is counter, else null' }),
     }),
     tool('propose_send_message', 'Prepare a chat message to a contact, for the user to confirm.', { person: REF('the recipient'), text: { type: 'string' } }),
-    tool('propose_remember', 'Prepare saving a fact the user explicitly asked Ping to remember, for the user to confirm.', { fact: { type: 'string' } }),
+    tool('propose_remember', 'Prepare saving a lasting fact about the user (asked for, or offered after they mentioned it), for the user to confirm.', {
+        fact: { type: 'string', description: 'The fact in one short sentence, in the user\'s language and point of view (e.g. "Mi jefe se llama Pedro")' },
+    }),
+    tool('propose_forget', 'Prepare forgetting a remembered fact, for the user to confirm.', { ref: REF('a remembered fact') }),
     tool('confirm_action', 'Execute a pending action. Only when the user, in their latest message, clearly agreed to that exact pending action.', { action: REF('the pending action') }),
     tool('discard_action', 'Drop a pending action the user does not want.', { action: REF('the pending action') }),
 ];
@@ -288,7 +291,7 @@ const handlers: Record<string, ToolHandler> = {
         return {
             facts: hits.slice(0, 10).map((hit) => {
                 ctx.citations.set(hit.id, { sourceType: 'memory', sourceId: hit.id });
-                return hit.content.slice(0, 500);
+                return { ref: ctx.refs.refFor('memory', hit.id, hit.content.slice(0, 80)), fact: hit.content.slice(0, 500) };
             }),
         };
     },
@@ -397,6 +400,15 @@ const handlers: Record<string, ToolHandler> = {
         return propose(ctx, 'propose_remember', 'remember_fact', 'remember_fact',
             { factContent: fact },
             `Recordar: «${fact}»`);
+    },
+
+    async propose_forget(args, ctx) {
+        const entry = ctx.refs.resolve(args.ref, 'memory');
+        if (!entry) return { error: 'unknown_ref', detail: 'Use a ref of a remembered fact the conversation showed.' };
+        return propose(ctx, 'propose_forget', 'forget_fact', 'forget_fact',
+            { memoryRecordId: entry.id },
+            `Olvidar: «${entry.label}»`,
+            [{ sourceType: 'memory', sourceId: entry.id }]);
     },
 
     async confirm_action(args, ctx) {

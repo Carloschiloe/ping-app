@@ -63,12 +63,14 @@ export interface AssistantDataPort {
     personNames(userIds: string[]): Promise<Record<string, string>>;
     searchMessages(query: { text?: string; conversationId?: string; from?: string; to?: string }): Promise<AssistantMessageHit[]>;
     searchMemory(query: string): Promise<AssistantMemoryHit[]>;
+    /** The facts the user told Ping to remember, newest first. */
+    listKnownFacts(): Promise<AssistantMemoryHit[]>;
     createPendingAction(input: { steps: AgentPlanStep[]; objectiveType: string; summary: string }): Promise<{ id: string; expiresAt: string }>;
     confirmPendingAction(id: string): Promise<ConfirmOutcome>;
     discardPendingAction(id: string): Promise<boolean>;
 }
 
-export type AssistantRefKind = 'commitment' | 'person' | 'action';
+export type AssistantRefKind = 'commitment' | 'person' | 'action' | 'memory';
 
 export interface AssistantRefEntry {
     ref: string;

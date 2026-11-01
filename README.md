@@ -22,6 +22,7 @@ Ping is a personal assistant built around real messaging, commitments, people an
 
 - One assistant turn: `backend/src/services/assistant/` — the model gets the user's text, recent dialogue and a set of tools (`list_commitments`, `search_messages`, `search_memory`, `propose_create_commitment`, `propose_reschedule`, `propose_remember`, ...). Tools that write return a proposal the user confirms. Design: [`docs/M9-ASISTENTE-CON-HERRAMIENTAS.md`](docs/M9-ASISTENTE-CON-HERRAMIENTAS.md).
 - Ping taking the initiative (morning summary, overdue notices, per-user preferences): `assistantInitiative.service.ts`, run every 5 minutes by `cronCoordinator`. Design: [`docs/M10-INICIATIVA.md`](docs/M10-INICIATIVA.md).
+- What Ping remembers about the user (known facts each turn, offering to remember, forgetting, the Perfil list): `backend/src/services/memoryFacts.service.ts`. Design: [`docs/M11-MEMORIA.md`](docs/M11-MEMORIA.md).
 - Retrieval contracts: [`docs/M-1B-STRUCTURED-RETRIEVAL-CONTRACT.md`](docs/M-1B-STRUCTURED-RETRIEVAL-CONTRACT.md), [`docs/M-1C-FULL-TEXT-RETRIEVAL.md`](docs/M-1C-FULL-TEXT-RETRIEVAL.md).
 
 ## Repository shape

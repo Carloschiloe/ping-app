@@ -3,7 +3,7 @@
 // model can never act on something it was not shown, and never sees an id.
 import type { AssistantRefEntry, AssistantRefKind } from './assistantTypes';
 
-const PREFIX: Record<AssistantRefKind, string> = { commitment: 'c', person: 'p', action: 'a' };
+const PREFIX: Record<AssistantRefKind, string> = { commitment: 'c', person: 'p', action: 'a', memory: 'm' };
 const MAX_REFS = 300;
 
 export class AssistantRefTable {

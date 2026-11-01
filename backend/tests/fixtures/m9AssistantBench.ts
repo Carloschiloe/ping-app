@@ -266,6 +266,15 @@ export const M9_BENCH_CASES: BenchCase[] = [
     { id: 'M03', area: 'memory', turns: [
         { user: 'Acuérdate de que mi clave del wifi del departamento es la de la caja del router', expect: { proposes: { tool: 'propose_remember' } } },
     ] },
+    { id: 'M04', area: 'memory', turns: [
+        { user: 'Oye, mi jefa nueva se llama Carolina Pérez. ¿Qué tengo hoy?', expect: { calls: listing, proposes: { tool: 'propose_remember', args: { factContent: { re: 'Carolina' } } } } },
+    ] },
+    { id: 'M05', area: 'memory', turns: [
+        { user: '¿En qué comuna atiende mi dentista?', expect: { notCalls: ['search_memory'], says: ['Providencia'] } },
+    ] },
+    { id: 'M06', area: 'memory', turns: [
+        { user: 'Ya no voy donde la doctora Rojas, olvídalo', expect: { proposes: { tool: 'propose_forget' } } },
+    ] },
 
     // ── Tarea interrumpida y retomada ──────────────────────────────────────
     { id: 'T01', area: 'interruption', turns: [
