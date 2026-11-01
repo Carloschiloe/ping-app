@@ -33,17 +33,3 @@ export function localHourAndMinute(now: Date, timezone: string): { hour: number;
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return { hour: Number(values.hour), minute: Number(values.minute) };
 }
-
-export function isMorningRoutineWindow(now: Date, timezone: string): boolean {
-    const { hour, minute } = localHourAndMinute(now, timezone);
-    return hour === 8 && minute < 5;
-}
-
-export function localDayName(now: Date, timezone: string): string {
-    return new Intl.DateTimeFormat('es-CL', {
-        timeZone: timezone,
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-    }).format(now);
-}

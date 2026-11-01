@@ -242,6 +242,8 @@ export interface AgentTurnResponse {
     pendingActions?: AgentPendingAction[];
     /** Set when this turn executed a confirmed action; views showing commitments refresh. */
     changed?: true;
+    /** Ping wrote this turn on its own initiative: there is no user message. */
+    initiative?: { kind: string };
     debug?: AgentTurnDebugMetadata;
 }
 
@@ -334,6 +336,8 @@ export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
         : [];
     if (pendingActions.length) result.pendingActions = pendingActions;
     if (obj.changed === true) result.changed = true;
+    const initiative = obj.initiative as Record<string, unknown> | undefined;
+    if (initiative && typeof initiative.kind === 'string') result.initiative = { kind: initiative.kind };
     if (obj.debug && typeof obj.debug === 'object') result.debug = obj.debug as AgentTurnDebugMetadata;
     return result;
 }

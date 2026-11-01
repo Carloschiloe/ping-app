@@ -1,5 +1,5 @@
 import { checkDueCommitments } from './push.service';
-import { startMorningRoutineCron } from './morningRoutine.service';
+import { runInitiativeEngine } from './assistant/assistantInitiative.service';
 import { reconcilePendingAgentExecutionHistory } from './agentConversationTurn.service';
 import { getEnvConfig } from '../config/env';
 
@@ -51,7 +51,9 @@ export function startScheduledJobs() {
             });
     }, 60_000);
 
-    startMorningRoutineCron();
+    // Ping's own initiatives (daily summary). Each one is claimed in the
+    // database, so a pass that overlaps a restart never sends it twice.
+    setInterval(() => { void runInitiativeEngine(); }, 5 * 60_000);
     hasScheduledJobs = true;
 }
 
