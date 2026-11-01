@@ -23,9 +23,7 @@ export default defineConfig({
             reporter: ['text', 'html'],
             include: [
                 'src/utils/commitmentStatus.ts',
-                'src/utils/commitmentType.ts',
                 'src/utils/commitmentTransitions.ts',
-                'src/utils/commitmentEvents.ts',
                 'src/utils/commitmentCompat.ts',
                 'src/schemas/commitment.schema.ts',
                 'src/schemas/contact.schema.ts',
