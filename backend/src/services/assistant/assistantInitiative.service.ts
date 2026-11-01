@@ -16,8 +16,9 @@ import { SupabaseAssistantDataPort } from './assistantSupabasePort';
 import { runAssistantModeTurn } from './assistantTurn.service';
 import type { AgentTurnResponse, AgentTurnInitiativeKind } from '../../types/agentTurn';
 
-export const DAILY_SUMMARY_HOUR = 8;
-/** Other notices wait for daytime after the summary hour: 09:00 to 21:59 local. */
+/** Used when a profile has no summary hour of its own. */
+export const DEFAULT_SUMMARY_HOUR = 8;
+/** Other notices wait for daytime: from the hour after the summary to 21:59 local. */
 const QUIET_FROM_HOUR = 22;
 /** At most this many initiatives per user and local day. */
 export const DAILY_INITIATIVE_LIMIT = 3;
@@ -37,6 +38,10 @@ export interface InitiativeRecipient {
     userId: string;
     timezone: string;
     pushToken: string | null;
+    /** The user's choices in Perfil. */
+    dailySummary: boolean;
+    summaryHour: number;
+    overdueNotices: boolean;
 }
 
 export interface OverdueItem {
@@ -59,7 +64,7 @@ export interface InitiativeDeps {
     selfConversationId(userId: string): Promise<string>;
     runTurn(input: { userId: string; text: string; timezone: string; conversationId: string }): Promise<{ result: AgentTurnResponse; memory: unknown }>;
     persistTurn(input: { userId: string; conversationId: string; key: string; text: string; result: AgentTurnResponse; memory: unknown }): Promise<void>;
-    push(token: string, title: string, body: string): Promise<void>;
+    push(token: string, title: string, body: string, data: Record<string, unknown>): Promise<void>;
 }
 
 function pushBody(answer: string): string {
@@ -103,7 +108,8 @@ async function deliver(
         if (!answer) throw new Error('empty_initiative_answer');
         const initiativeResult: AgentTurnResponse = { ...result, initiative: { kind } };
         await deps.persistTurn({ userId: recipient.userId, conversationId, key: keys[0], text: note, result: initiativeResult, memory });
-        if (recipient.pushToken) await deps.push(recipient.pushToken, 'Ping', pushBody(answer));
+        // Tapping the notification opens the chat with Ping.
+        if (recipient.pushToken) await deps.push(recipient.pushToken, 'Ping', pushBody(answer), { type: 'ping_assistant', kind });
         for (const key of keys) await deps.complete(key);
     } catch (error: any) {
         for (const key of keys) await deps.fail(key, error?.message ?? String(error));
@@ -113,7 +119,7 @@ async function deliver(
 
 /** Daily summary: each user once per local day, in their summary hour. */
 async function dailySummary(recipient: InitiativeRecipient, deps: InitiativeDeps): Promise<boolean> {
-    if (localHourAndMinute(deps.now, recipient.timezone).hour !== DAILY_SUMMARY_HOUR) return false;
+    if (!recipient.dailySummary || localHourAndMinute(deps.now, recipient.timezone).hour !== recipient.summaryHour) return false;
     const localDate = localDateKey(deps.now, recipient.timezone);
     const key = `daily_summary:${recipient.userId}:${localDate}`;
     const endOfToday = localDayRangeToIso(undefined, localDate, recipient.timezone)?.to;
@@ -125,8 +131,9 @@ async function dailySummary(recipient: InitiativeRecipient, deps: InitiativeDeps
 
 /** Overdue notice: once per item and due time, in daytime, within the daily limit. */
 async function overdueNotice(recipient: InitiativeRecipient, deps: InitiativeDeps): Promise<boolean> {
+    if (!recipient.overdueNotices) return false;
     const { hour } = localHourAndMinute(deps.now, recipient.timezone);
-    if (hour <= DAILY_SUMMARY_HOUR || hour >= QUIET_FROM_HOUR) return false;
+    if (hour <= recipient.summaryHour || hour >= QUIET_FROM_HOUR) return false;
     const localDate = localDateKey(deps.now, recipient.timezone);
     const to = new Date(deps.now.getTime() - OVERDUE_GRACE_MS);
     const from = new Date(to.getTime() - OVERDUE_WINDOW_MS);
@@ -168,12 +175,17 @@ export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
     return {
         now,
         async listRecipients() {
-            const { data, error } = await supabaseAdmin.from('profiles').select('id, timezone, expo_push_token');
+            const { data, error } = await supabaseAdmin
+                .from('profiles')
+                .select('id, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_overdue_notices');
             if (error) throw new Error(`profiles: ${error.message}`);
             return (data || []).map((row: any) => ({
                 userId: row.id,
                 timezone: resolveAutomationTimezone(row.timezone),
                 pushToken: typeof row.expo_push_token === 'string' && row.expo_push_token ? row.expo_push_token : null,
+                dailySummary: row.assistant_daily_summary !== false,
+                summaryHour: Number.isInteger(row.assistant_summary_hour) ? row.assistant_summary_hour : DEFAULT_SUMMARY_HOUR,
+                overdueNotices: row.assistant_overdue_notices !== false,
             }));
         },
         async hasAgendaUntil(userId, endIso) {

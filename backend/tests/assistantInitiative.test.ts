@@ -17,12 +17,13 @@ const USER = 'user-1';
 const MORNING = new Date('2026-11-02T11:30:00.000Z'); // 08:30
 const AFTERNOON = new Date('2026-11-02T18:30:00.000Z'); // 15:30
 const CALL = { id: 'c1', title: 'Llamar a Juan', dueAt: '2026-11-02T18:00:00.000Z' }; // 15:00
+const PREFS = { dailySummary: true, summaryHour: 8, overdueNotices: true };
 
 function deps(overrides: Partial<InitiativeDeps> = {}): InitiativeDeps {
     const claimed = new Set<string>();
     return {
         now: MORNING,
-        listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: 'ExponentPushToken[x]' }]),
+        listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: 'ExponentPushToken[x]', ...PREFS }]),
         hasAgendaUntil: vi.fn(async () => true),
         listOverdue: vi.fn(async () => []),
         countSentOn: vi.fn(async () => 0),
@@ -58,7 +59,7 @@ describe('M10 — daily summary initiative', () => {
             key: `daily_summary:${USER}:2026-11-02`,
             result: expect.objectContaining({ initiative: { kind: 'daily_summary' } }),
         }));
-        expect(d.push).toHaveBeenCalledWith('ExponentPushToken[x]', 'Ping', 'Buenos días. Hoy tienes la reunión con Pedro a las 11.');
+        expect(d.push).toHaveBeenCalledWith('ExponentPushToken[x]', 'Ping', 'Buenos días. Hoy tienes la reunión con Pedro a las 11.', { type: 'ping_assistant', kind: 'daily_summary' });
         expect(d.complete).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`);
         expect(d.listOverdue).not.toHaveBeenCalled();
     });
@@ -81,7 +82,7 @@ describe('M10 — daily summary initiative', () => {
     });
 
     it('keeps the chat message without a push token, and releases the claim when the turn fails', async () => {
-        const silent = deps({ listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: null }]) });
+        const silent = deps({ listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: null, ...PREFS }]) });
         expect((await runInitiativePass(silent)).summaries).toBe(1);
         expect(silent.push).not.toHaveBeenCalled();
 
@@ -135,8 +136,8 @@ describe('M10 — overdue initiative', () => {
         const d = deps({
             now: AFTERNOON,
             listRecipients: vi.fn(async () => [
-                { userId: 'broken', timezone: 'America/Santiago', pushToken: null },
-                { userId: USER, timezone: 'America/Santiago', pushToken: null },
+                { userId: 'broken', timezone: 'America/Santiago', pushToken: null, ...PREFS },
+                { userId: USER, timezone: 'America/Santiago', pushToken: null, ...PREFS },
             ]),
             listOverdue: vi.fn(async (userId: string) => {
                 if (userId === 'broken') throw new Error('db down');
@@ -144,5 +145,29 @@ describe('M10 — overdue initiative', () => {
             }),
         });
         expect((await runInitiativePass(d)).overdue).toBe(1);
+    });
+});
+
+describe('M10 — notice preferences', () => {
+    const recipient = (prefs: Partial<typeof PREFS>) => vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: null, ...PREFS, ...prefs }]);
+
+    it('sends the summary at the hour the user chose, and not when it is off', async () => {
+        const at10 = deps({ now: new Date('2026-11-02T13:05:00.000Z'), listRecipients: recipient({ summaryHour: 10 }) }); // 10:05
+        expect((await runInitiativePass(at10)).summaries).toBe(1);
+        expect((await runInitiativePass(deps({ listRecipients: recipient({ summaryHour: 10 }) }))).summaries).toBe(0); // 08:30
+
+        const off = deps({ listRecipients: recipient({ dailySummary: false }) });
+        expect((await runInitiativePass(off)).summaries).toBe(0);
+        expect(off.hasAgendaUntil).not.toHaveBeenCalled();
+    });
+
+    it('skips overdue notices when they are off, and waits until after a later summary hour', async () => {
+        const off = deps({ now: AFTERNOON, listRecipients: recipient({ overdueNotices: false }), listOverdue: vi.fn(async () => [CALL]) });
+        expect((await runInitiativePass(off)).overdue).toBe(0);
+        expect(off.listOverdue).not.toHaveBeenCalled();
+
+        const late = deps({ now: new Date('2026-11-02T13:30:00.000Z'), hasAgendaUntil: vi.fn(async () => false), listRecipients: recipient({ summaryHour: 10 }), listOverdue: vi.fn(async () => [CALL]) }); // 10:30
+        expect((await runInitiativePass(late)).overdue).toBe(0);
+        expect(late.listOverdue).not.toHaveBeenCalled();
     });
 });

@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { publicPingSurface } from '../api/agentSurfaceAdapter';
 
 function isExpoGo() {
     return Constants.appOwnership === 'expo';
@@ -25,6 +26,19 @@ const doNavigate = (navigationRef: any, data: any) => {
                 callerAvatar: data.callerAvatar || null,
                 callId: data.callId || null,
             });
+        } catch {
+            // Navigation may no longer be mounted.
+        }
+    }, 300);
+};
+
+// A notice Ping wrote on its own lives in the chat with Ping; open it there.
+const openPingChat = (navigationRef: any) => {
+    const nav = navigationRef?.current ?? navigationRef;
+    if (!nav) return;
+    setTimeout(() => {
+        try {
+            nav.navigate('Main', { screen: 'Chats', params: { screen: 'PingAI', params: { surface: publicPingSurface() } } });
         } catch {
             // Navigation may no longer be mounted.
         }
@@ -93,8 +107,15 @@ export const usePushNotifications = (navigationRef?: any) => {
                 Notifications.addNotificationResponseReceivedListener((response) => {
                     const data = response.notification.request.content.data as any;
                     if (data?.type === 'incoming_call') handleIncomingCall(data);
+                    if (data?.type === 'ping_assistant') openPingChat(navigationRef);
                 }),
             ];
+
+            // The app was closed and opened by tapping a notice.
+            const launch = await Notifications.getLastNotificationResponseAsync();
+            if (active && (launch?.notification.request.content.data as any)?.type === 'ping_assistant') {
+                openPingChat(navigationRef);
+            }
         };
 
         configure().catch((error) => {
