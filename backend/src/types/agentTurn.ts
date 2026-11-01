@@ -14,8 +14,10 @@ export type AgentTurnConfirmationState = 'required' | 'received';
 export interface AgentTurnResponse {
     kind: 'response';
     response: AgentPublicResponse;
-    /** Assistant mode: actions proposed in this turn that wait for the user's answer. */
+    /** Actions proposed in this turn that wait for the user's answer. */
     pendingActions?: AgentTurnPendingAction[];
+    /** Set when this turn executed a confirmed action, so clients refresh their views. */
+    changed?: true;
     debug?: AgentDeviceDebugMetadata;
 }
 

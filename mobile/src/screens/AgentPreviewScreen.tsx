@@ -1,7 +1,8 @@
 // Ping Core surface (POST /agent/turn). The main entry has no route
 // conversationId, so its durable history is projected through the actor's
 // idempotent self-chat while semantic dialogue scope remains Core-owned.
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
@@ -13,17 +14,17 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import {
-    createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
+    createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentTurn,
     isAgentConversationEventsEnabled, useAgentConversationTurns, type AgentActionDecision, type AgentFollowUpOption,
     type AgentPendingAction, type AgentVoiceTranscriptResult,
 } from '../api/query-modules/agent';
 import { useSelfConversationId, useClearAgentConversationHistory } from '../api/query-modules/conversations';
+import { invalidateCommitmentViews } from '../api/query-invalidation';
 import { ApiError } from '../api/client';
 import {
-    AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
-    appendExecutionMessage, appendUserMessage,
+    AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage, appendUserMessage,
     canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel, isLatestAgentMessage,
-    restoreAgentConversationMessages, restorePendingAgentPlan, type AgentChatMessage,
+    restoreAgentConversationMessages, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -31,12 +32,6 @@ import type { AgentCoreScreenProps } from '../navigation/types';
 import { useAgentVoiceInput } from '../hooks/useAgentVoiceInput';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { voiceStatusCopy } from '../utils/voiceSession';
-import {
-    authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
-    isAgentTurnBusy, reduceAgentTurnUi, type PendingAgentPlan,
-} from '../utils/agentTurnState';
-import { AgentPlanCard } from '../components/agent/AgentPlanCard';
-import { AgentExecutionCard } from '../components/agent/AgentExecutionCard';
 import { LiveVoiceSession } from '../components/agent/LiveVoiceSession';
 
 // Sección 17 del ticket: el backend puede tardar tras cold start -- no se
@@ -58,7 +53,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const [voiceError, setVoiceError] = useState<string | null>(null);
     const [liveVoiceVisible, setLiveVoiceVisible] = useState(false);
     const [retryBlockedUntil, setRetryBlockedUntil] = useState(0);
-    const [turnState, dispatchTurn] = useReducer(reduceAgentTurnUi, initialAgentTurnUiState);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
     // pantalla es más corto, y en dispositivos con inset superior grande
@@ -71,13 +65,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const isMountedRef = useRef(true);
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const sendInFlightRef = useRef(false);
-    const confirmationInFlightRef = useRef(false);
     const hydratedConversationRef = useRef<string | null>(null);
     const localInteractionRef = useRef(false);
 
-    const { mutate: submitTurn, isPending: isTurnPending } = useAgentTurn();
-    const { mutateAsync: authorizePlan, isPending: isAuthorizePending } = useAgentAuthorize();
-    const { mutateAsync: executePlan, isPending: isExecutePending } = useAgentExecute();
+    const queryClient = useQueryClient();
+    const { mutate: submitTurn, isPending } = useAgentTurn();
     const { data: selfConversationId } = useSelfConversationId(
         isMainCoreEntry && !conversationId && isAgentConversationEventsEnabled(),
     );
@@ -85,8 +77,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const { data: persistedHistory } = useAgentConversationTurns(historyConversationId);
     const dialogueScopeKey = conversationId || (isMainCoreEntry ? 'agent:mobile' : undefined);
     const { mutateAsync: clearAgentConversationHistory, isPending: isClearingHistory } = useClearAgentConversationHistory(historyConversationId, dialogueScopeKey);
-    const isPending = isTurnPending || isAuthorizePending || isExecutePending || isAgentTurnBusy(turnState);
-    const hasPendingPlan = turnState.phase === 'plan_ready' && !!turnState.pendingPlan;
     // Ping Voz is a production capability of the main Ping entry. Keep the
     // explicit build flag for controlled builds, but do not hide the entry
     // point in Expo Go when the dynamic config has no extra values.
@@ -95,11 +85,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     useEffect(() => {
         if (!historyConversationId || !persistedHistory || hydratedConversationRef.current === historyConversationId) return;
         hydratedConversationRef.current = historyConversationId;
-        if (!localInteractionRef.current) {
-            setMessages(restoreAgentConversationMessages(persistedHistory.turns));
-            const pending = restorePendingAgentPlan(persistedHistory.turns);
-            if (pending) dispatchTurn({ type: 'RESTORE_PENDING_PLAN', pending });
-        }
+        if (!localInteractionRef.current) setMessages(restoreAgentConversationMessages(persistedHistory.turns));
     }, [historyConversationId, persistedHistory]);
 
     const handleTranscriptReady = useCallback((result: AgentVoiceTranscriptResult) => {
@@ -160,7 +146,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         // React state updates are batched. This ref closes the small window in
         // which two native taps can arrive before `isPending` re-renders.
         sendInFlightRef.current = true;
-        const pendingPlanBeforeSubmit = turnState.pendingPlan;
         const matchingVoiceDraft = !actionDecision && voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const requestChannel: 'mobile' | 'tablet' = adapterSurface === 'tablet' ? 'tablet' : 'mobile';
         const idempotencyKey = retryIdempotencyKey ?? createAgentTurnIdempotencyKey();
@@ -180,7 +165,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
         localInteractionRef.current = true;
-        dispatchTurn({ type: 'SUBMIT', source, sourceText: trimmed });
         if (!actionDecision) {
             setInputText('');
             setVoiceDraft(null);
@@ -200,23 +184,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 if (!isMountedRef.current) return;
                 setIsSlow(false);
                 if (matchingVoiceDraft) voice.markFinished();
-                const isNaturalPlanConfirmation = result.kind === 'plan'
-                    && result.confirmationRequested === true
-                    && pendingPlanBeforeSubmit !== null;
-                dispatchTurn({
-                    type: 'TURN_RESULT',
-                    result,
-                    source: isNaturalPlanConfirmation ? pendingPlanBeforeSubmit!.source : source,
-                    sourceText: isNaturalPlanConfirmation ? pendingPlanBeforeSubmit!.sourceText : trimmed,
-                });
-                if (!isNaturalPlanConfirmation) setMessages((prev) => appendAgentTurnMessage(prev, result));
-                if (isNaturalPlanConfirmation) {
-                    void executePendingPlan({
-                        turn: result,
-                        source: pendingPlanBeforeSubmit!.source,
-                        sourceText: pendingPlanBeforeSubmit!.sourceText,
-                    });
-                }
+                setMessages((prev) => appendAgentTurnMessage(prev, result));
             },
             onError: (error) => {
                 sendInFlightRef.current = false;
@@ -230,7 +198,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 if (retryAfterSeconds !== undefined && retryAfterSeconds > 0) {
                     setRetryBlockedUntil(Date.now() + retryAfterSeconds * 1000);
                 }
-                dispatchTurn({ type: 'FAIL', message: mapAgentErrorMessage(error), status: error instanceof ApiError ? error.status : null });
                 setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed,
                     source.idempotencyKey, retryAfterSeconds, actionDecision));
             },
@@ -262,52 +229,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         setInputText(value);
     };
 
-    const handlePlanFailure = (error: unknown) => {
-        confirmationInFlightRef.current = false;
-        const code = error instanceof ApiError ? error.code : undefined;
-        const message = code === 'plan_changed'
-            ? 'El plan cambió. Revísalo nuevamente antes de confirmar.'
-            : error instanceof ApiError && (error.status === 403 || error.status === 422)
-                ? 'No puedo ejecutar ese plan con tu permiso o con el estado actual.'
-                : mapAgentErrorMessage(error);
-        dispatchTurn({ type: 'FAIL', message, failureCode: code, status: error instanceof ApiError ? error.status : null });
-    };
-
-    const executePendingPlan = async (pending: PendingAgentPlan) => {
-        if (confirmationInFlightRef.current) return;
-        confirmationInFlightRef.current = true;
-        dispatchTurn({ type: 'CONFIRM' });
-        try {
-            const { execution } = await authorizeThenExecuteAgentPlan(pending, {
-                authorize: (pendingPlan) => authorizePlan({ source: pendingPlan.source, turn: pendingPlan.turn }),
-                execute: (authorizationId) => executePlan({
-                    authorizationId,
-                    conversationId: pending.source.conversationId ?? historyConversationId,
-                    sourceTurnKey: pending.source.idempotencyKey,
-                }),
-                onAuthorized: (authorization) => {
-                dispatchTurn({ type: 'AUTHORIZED', authorization });
-                },
-            });
-            confirmationInFlightRef.current = false;
-            dispatchTurn({ type: 'EXECUTION_RESULT', execution });
-            setMessages((prev) => appendExecutionMessage(prev, execution, pending.turn.presentation));
-        } catch (error) {
-            handlePlanFailure(error);
-        }
-    };
-
-    const handleConfirmPlan = async () => {
-        const pending = turnState.pendingPlan;
-        if (!pending || !canConfirmAgentPlan(turnState) || confirmationInFlightRef.current) return;
-        await executePendingPlan(pending);
-    };
-
-    const handleCancelPlan = () => {
-        if (turnState.phase !== 'plan_ready') return;
-        dispatchTurn({ type: 'CANCEL_PLAN' });
-    };
-
     const handleClearHistory = useCallback(() => {
         if (!historyConversationId || isPending || isClearingHistory) return;
         Alert.alert(
@@ -327,7 +248,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                                 setVoiceError(null);
                                 localInteractionRef.current = true;
                                 hydratedConversationRef.current = historyConversationId;
-                                dispatchTurn({ type: 'RESET' });
                                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                             })
                             .catch(() => {
@@ -346,14 +266,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         const isUser = item.role === 'user';
         const citationsSummary = describeCitationsSummary(item.citations);
         const statusLabel = describeStatusLabel(item.status);
-        const isPlanCard = !!item.planPresentation && !!item.rawPlan;
-        const isExecutionCard = !!item.executionResult && !!item.executionPresentation;
-        const isActivePlan = isPlanCard
-            && turnState.pendingPlan?.turn.plan.planId === item.rawPlan?.plan.planId
-            && ['plan_ready', 'authorizing', 'executing'].includes(turnState.phase)
-            && Date.parse(item.planPresentation!.expiresAt) > Date.now();
-
-        const isCopyable = !isPlanCard && !isExecutionCard && !!item.text;
+        const isCopyable = !!item.text;
         const BubbleContainer = isCopyable ? TouchableOpacity : View;
 
         return (
@@ -362,7 +275,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     style={[
                         styles.bubble,
                         isUser ? styles.userBubble : styles.agentBubble,
-                        (isPlanCard || isExecutionCard) && styles.richCardBubble,
                         item.error && styles.errorBubble,
                     ]}
                     {...(isCopyable
@@ -375,30 +287,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         }
                         : {})}
                 >
-                    {isPlanCard ? (
-                        <AgentPlanCard
-                            presentation={item.planPresentation!}
-                            active={isActivePlan}
-                            busy={turnState.phase === 'authorizing' || turnState.phase === 'executing'}
-                            onConfirm={handleConfirmPlan}
-                            onCancel={handleCancelPlan}
-                        />
-                    ) : isExecutionCard ? (
-                        <AgentExecutionCard result={item.executionResult!} presentation={item.executionPresentation!} />
-                    ) : (
-                        <>
-                            {item.isClarification && <Text style={styles.turnLabel}>Necesito aclarar algo</Text>}
-                            {/* PING — AGENT RESPONSE LANGUAGE CONSISTENCY audit: "aún" implies
-                                a guaranteed future promise Ping's product semantics don't make for
-                                every case routed here (e.g. destructive bulk deletion, which this
-                                same heading also covers) -- neutral wording that's truthful for
-                                both "not yet, might come later" and "structurally unsupported"
-                                cases, never overpromising either way. */}
-                            {item.isUnsupported && <Text style={styles.turnLabel}>Esta acción no está disponible</Text>}
-                            {!item.isClarification && !item.isUnsupported && statusLabel && <Text style={styles.turnLabel}>{statusLabel}</Text>}
-                            <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
-                        </>
-                    )}
+                    {statusLabel && <Text style={styles.turnLabel}>{statusLabel}</Text>}
+                    <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
 
                     {!isUser && item.pendingActions?.map((action) => {
                         const answerable = isLatestAgentMessage(messages, item.id);
@@ -511,7 +401,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <View style={styles.emptyState}>
                         <Text style={styles.emptyTitle}>Pregúntale a Ping</Text>
                         <Text style={styles.emptySubtitle}>
-                            Consulta tu información o prepara una acción. Ping sólo actuará después de mostrarte el plan y pedir tu confirmación.
+                            Consulta tu información o pídele que haga algo. Ping solo actuará después de pedirte confirmación.
                         </Text>
                         <View style={styles.startersWrap}>
                             {AGENT_SUGGESTED_STARTERS.map((starter) => (
@@ -528,7 +418,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         data={messages}
                         keyExtractor={(item) => item.id}
                         renderItem={renderItem}
-                        extraData={turnState}
+                        extraData={isPending}
                         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
                         contentContainerStyle={styles.listContent}
                         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -540,9 +430,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <View style={styles.loadingRow}>
                         <ActivityIndicator size="small" color={theme.colors.info} />
                         <Text style={styles.loadingText}>
-                            {turnState.phase === 'authorizing' ? 'Confirmando el plan…'
-                                : turnState.phase === 'executing' ? 'Ejecutando y verificando…'
-                                    : isSlow ? 'Sigo buscando…' : 'Pensando…'}
+                            {isSlow ? 'Sigo buscando…' : 'Pensando…'}
                         </Text>
                     </View>
                 )}
@@ -558,12 +446,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                             </TouchableOpacity>
                         )}
                     </View>
-                )}
-
-                {hasPendingPlan && inputText.trim() && (
-                    <Text style={styles.planGateHint}>
-                        Puedes enviar esta corrección para reemplazar el plan, o confirmar/cancelar el pendiente.
-                    </Text>
                 )}
 
                 {voice.state === 'listening' || voice.state === 'capturing' ? (
@@ -665,7 +547,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
             <LiveVoiceSession
                 visible={liveVoiceVisible}
                 conversationId={historyConversationId}
-                onClose={() => setLiveVoiceVisible(false)}
+                onClose={() => {
+                    setLiveVoiceVisible(false);
+                    // A voice session can confirm actions this chat never saw.
+                    invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true });
+                }}
             />
         </SafeAreaView>
     );
@@ -686,17 +572,14 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
 
         keyboardArea: { flex: 1 },
         messageList: { flex: 1 },
-        // Leave room for the fixed composer. Without this, the active plan's
-        // confirmation actions could sit behind the composer on short iPhone
-        // viewports, encouraging the user to send a new turn and thereby
-        // correctly invalidating the still-unconfirmed plan.
+        // Leave room for the fixed composer so Confirm/Cancel buttons never
+        // sit behind it on short iPhone viewports.
         listContent: { padding: 16, paddingBottom: 180 },
         messageRow: { flexDirection: 'row', marginBottom: 12 },
         agentRow: { justifyContent: 'flex-start' },
         userRow: { justifyContent: 'flex-end' },
 
         bubble: { maxWidth: '85%', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
-        richCardBubble: { width: '94%', maxWidth: '94%', padding: 0, backgroundColor: 'transparent' },
         agentBubble: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4 },
         userBubble: { backgroundColor: theme.colors.info, borderBottomRightRadius: 4 },
         errorBubble: { backgroundColor: theme.isDark ? '#3a1f1f' : '#fee2e2', borderWidth: 1, borderColor: theme.colors.danger },
@@ -756,10 +639,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
             alignItems: 'center', justifyContent: 'center',
         },
         sendBtnDisabled: { backgroundColor: theme.colors.text.muted },
-        planGateHint: {
-            color: theme.colors.warning, fontSize: 12, lineHeight: 17,
-            paddingHorizontal: 14, paddingBottom: 4,
-        },
         mediaBtn: {
             width: 40, height: 40, borderRadius: 20,
             alignItems: 'center', justifyContent: 'center',

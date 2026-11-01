@@ -532,7 +532,7 @@ describe('ARCHIVE UX AUDIT + IMPLEMENTATION — "Archivar" ahora existe como acc
 // canonical invalidation owner used by resolve/cancel/reopen/
 // action-completed/counter-propose/reassign/schedule-follow-up/archive/
 // restore) did not invalidate ['agreement-proposals'], while
-// useAgentExecute (the Agent-driven mutation path) already did -- a manual
+// the Agent-driven mutation path already did -- a manual
 // (non-Agent) lifecycle mutation could leave Compromisos/Hoy's proposals
 // section stale. Fixed by adding the key to the single canonical owner,
 // never by duplicating a one-off invalidation into each of the 7 call
@@ -551,7 +551,7 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
         return match![0];
     }
 
-    it('the canonical owner invalidates agreement-proposals alongside every other canonical key -- not a narrower set than useAgentExecute', () => {
+    it('the canonical owner invalidates agreement-proposals alongside every other canonical key -- not a narrower set than useAgentTurn', () => {
         const body = lifecycleInvalidationBody();
         expect(body).toMatch(/invalidateCommitmentViews\(queryClient, \{ includeAgreementProposals: true \}\)/);
         for (const key of ['insights', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {
@@ -583,11 +583,11 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
         expect(definitions).toBe(1);
     });
 
-    it('useAgentExecute (mobile/src/api/query-modules/agent.ts) invalidation set is unchanged and still matches the canonical lifecycle set exactly -- Agent execution invalidation remains green', () => {
+    it('useAgentTurn (mobile/src/api/query-modules/agent.ts) invalidation set still matches the canonical lifecycle set exactly -- Agent execution invalidation remains green', () => {
         const AGENT_API_SRC = fs.readFileSync(
             path.join(__dirname, '..', 'src/api/query-modules/agent.ts'), 'utf-8',
         );
-        const fnMatch = AGENT_API_SRC.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        const fnMatch = AGENT_API_SRC.match(/export function useAgentTurn\(\)[^]*?\n\}/);
         expect(fnMatch).not.toBeNull();
         expect(fnMatch![0]).toMatch(/invalidateCommitmentViews\(queryClient/);
         for (const key of ['insights', 'commitments', 'all-commitments-dashboard', 'group-tasks', 'group-tasks-conv', 'conversation-messages', 'agreement-proposals']) {

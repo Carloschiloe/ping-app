@@ -200,10 +200,8 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("confirmed_user_turn_after_pending_output");
         expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("createResponse('user_turn_ready','required')");
-        expect(html).toContain("createResponse('core_result_authorized','none',[presentation.authorizedText,presentation.confirmationRequired?presentation.confirmationPrompt:''].filter(Boolean).join(' '))");
+        expect(html).toContain("createResponse('core_result_authorized','none',presentation.authorizedText)");
         expect(html).toContain('di exactamente este texto, palabra por palabra');
-        expect(html).toContain("const resolveM8VoiceConfirmationState=");
-        expect(html).toContain("const confirmationState=resolveM8VoiceConfirmationState(core)");
         expect(html).toContain("responseHasAudio=toolChoice!=='required'");
         expect(html).toContain("response.created");
         expect(html).toContain("realtime_output_transcript_done");
@@ -382,7 +380,7 @@ describe('M8 live voice environment boundary', () => {
         });
     });
 
-    it('routes voice confirmation through the shared server runtime', () => {
+    it('leaves confirmation to the assistant: voice only relays the turn and speaks the answer', () => {
         process.env.PING_ENVIRONMENT = 'production';
         const html = getM8LiveVoiceClientHtml('voice-commitment-contract-test');
         const authorizeAt = html.indexOf("apiJson('/agent/authorize'");
@@ -391,22 +389,13 @@ describe('M8 live voice environment boundary', () => {
         expect(executeAt).toBe(-1);
         expect(html).toContain("channel:'mobile_voice'");
         expect(html).toContain("'Idempotency-Key':turnKey");
-        expect(html).toContain("confirmationState==='required'");
+        expect(html).toContain("voiceInputSource:source");
+        expect(html).not.toContain('/agent/authorize');
+        expect(html).not.toContain('/agent/execute');
+        expect(html).not.toContain('confirmationState');
         expect(html).not.toContain('pendingPlan');
         expect(html).not.toContain('authorizationInFlight');
         expect(html).not.toContain('executionInFlight');
-    });
-
-    it('keeps a Core confirmation request at the Voice boundary without local business state', () => {
-        const html = getM8LiveVoiceClientHtml('confirmation-boundary-test');
-        const requiredGuard = html.indexOf("if(kind==='plan'&&confirmationState==='required'");
-        const authorizeAt = html.indexOf("apiJson('/agent/authorize'");
-        expect(requiredGuard).toBeGreaterThanOrEqual(0);
-        expect(authorizeAt).toBe(-1);
-        expect(html).toContain("confirmationState==='received'");
-        expect(html).toContain("confirmation_received");
-        expect(html).toContain("plan_pending_confirmation");
-        expect(html).not.toContain("confirmationRequested===true");
     });
 
     it('sanitizes provider rejection diagnostics without retaining credentials or SDP', () => {

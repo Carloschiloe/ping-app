@@ -156,7 +156,7 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
     // executor probado contra Postgres real (backend/tests/agentExecution.*.test.ts).
     send_message: {
         toolId: 'send_message', version: 1, category: 'WRITE', domain: 'messaging',
-        description: 'Sends a real message in a conversation. Executable via POST /api/agent/execute after explicit authorization — never from /agent/respond or /agent/plan.',
+        description: 'Sends a real message in a conversation. Executable only after the user explicitly confirms it.',
         argumentNames: ['conversationId', 'recipientPersonId', 'content'], sideEffectClass: 'state_change',
         authorizationRequirement: 'conversation_membership', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],

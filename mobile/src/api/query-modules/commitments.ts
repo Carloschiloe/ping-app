@@ -252,7 +252,7 @@ export const useMarkCommitmentDone = () => {
 };
 
 // PING — LIFECYCLE INVALIDATION OWNER: agreement-proposals was missing here
-// while useAgentExecute (mobile/src/api/query-modules/agent.ts) already
+// while useAgentTurn (mobile/src/api/query-modules/agent.ts) already
 // invalidates it on every Agent-driven lifecycle mutation -- the same
 // commitment_proposals-affecting transitions (resolve/cancel/reopen/
 // counter-propose/reassign) can change what Compromisos/Hoy's proposals

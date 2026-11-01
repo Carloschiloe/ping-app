@@ -1,4 +1,4 @@
-// HTTP-facing assistant turn (PING_AGENT_MODE=assistant): loads the dialogue
+// HTTP-facing assistant turn: loads the dialogue
 // memory persisted with earlier turns, runs one assistant turn against the
 // production data port and returns a normal Agent Turn response.
 import { listAgentConversationTurns } from '../agentConversationTurn.service';
@@ -11,10 +11,6 @@ import type { AssistantChatMessage, AssistantHistory, AssistantMemory, Assistant
 const DEFAULT_TIMEZONE = 'America/Santiago';
 const HISTORY_ROWS = 20;
 const PERSISTED_TOOL_RESULT_CHARS = 1500;
-
-export function isAssistantModeEnabled(): boolean {
-    return process.env.PING_AGENT_MODE === 'assistant' && Boolean(process.env.PING_ASSISTANT_MODEL?.trim());
-}
 
 function validTimezone(timezone: unknown): string {
     if (typeof timezone !== 'string' || !timezone.trim()) return DEFAULT_TIMEZONE;
@@ -98,7 +94,6 @@ export async function runAssistantModeTurn(input: {
     actionDecision?: { action: string; decision: AssistantDecision };
 }, deps: { model?: AssistantModel; data?: AssistantDataPort; now?: Date } = {}): Promise<{ result: AgentTurnResponse; memory: AssistantMemory }> {
     const model = deps.model ?? assistantModelFromEnv();
-    if (!model) throw new Error('Assistant mode requires PING_ASSISTANT_MODEL');
     const startedAt = Date.now();
     const history = await loadAssistantHistory(input.actorUserId, input.historyConversationId, input.dialogueConversationId)
         .catch((error) => {
@@ -138,6 +133,7 @@ export async function runAssistantModeTurn(input: {
             kind: 'response',
             response: { status: 'answered', answer: output.answer, citations: output.citations },
             ...(pendingActions.length ? { pendingActions } : {}),
+            ...(output.trace.some((entry) => entry.confirmed) ? { changed: true as const } : {}),
         },
         memory,
     };

@@ -14,6 +14,7 @@ import {
     retrieveVisibleCommitmentById,
 } from '../retrieval.service';
 import { retrieveMemory } from '../memory.service';
+import { enforceMemoryCanonicalDominance } from '../canonicalTruthRegistry';
 import { executeAuthorization } from '../agentExecution.service';
 import type { AgentPlanStep } from '../../types/agentPlan';
 import type { RetrievalCommitment } from '../../types/retrieval';
@@ -129,7 +130,12 @@ export class SupabaseAssistantDataPort implements AssistantDataPort {
             freshness: 'current',
             limit: 10,
         }, this.traceId);
-        return rows.map((row) => ({ id: row.id, content: row.canonicalText }));
+        // A remembered fact about something Ping already owns (a commitment's
+        // status, a profile field) is never current truth: the canonical
+        // tables answer that, so those facts are left out here.
+        return enforceMemoryCanonicalDominance(rows)
+            .filter((row) => row.isCurrent)
+            .map((row) => ({ id: row.id, content: row.canonicalText }));
     }
 
     async createPendingAction(input: { steps: AgentPlanStep[]; objectiveType: string; summary: string }): Promise<{ id: string; expiresAt: string }> {

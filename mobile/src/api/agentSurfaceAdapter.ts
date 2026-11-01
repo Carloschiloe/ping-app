@@ -17,7 +17,6 @@ export interface AgentSurfaceRequestInput {
     reviewedVoiceInputToken?: string;
     conversationId?: string;
     idempotencyKey?: string;
-    readCapability?: 'commitment_count_v4';
     /** Confirm/Cancel button answering one pending assistant action; `input` is the button label. */
     actionDecision?: AgentActionDecision;
 }
@@ -100,7 +99,6 @@ export function buildAgentSurfaceRequest(
     };
     if (input.conversationId) body.conversationId = input.conversationId;
     if (input.reviewedVoiceInputToken) body.reviewedVoiceInputToken = input.reviewedVoiceInputToken;
-    if (input.readCapability) body.readCapability = input.readCapability;
     if (input.actionDecision) body.actionDecision = input.actionDecision;
     return { body, headers };
 }

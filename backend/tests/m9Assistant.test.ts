@@ -339,10 +339,12 @@ describe('M9 assistant — Confirm/Cancel buttons', () => {
         expect(pressed.memory.actions[0].state).toBe('confirmed');
         expect(pressed.result.response.answer).toMatch(/^Listo\. /);
         expect(pressed.result.pendingActions).toBeUndefined();
+        expect(pressed.result.changed).toBe(true);
         expect(pressed.memory.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);
 
         const twice = await turn('Confirmar', [], { action: 'a1', decision: 'confirm' });
         expect(world.executed).toHaveLength(1);
+        expect(twice.result.changed).toBeUndefined();
         expect(twice.result.response.answer).toBe('Esa propuesta ya no está pendiente; no hice ningún cambio.');
     });
 

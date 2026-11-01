@@ -29,163 +29,21 @@ vi.mock('../src/api/client', () => {
 });
 
 import { apiClient } from '../src/api/client';
-import type {
-    AgentAuthorizationResult, AgentExecutionResult, AgentTurnInput, AgentTurnPlan, AgentTurnResult,
-} from '../src/api/query-modules/agent';
-import { adapterSurfaceForTurn, buildAgentAuthorizationRequestBody, buildAgentExecutionRequestBody, buildAgentSurfaceTurnRequest, buildAgentTurnHeaders, buildAgentTurnRequestBody, parseAgentTurnResult, publicPingSurface, requestAgentSurfaceTurn, surfaceForDeviceType } from '../src/api/query-modules/agent';
 import {
-    authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
-    reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
-} from '../src/utils/agentTurnState';
-import { appendAgentTurnMessage, isLatestAgentMessage, restorePendingAgentPlan } from '../src/utils/agentChat';
+    adapterSurfaceForTurn, buildAgentSurfaceTurnRequest, parseAgentConversationTurns, parseAgentTurnResult,
+    publicPingSurface, requestAgentSurfaceTurn, surfaceForDeviceType,
+} from '../src/api/query-modules/agent';
+import { appendAgentTurnMessage, isLatestAgentMessage, restoreAgentConversationMessages } from '../src/utils/agentChat';
 
-const presentation = {
-    headline: 'Enviaré un mensaje a Alejandra',
-    summary: 'Enviaré el mensaje mostrado.',
-    effectDescription: 'Se enviará exactamente el contenido mostrado.',
-    targetLabel: 'Alejandra',
-    confirmationLabel: 'Enviar',
-    cancelLabel: 'Cancelar',
-    stepPresentations: [{
-        stepId: 'step-0', toolId: 'send_message', headline: 'Enviar mensaje a Alejandra',
-        effectDescription: 'Se enviará: “Llegaré tarde.”', targetLabel: 'Alejandra',
-        contentPreview: 'Llegaré tarde.', confirmationLabel: 'Enviar', cancelLabel: 'Cancelar',
-        requiresExplicitConfirmation: true, phase: 'immediate' as const,
-    }],
-    requiresExplicitConfirmation: true,
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    planId: 'plan-1', planDigest: 'a'.repeat(64), objectiveType: 'communicate_message',
-};
+const answer = (text: string) => ({ kind: 'response' as const, response: { status: 'answered' as const, answer: text, citations: [] } });
 
-const turnPlan: AgentTurnPlan = {
-    kind: 'plan',
-    plan: {
-        planId: 'plan-1', status: 'ready_for_authorization', objectiveType: 'communicate_message',
-        humanReadableSummary: 'Enviar mensaje.', canExecute: true, planDigest: 'a'.repeat(64),
-        steps: [{
-            stepId: 'step-0', toolId: 'send_message', operation: 'Enviar mensaje a Alejandra', dependsOn: [],
-            expectedEffect: 'Se enviará el mensaje.', sideEffectClass: 'state_change', riskLevel: 'medium',
-            confirmationRequirement: 'explicit', conditionDescription: 'Sin precondiciones.',
-        }],
-    },
-    presentation,
-};
-
-const source: AgentTurnInput = { input: 'Dile a Alejandra que llegaré tarde.', conversationId: 'conv-1' };
-const pending: PendingAgentPlan = { turn: turnPlan, source, sourceText: source.input! };
-
-function turnResultState(result: AgentTurnResult): AgentTurnUiState {
-    return reduceAgentTurnUi(
-        reduceAgentTurnUi(initialAgentTurnUiState, { type: 'SUBMIT', source, sourceText: source.input! }),
-        { type: 'TURN_RESULT', result, source, sourceText: source.input! },
-    );
-}
-
-function execution(status: AgentExecutionResult['status']): AgentExecutionResult {
-    return {
-        authorizationId: 'auth-1', status, executedSteps: [], failedSteps: [], waitingSteps: [],
-        createdEntityRefs: [], updatedEntityRefs: [], messagesSent: 0,
-        requiresFurtherAuthorization: status === 'waiting', humanReadableSummary: status,
-    };
-}
-
-describe('M-6 mobile state machine', () => {
-    it('A) response state', () => {
-        const state = turnResultState({ kind: 'response', response: { status: 'answered', answer: 'Tienes uno.', citations: [] } });
-        expect(state.phase).toBe('response');
-    });
-
-    it('B) plan state preserves exact immutable identity/source', () => {
-        const state = turnResultState(turnPlan);
-        expect(state.phase).toBe('plan_ready');
-        expect(state.pendingPlan?.turn.plan.planDigest).toBe('a'.repeat(64));
-        expect(state.pendingPlan?.source).toEqual(source);
-        expect(canConfirmAgentPlan(state)).toBe(true);
-    });
-
-    it('restores a still-valid plan from conversation history so it remains confirmable after reopening', () => {
-        const restored = restorePendingAgentPlan([{
-            id: 'turn-1', conversationId: 'conv-1', actorUserId: 'actor', clientTurnKey: 'turn-key',
-            inputText: 'Agenda mañana a las 10 ir a comprar materiales', inputMode: 'text',
-            resultKind: 'plan', result: turnPlan, createdAt: new Date().toISOString(),
-        }]);
-        expect(restored?.turn.plan.planId).toBe('plan-1');
-        expect(restored?.source.idempotencyKey).toBe('turn-key');
-        const state = reduceAgentTurnUi(initialAgentTurnUiState, { type: 'RESTORE_PENDING_PLAN', pending: restored! });
-        expect(canConfirmAgentPlan(state)).toBe(true);
-    });
-
-    it('restores the main Ping plan without turning the durable self-chat into semantic scope', () => {
-        const restored = restorePendingAgentPlan([{
-            id: 'turn-main', conversationId: 'actor-self-chat', actorUserId: 'actor', clientTurnKey: 'turn-main-key',
-            inputText: 'Crea el compromiso de llamar mañana', inputMode: 'text',
-            resultKind: 'plan',
-            result: {
-                ...turnPlan,
-                __pingAgentHistory: { dialogueConversationId: null },
-            } as any,
-            createdAt: new Date().toISOString(),
-        }]);
-        expect(restored?.source.conversationId).toBeUndefined();
-    });
-
-    it('C) clarification and D) unsupported are first-class non-crash states', () => {
-        expect(turnResultState({ kind: 'clarification', questions: [{ field: 'target', question: '¿Cuál Entrenar?' }] }).phase).toBe('clarification');
-        expect(turnResultState({ kind: 'unsupported', reason: 'Aún no puedo hacer eso.' }).phase).toBe('unsupported');
-    });
-
-    it('E/F) authorize always precedes execute; failed authorize means zero execute calls', async () => {
-        const order: string[] = [];
-        const authorization: AgentAuthorizationResult = {
-            authorizationId: 'auth-1', status: 'authorized', expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            authorizedStepIds: ['step-0'], confirmationLevel: 'explicit',
-        };
-        await authorizeThenExecuteAgentPlan(pending, {
-            authorize: async () => { order.push('authorize'); return authorization; },
-            execute: async () => { order.push('execute'); return execution('done'); },
-        });
-        expect(order).toEqual(['authorize', 'execute']);
-
-        const executeSpy = vi.fn(async () => execution('done'));
-        await expect(authorizeThenExecuteAgentPlan(pending, {
-            authorize: async () => { throw new Error('denied'); }, execute: executeSpy,
-        })).rejects.toThrow('denied');
-        expect(executeSpy).not.toHaveBeenCalled();
-    });
-
-    it('G) repeated CONFIRM events cannot advance twice', () => {
-        const ready = turnResultState(turnPlan);
-        const first = reduceAgentTurnUi(ready, { type: 'CONFIRM' });
-        const second = reduceAgentTurnUi(first, { type: 'CONFIRM' });
-        expect(first.phase).toBe('authorizing');
-        expect(second).toBe(first);
-    });
-
-    it('H/O) cancel or source edit invalidates the pending plan', () => {
-        const ready = turnResultState(turnPlan);
-        expect(reduceAgentTurnUi(ready, { type: 'CANCEL_PLAN' }).pendingPlan).toBeNull();
-        expect(reduceAgentTurnUi(ready, { type: 'SOURCE_EDITED' }).pendingPlan).toBeNull();
-    });
-
-    it.each(['done', 'partially_done', 'waiting', 'blocked', 'needs_reauthorization', 'failed'] as const)(
-        'execution result preserves canonical %s state', (status) => {
-            let state = reduceAgentTurnUi(turnResultState(turnPlan), { type: 'CONFIRM' });
-            state = reduceAgentTurnUi(state, { type: 'AUTHORIZED', authorization: {
-                authorizationId: 'auth-1', status: 'authorized', expiresAt: 'future', authorizedStepIds: ['step-0'], confirmationLevel: 'explicit',
-            } });
-            state = reduceAgentTurnUi(state, { type: 'EXECUTION_RESULT', execution: execution(status) });
-            expect(state.phase).toBe(status);
-        },
-    );
-});
-
-describe('M-6 mobile API and presentation boundary', () => {
+describe('Agent Turn API boundary', () => {
     it('sends a surface-neutral turn through one network adapter', async () => {
-        vi.mocked(apiClient.post).mockResolvedValueOnce({ kind: 'unsupported', reason: 'test' });
+        vi.mocked(apiClient.post).mockResolvedValueOnce(answer('Hola'));
         const result = await requestAgentSurfaceTurn({
             surface: 'tablet', input: 'hola tablet', idempotencyKey: 'tablet-turn-1',
         });
-        expect(result).toEqual({ kind: 'unsupported', reason: 'test' });
+        expect(result).toEqual(answer('Hola'));
         expect(apiClient.post).toHaveBeenCalledWith(
             '/agent/turn',
             expect.objectContaining({ input: 'hola tablet', channel: 'tablet' }),
@@ -194,28 +52,9 @@ describe('M-6 mobile API and presentation boundary', () => {
         );
     });
 
-    it('text and final voice transcript use the same /agent/turn request contract', () => {
-        expect(buildAgentTurnRequestBody({ input: ' hola ' }).input).toBe('hola');
-        expect(buildAgentTurnRequestBody({ voiceInputToken: 'signed-token' })).toEqual({ voiceInputToken: 'signed-token' });
-        expect(buildAgentTurnRequestBody({ input: 'recuÃ©rdame revisar el audio', reviewedVoiceInputToken: 'signed-token' })).toMatchObject({
-            input: 'recuÃ©rdame revisar el audio',
-            reviewedVoiceInputToken: 'signed-token',
-        });
-    });
-
-    it('sends the explicit count capability in the body and the stable retry key as a header only', () => {
-        const input: AgentTurnInput = {
-            input: '¿Cuántos compromisos tengo pendientes?',
-            readCapability: 'commitment_count_v4',
-            idempotencyKey: 'stable-turn-key',
-        };
-        expect(buildAgentTurnRequestBody(input)).toMatchObject({ readCapability: 'commitment_count_v4' });
-        expect(buildAgentTurnRequestBody(input)).not.toHaveProperty('idempotencyKey');
-        expect(buildAgentTurnHeaders(input)).toEqual({ 'Idempotency-Key': 'stable-turn-key' });
-        expect(buildAgentTurnHeaders({ input: 'legacy', idempotencyKey: 'legacy-key' })).toEqual({ 'Idempotency-Key': 'legacy-key' });
-        expect(buildAgentTurnRequestBody({ input: 'tablet turn', channel: 'tablet' })).toMatchObject({ channel: 'tablet' });
+    it('text, signed voice and reviewed voice share one request contract; the retry key is a header only', () => {
         expect(buildAgentSurfaceTurnRequest({
-            surface: 'tablet', input: 'hablar con Ping', idempotencyKey: 'tablet-turn-1',
+            surface: 'tablet', input: ' hablar con Ping ', idempotencyKey: 'tablet-turn-1',
         })).toEqual({
             body: expect.objectContaining({ input: 'hablar con Ping', channel: 'tablet' }),
             headers: { 'Idempotency-Key': 'tablet-turn-1' },
@@ -226,87 +65,67 @@ describe('M-6 mobile API and presentation boundary', () => {
             body: { voiceInputToken: 'signed-voice-token' },
             headers: { 'Idempotency-Key': 'voice-turn-1' },
         });
+        expect(buildAgentSurfaceTurnRequest({
+            surface: 'mobile_text', input: 'recuérdame revisar el audio', reviewedVoiceInputToken: 'signed-token',
+        }).body).toEqual({ input: 'recuérdame revisar el audio', reviewedVoiceInputToken: 'signed-token' });
         expect(adapterSurfaceForTurn({ input: 'tablet', channel: 'tablet' })).toBe('tablet');
         expect(adapterSurfaceForTurn({ voiceInputToken: 'voice' })).toBe('mobile_voice');
         expect(publicPingSurface()).toBe('mobile_text');
         expect(surfaceForDeviceType(2, 2)).toBe('tablet');
     });
 
-    it('authorization echoes only the signed source, frozen digest, step IDs and explicit confirmation', () => {
-        const body = buildAgentAuthorizationRequestBody(source, turnPlan);
-        expect(body).toMatchObject({ input: source.input, planDigest: 'a'.repeat(64), stepIds: ['step-0'], confirm: true });
-        expect(body).not.toHaveProperty('toolId');
-        expect(body).not.toHaveProperty('arguments');
-        expect(body).not.toHaveProperty('actorUserId');
+    it('rejects a malformed answer instead of rendering it', () => {
+        expect(() => parseAgentTurnResult({ kind: 'response', response: { status: 'nope', answer: 'x', citations: [] } })).toThrow();
+        expect(() => parseAgentTurnResult({ kind: 'mystery' })).toThrow('invalid_agent_turn_shape');
     });
 
-    it('execution omits orphaned conversation metadata for the main Ping entry', () => {
-        expect(buildAgentExecutionRequestBody({ authorizationId: 'auth-1', sourceTurnKey: 'turn-1' }))
-            .toEqual({ authorizationId: 'auth-1' });
-        expect(buildAgentExecutionRequestBody({ authorizationId: 'auth-1', conversationId: 'conv-1', sourceTurnKey: 'turn-1' }))
-            .toEqual({ authorizationId: 'auth-1', conversationId: 'conv-1', sourceTurnKey: 'turn-1' });
+    it('keeps the "something changed" signal only when the server sends it', () => {
+        expect(parseAgentTurnResult({ ...answer('Listo.'), changed: true }).changed).toBe(true);
+        expect(parseAgentTurnResult({ ...answer('Hola'), changed: 'yes' })).not.toHaveProperty('changed');
     });
 
-    it('rejects a plan whose presentation does not bind the same plan/digest', () => {
-        expect(() => parseAgentTurnResult({ ...turnPlan, presentation: { ...presentation, planDigest: 'b'.repeat(64) } })).toThrow('invalid_agent_turn_shape');
-    });
-
-    it('accepts the legacy direct response shape during a mixed production rollout', () => {
-        const parsed = parseAgentTurnResult({
-            status: 'answered', answer: 'Tienes uno.', citations: [],
+    it('shows turns saved before the assistant as plain text, never as something to confirm', () => {
+        const history = parseAgentConversationTurns({
+            enabled: true,
+            turns: [
+                ['plan', { kind: 'plan', plan: { planId: 'p' }, presentation: { summary: 'Crearé el compromiso.' } }],
+                ['clarification', { kind: 'clarification', questions: [{ field: 'x', question: '¿Cuál?' }] }],
+                ['unsupported', { kind: 'unsupported', reason: 'No disponible.' }],
+                ['execution', { kind: 'execution', execution: { humanReadableSummary: 'Compromiso creado.' }, presentation: {} }],
+                ['read', { kind: 'read', execution: {} }],
+                ['response', answer('Tienes uno.')],
+            ].map(([kind, result], index) => ({
+                id: `t${index}`, conversationId: 'c', actorUserId: 'u', clientTurnKey: `k${index}`,
+                inputText: 'hola', inputMode: 'text', resultKind: kind, result, createdAt: new Date(index).toISOString(),
+            })),
         });
-        expect(parsed).toEqual({
-            kind: 'response',
-            response: { status: 'answered', answer: 'Tienes uno.', citations: [] },
-        });
-    });
-
-    it('renders an exact-count READ replay instead of showing a generic retry error', () => {
-        const parsed = parseAgentTurnResult({
-            kind: 'read',
-            execution: {
-                status: 'completed', conclusion: 'count', completeness: 'complete',
-                queryKey: 'commitment-count:test',
-                count: { value: 1, queryKey: 'commitment-count:test', provenance: { kind: 'count_operation', operation: 'count', queryKey: 'commitment-count:test' } },
-            },
-            scopeFingerprint: 'scope', constraintsFingerprint: 'constraints',
-        });
-        expect(parsed).toEqual({
-            kind: 'response',
-            response: { status: 'answered', answer: 'Tienes 1 compromiso pendiente.', citations: [] },
-        });
-    });
-
-    it('preserves the Core confirmation operator marker on a natural-language confirmation', () => {
-        const parsed = parseAgentTurnResult({ ...turnPlan, confirmationRequested: true });
-        expect(parsed.kind).toBe('plan');
-        if (parsed.kind === 'plan') expect(parsed.confirmationRequested).toBe(true);
+        expect(history.turns.map((turn) => turn.result.response.answer))
+            .toEqual(['Crearé el compromiso.', '¿Cuál?', 'No disponible.', 'Compromiso creado.', 'Tienes uno.']);
+        const messages = restoreAgentConversationMessages(history.turns);
+        expect(messages).toHaveLength(10);
+        expect(messages.every((message) => !message.pendingActions)).toBe(true);
+        expect(messages[1]).toMatchObject({ id: 't0:result', role: 'agent', text: 'Crearé el compromiso.' });
     });
 
     const screen = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf8');
-    const planCard = fs.readFileSync(path.join(__dirname, '../src/components/agent/AgentPlanCard.tsx'), 'utf8');
+    const agentApi = fs.readFileSync(path.join(__dirname, '../src/api/query-modules/agent.ts'), 'utf8');
 
-    it('P) Agent Preview submits both text and voice through useAgentTurn, never useAgentRespond', () => {
+    it('Agent Preview submits both text and voice through useAgentTurn', () => {
         expect(screen).toContain('useAgentTurn');
-        expect(screen).not.toContain('useAgentRespond');
-        expect(screen).toContain('reviewedVoiceInputToken: matchingVoiceDraft.token');
         expect(screen).toContain('input: trimmed, reviewedVoiceInputToken: matchingVoiceDraft.token, idempotencyKey');
         expect(screen).toContain('useSelfConversationId');
         expect(screen).toContain('historyConversationId');
     });
 
-    it('Q/R) PlanCard renders Core presentation directly and never derives confirmation copy from toolId', () => {
-        expect(planCard).toContain('presentation.confirmationLabel');
-        expect(planCard).toContain('presentation.stepPresentations.map');
-        expect(planCard).not.toMatch(/switch\s*\([^)]*toolId/);
-        expect(planCard).not.toMatch(/\.toolId/);
+    it('refreshes commitment views after a confirmed change in chat or a voice session', () => {
+        expect(agentApi).toMatch(/onSuccess: \(result\) => \{\s*if \(!result\.changed\) return;\s*invalidateCommitmentViews\(queryClient, \{\s*includeAgreementProposals: true,\s*includeAgentTurns: true,/);
+        expect(screen).toContain('invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true })');
     });
 
-    it('conditional and multi-step meaning use explicit Core fields in a vertical card', () => {
-        expect(planCard).toContain("step.phase === 'conditional'");
-        expect(planCard).toContain('step.conditionLabel');
-        expect(planCard).toContain("flexDirection: 'column-reverse'");
-        expect(planCard).toContain('minHeight: 48');
+    it('no longer talks to the removed plan routes', () => {
+        for (const route of ['/agent/respond', '/agent/authorize', '/agent/execute', '/agent/plan']) {
+            expect(agentApi).not.toContain(route);
+        }
     });
 });
 
@@ -327,7 +146,7 @@ describe('M9 assistant Confirm/Cancel buttons', () => {
             response: { status: 'answered', answer: '¿Lo agendo?', citations: [] },
             pendingActions: [{ ref: 'a1', summary: 'Crear «x» el lunes a las 11:00' }, { ref: 7 }],
         });
-        expect(result.kind === 'response' && result.pendingActions).toEqual([{ ref: 'a1', summary: 'Crear «x» el lunes a las 11:00' }]);
+        expect(result.pendingActions).toEqual([{ ref: 'a1', summary: 'Crear «x» el lunes a las 11:00' }]);
         const plain = parseAgentTurnResult({ kind: 'response', response: { status: 'answered', answer: 'Hola', citations: [] }, pendingActions: 'x' });
         expect(plain).not.toHaveProperty('pendingActions');
 

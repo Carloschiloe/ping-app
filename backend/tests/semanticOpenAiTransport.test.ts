@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildSemanticOpenAiRequest, getSemanticOpenAiTransportPolicy, getSemanticRuntimeConfig, sanitizeSemanticProviderError, hedgedSemanticRequest } from '../src/services/semanticOpenAiTransport.service';
-import { OpenAiAgentInputModel } from '../src/services/agentInputInterpreter.service';
-import { OpenAiAgentObjectiveModel } from '../src/services/agentObjectiveInterpreter.service';
 
 const messages = [{ role: 'user' as const, content: 'test' }];
 describe('shared Semantic OpenAI transport policy', () => {
@@ -40,7 +38,7 @@ describe('shared Semantic OpenAI transport policy', () => {
         expect(request.response_format).toEqual(responseFormat);
         expect(buildSemanticOpenAiRequest({ modelName: 'gpt-4o-mini', messages }).response_format).toEqual({ type: 'json_object' });
     });
-    it('resolves one configurable model for both semantic interpreters', () => {
+    it('resolves the configurable semantic model and its policy', () => {
         const previousModel = process.env.PING_SEMANTIC_MODEL;
         const previousFamily = process.env.PING_SEMANTIC_MODEL_FAMILY;
         const previousEnvironment = process.env.PING_ENVIRONMENT;
@@ -49,11 +47,6 @@ describe('shared Semantic OpenAI transport policy', () => {
         process.env.PING_ENVIRONMENT = 'staging';
         try {
             expect(getSemanticRuntimeConfig()).toMatchObject({ modelName: 'gpt-6-luna', modelFamily: 'modern_reasoning', policy: { outputTokenParameter: 'max_completion_tokens', temperature: null } });
-            const input = new OpenAiAgentInputModel();
-            const objective = new OpenAiAgentObjectiveModel();
-            expect(input.modelName).toBe('gpt-6-luna');
-            expect(objective.modelName).toBe('gpt-6-luna');
-            expect(input.timeoutMs).toBe(objective.timeoutMs);
         } finally {
             if (previousModel === undefined) delete process.env.PING_SEMANTIC_MODEL;
             else process.env.PING_SEMANTIC_MODEL = previousModel;

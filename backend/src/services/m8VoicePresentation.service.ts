@@ -1,109 +1,32 @@
-export type M8VoiceCoreKind = 'response' | 'plan' | 'clarification' | 'unsupported' | 'error';
-import { resolveM8VoiceConfirmationState } from './m8VoiceConfirmationContract.service';
+export type M8VoiceCoreKind = 'response' | 'error';
 
 export interface M8VoiceCorePresentation {
     kind: M8VoiceCoreKind;
     authorizedText: string;
-    confirmationRequired: boolean;
-    confirmationLabel?: string;
-    cancelLabel?: string;
-    confirmationPrompt?: string;
 }
 
 export const EMPTY_CORE_PRESENTATION = 'Ping Core no entregó contenido suficiente para responder.';
 
-function text(value: unknown): string {
-    return typeof value === 'string' ? value.trim() : '';
-}
-
-function firstText(...values: unknown[]): string {
-    for (const value of values) {
-        const candidate = text(value);
-        if (candidate) return candidate;
-    }
-    return '';
-}
-
+/**
+ * Voice speaks exactly the assistant's answer. Anything else (an error body,
+ * an empty answer) becomes an honest fixed sentence, never invented content.
+ */
 export function buildM8VoiceCorePresentation(core: unknown): M8VoiceCorePresentation {
     const value = (core && typeof core === 'object' ? core : {}) as Record<string, any>;
-    const kind: M8VoiceCoreKind = value.kind === 'plan'
-        ? 'plan'
-        : value.kind === 'clarification'
-            ? 'clarification'
-            : value.kind === 'response'
-                ? 'response'
-                : value.kind === 'unsupported'
-                    ? 'unsupported'
-                    : 'error';
-
-    if (kind === 'response') {
-        return {
-            kind,
-            authorizedText: firstText(value.response?.answer, value.answer) || EMPTY_CORE_PRESENTATION,
-            confirmationRequired: false,
-        };
-    }
-
-    if (kind === 'clarification') {
-        const questions = Array.isArray(value.questions)
-            ? value.questions.map((question: any) => text(question?.question)).filter(Boolean)
-            : [];
-        return {
-            kind,
-            authorizedText: firstText(questions.join(' '), value.partialResponse?.answer) || EMPTY_CORE_PRESENTATION,
-            confirmationRequired: false,
-        };
-    }
-
-    if (kind === 'plan') {
-        const presentation = value.presentation && typeof value.presentation === 'object' ? value.presentation : {};
-        const confirmationState = resolveM8VoiceConfirmationState(value);
-        const confirmationLabel = firstText(presentation.confirmationLabel) || undefined;
-        const cancelLabel = firstText(presentation.cancelLabel) || undefined;
-        const confirmationRequired = confirmationState !== 'received' && presentation.requiresExplicitConfirmation === true;
-        const firstStepEffect = Array.isArray(presentation.stepPresentations)
-            ? firstText(presentation.stepPresentations[0]?.effectDescription)
-            : '';
-        return {
-            kind,
-            // Step effects are the Core-owned projection that retains the
-            // concrete date/time. A generic summary may be safe but omit the
-            // appointment slot, which makes voice confirmation incomplete.
-            authorizedText: firstText(firstStepEffect, presentation.summary, presentation.headline, presentation.effectDescription) || EMPTY_CORE_PRESENTATION,
-            confirmationRequired,
-            confirmationLabel,
-            cancelLabel,
-            confirmationPrompt: confirmationRequired && confirmationLabel && cancelLabel
-                ? `Puedes decir «${confirmationLabel}» para continuar o «${cancelLabel}» para dejarlo sin crear.`
-                : undefined,
-        };
-    }
-
-    if (kind === 'unsupported') {
-        return {
-            kind,
-            authorizedText: text(value.reason) || EMPTY_CORE_PRESENTATION,
-            confirmationRequired: false,
-        };
-    }
-
-    return { kind: 'error', authorizedText: EMPTY_CORE_PRESENTATION, confirmationRequired: false };
+    const answer = typeof value.response?.answer === 'string' ? value.response.answer.trim() : '';
+    if (value.kind === 'response') return { kind: 'response', authorizedText: answer || EMPTY_CORE_PRESENTATION };
+    return { kind: 'error', authorizedText: EMPTY_CORE_PRESENTATION };
 }
 
 // This is deliberately kept in the generated client so the browser applies the
-// same Core-owned projection without receiving raw Core internals. Keep this
+// same projection without receiving raw Core internals. Keep this
 // implementation structurally equivalent to buildM8VoiceCorePresentation.
 export const M8_VOICE_PRESENTATION_BROWSER_SOURCE = `
 const buildM8VoiceCorePresentation=(core)=>{
-  const text=value=>typeof value==='string'?value.trim():'';
-  const firstText=(...values)=>{for(const value of values){const candidate=text(value);if(candidate)return candidate}return ''};
   const value=core&&typeof core==='object'?core:{};
-  const kind=value.kind==='plan'?'plan':value.kind==='clarification'?'clarification':value.kind==='response'?'response':value.kind==='unsupported'?'unsupported':'error';
+  const answer=typeof value.response?.answer==='string'?value.response.answer.trim():'';
   const empty='${EMPTY_CORE_PRESENTATION}';
-  if(kind==='response')return {kind,authorizedText:firstText(value.response?.answer,value.answer)||empty,confirmationRequired:false};
-  if(kind==='clarification'){const questions=Array.isArray(value.questions)?value.questions.map(question=>text(question?.question)).filter(Boolean):[];return {kind,authorizedText:firstText(questions.join(' '),value.partialResponse?.answer)||empty,confirmationRequired:false};}
-  if(kind==='plan'){const presentation=value.presentation&&typeof value.presentation==='object'?value.presentation:{};const confirmationState=resolveM8VoiceConfirmationState(value);const confirmationLabel=firstText(presentation.confirmationLabel)||undefined;const cancelLabel=firstText(presentation.cancelLabel)||undefined;const confirmationRequired=confirmationState!=='received'&&presentation.requiresExplicitConfirmation===true;const firstStepEffect=Array.isArray(presentation.stepPresentations)?firstText(presentation.stepPresentations[0]?.effectDescription):'';return {kind,authorizedText:firstText(firstStepEffect,presentation.summary,presentation.headline,presentation.effectDescription)||empty,confirmationRequired,confirmationLabel,cancelLabel,confirmationPrompt:confirmationRequired&&confirmationLabel&&cancelLabel?'Puedes decir «'+confirmationLabel+'» para continuar o «'+cancelLabel+'» para dejarlo sin crear.':undefined};}
-  if(kind==='unsupported')return {kind,authorizedText:text(value.reason)||empty,confirmationRequired:false};
-  return {kind:'error',authorizedText:empty,confirmationRequired:false};
+  if(value.kind==='response')return {kind:'response',authorizedText:answer||empty};
+  return {kind:'error',authorizedText:empty};
 };
 `;

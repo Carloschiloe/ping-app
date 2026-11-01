@@ -12,7 +12,6 @@ export const agentTurnRequestSchema = z.object({
         channel: z.string().trim().max(40).optional(),
         locale: z.string().trim().max(20).optional(),
         timezone: z.string().trim().max(60).optional(),
-        readCapability: z.string().trim().max(80).optional(),
         // Live voice: whether the input is the user's own transcription or
         // the realtime model's rendering of it (which cannot confirm actions).
         voiceInputSource: z.enum(['transcript', 'provider']).optional(),

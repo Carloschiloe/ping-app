@@ -23,7 +23,7 @@ El modelo ve toda la conversación, incluido lo que él mismo dijo. Las referenc
 | Voz | `gpt-realtime-2.1` (ya en uso) | audio US$32 de entrada / US$64 de salida, ~US$0,05 por minuto | El más maduro llamando herramientas en tiempo real; ya funciona en Expo Go dentro del WebView |
 | Texto | `gpt-5.6-luna` | US$0,20 de entrada / US$1,20 de salida | El más barato de la familia actual; menos de medio centavo por turno con 2 o 3 llamadas a herramientas |
 
-Ambos se configuran por entorno (`M8_LIVE_VOICE_MODEL`, `PING_ASSISTANT_MODEL`). No hay nombres de modelo en el código. Solo si el banco de conversaciones muestra fallas atribuibles al modelo se evalúa `gpt-5.6-terra`. No se hacen comparaciones previas.
+Ambos se configuran por entorno (`M8_LIVE_VOICE_MODEL`, `PING_ASSISTANT_MODEL`). El asistente usa `gpt-5.6-luna` si `PING_ASSISTANT_MODEL` no está definida, así el despliegue no requiere variables nuevas. Solo si el banco de conversaciones muestra fallas atribuibles al modelo se evalúa `gpt-5.6-terra`. No se hacen comparaciones previas.
 
 **Descartados por ahora:** Gemini Live, porque obliga a reescribir toda la voz y es menos maduro con herramientas; LiveKit y Pipecat, porque agregan servidores y no funcionan en Expo Go; Claude, porque no tiene voz en tiempo real; memoria externa (Mem0, Zep), porque Supabase ya es la memoria real.
 
@@ -129,7 +129,7 @@ Corren contra el backend real con datos de prueba marcados, y verifican el resul
 | F1 | Capa de herramientas, `ref`, acciones pendientes y bucle de texto con `gpt-5.6-luna` detrás de `PING_AGENT_MODE=assistant`. El camino actual queda intacto | Suite verde y banco de texto |
 | F2 | Voz: la transcripción de la sesión de tiempo real llega al mismo asistente (`/agent/turn`), que razona y usa las herramientas; la voz solo escucha y habla. Un "sí" que el modelo de voz reconstruyó (sin transcripción del usuario) no confirma | Tests y tu prueba en Expo Go |
 | F3 | Confirmación sobre acciones congeladas: por texto o voz ("sí") o con los botones Confirmar/Cancelar que la app muestra bajo la respuesta que propone la acción. El botón envía `actionDecision` con la `ref` de esa acción; el servidor ejecuta `confirm_action`/`discard_action` con las mismas comprobaciones, sin pasar por el modelo, y lo deja en la conversación | 0 escrituras sin confirmar y Expo Go |
-| F4 | Borrado del clasificador y sus pruebas; se retira el flag | Suite completa verde y banco igual o mejor |
+| F4 | Borrado del clasificador y sus pruebas; se retira el flag. `/agent/turn` responde siempre con el asistente; se eliminan `/agent/respond`, `/agent/plan`, `/agent/authorize` y `/agent/execute`, y en la app la tarjeta de planes. Los turnos antiguos del historial se muestran como texto. Cuando un turno ejecuta una acción confirmada responde `changed: true` y la app refresca las listas de compromisos; al cerrar Ping Voz también | Suite completa verde y banco igual o mejor |
 | F5 | Despliegue a producción | Tu autorización |
 
 Pruebas siempre en local con túnel y Expo Go, sin staging, con limpieza de los registros de prueba al final.

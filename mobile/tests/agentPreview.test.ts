@@ -49,14 +49,13 @@ vi.mock('../src/api/client', () => {
 
 import { apiClient, ApiError } from '../src/api/client';
 import {
-    buildAgentRequestBody, getDeviceLocale, mapAgentErrorMessage, parseAgentResponse,
+    buildAgentSurfaceTurnRequest, getDeviceLocale, mapAgentErrorMessage, parseAgentResponse,
 } from '../src/api/query-modules/agent';
 import {
-    AGENT_SUGGESTED_STARTERS, appendAgentMessage, appendErrorMessage, appendUserMessage,
+    AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage, appendUserMessage,
     canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel,
 } from '../src/utils/agentChat';
 
-const post = vi.mocked(apiClient.post);
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -64,7 +63,11 @@ beforeEach(() => {
 
 // ─── Request contract (sección 2, 9, 10, 11, 35) ────────────────────────────
 
-describe('M-1G: buildAgentRequestBody — contrato exacto del request', () => {
+const buildAgentRequestBody = (input: { input: string; conversationId?: string }) => (
+    buildAgentSurfaceTurnRequest({ surface: 'mobile_text', ...input }).body
+);
+
+describe('M-1G: Agent Turn request body — contrato exacto del request', () => {
     it('incluye input recortado, channel=mobile, timezone y locale reales, sin conversationId si no se pasa', () => {
         const body = buildAgentRequestBody({ input: '  ¿Qué pendientes tengo?  ' });
         expect(body.input).toBe('¿Qué pendientes tengo?');
@@ -188,8 +191,8 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         expect(messages[0].text).toBe('¿Qué pendientes tengo?');
     });
 
-    it('appendAgentMessage mapea status/citations/followUp del resultado', () => {
-        const messages = appendAgentMessage([], { status: 'answered', answer: 'Listo.', citations: [{ sourceType: 'commitment', sourceId: 'c1' }] });
+    it('appendAgentTurnMessage mapea status/citations/followUp del resultado', () => {
+        const messages = appendAgentTurnMessage([], { kind: 'response', response: { status: 'answered', answer: 'Listo.', citations: [{ sourceType: 'commitment', sourceId: 'c1' }] } });
         expect(messages[0].role).toBe('agent');
         expect(messages[0].status).toBe('answered');
         expect(messages[0].citations).toHaveLength(1);
@@ -219,7 +222,7 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         expect(canSendInput('hola', false)).toBe(true);
     });
 
-    it('canSendInput: permite corregir un plan pendiente, pero no duplica una solicitud en curso', () => {
+    it('canSendInput: permite responder con otra cosa, pero no duplica una solicitud en curso', () => {
         expect(canSendInput('mejor al sábado', false)).toBe(true);
         expect(canSendInput('mejor al sábado', true)).toBe(false);
     });
@@ -292,36 +295,6 @@ describe('durable Agent history recovery contract', () => {
     });
 });
 
-// ─── Endpoint mock integration (sección 35) ─────────────────────────────────
-
-describe('M-1G: useAgentRespond — integración con apiClient mockeado', () => {
-    it('llama POST /agent/respond con el body exacto esperado, sin userId/actorUserId/claims/diagnostics', async () => {
-        post.mockResolvedValue({ status: 'answered', answer: 'Tienes pendiente X.', citations: [] });
-
-        const { buildAgentRequestBody: build } = await import('../src/api/query-modules/agent');
-        const body = build({ input: '¿Qué pendientes tengo?' });
-        await apiClient.post('/agent/respond', body);
-
-        expect(post).toHaveBeenCalledWith('/agent/respond', expect.objectContaining({
-            input: '¿Qué pendientes tengo?', channel: 'mobile', locale: 'es-CL',
-        }));
-        const sentBody = post.mock.calls[0][1];
-        expect(sentBody).not.toHaveProperty('userId');
-        expect(sentBody).not.toHaveProperty('actorUserId');
-        expect(sentBody).not.toHaveProperty('claims');
-        expect(sentBody).not.toHaveProperty('diagnostics');
-    });
-
-    it('propaga needs_clarification/no_evidence/capability_gap sin tratarlos como error', async () => {
-        for (const status of ['needs_clarification', 'no_evidence', 'capability_gap'] as const) {
-            post.mockResolvedValueOnce({ status, answer: 'x', citations: [] });
-            const raw = await apiClient.post('/agent/respond', {});
-            const parsed = parseAgentResponse(raw);
-            expect(parsed.status).toBe(status);
-        }
-    });
-});
-
 // ─── Static audits (sección 34: no legacy ai_messages, no writes) ───────────
 
 describe('M-1G: auditoría estática — coexistencia legacy, sin writes', () => {
@@ -333,8 +306,8 @@ describe('M-1G: auditoría estática — coexistencia legacy, sin writes', () =>
         expect(screenSource).not.toMatch(/useAskPing|useAIHistory|useClearAIHistory/);
     });
 
-    it('agent.ts sólo llama a POST /agent/respond, nunca a rutas de escritura conocidas', () => {
-        expect(apiSource).toContain("'/agent/respond'");
+    it('agent.ts sólo llama a POST /agent/turn, nunca a rutas de escritura conocidas', () => {
+        expect(apiSource).toContain("'/agent/turn'");
         expect(apiSource).not.toMatch(/apiClient\.(delete|patch)\(/);
         expect(apiSource).not.toMatch(/apiClient\.(delete|patch)\(/);
         expect(apiSource).not.toMatch(/apiClient\.post\(\s*[`'\"]\/commitments/);
@@ -391,8 +364,8 @@ describe('STATUS COLLAPSE FIX: AgentPreviewScreen.tsx efectivamente renderiza la
         expect(screenSource).toMatch(/const statusLabel = describeStatusLabel\(item\.status\);/);
     });
 
-    it('renderiza statusLabel como turnLabel cuando no es una aclaración/acción no soportada (nunca superpone dos etiquetas)', () => {
-        expect(screenSource).toMatch(/!item\.isClarification && !item\.isUnsupported && statusLabel && <Text style=\{styles\.turnLabel\}>\{statusLabel\}<\/Text>/);
+    it('renderiza statusLabel como turnLabel sobre el texto de la respuesta', () => {
+        expect(screenSource).toMatch(/\{statusLabel && <Text style=\{styles\.turnLabel\}>\{statusLabel\}<\/Text>\}/);
     });
 });
 
@@ -452,25 +425,12 @@ describe('Ping Core entrypoint: el acceso normal usa Agent Core y legacy queda a
 // become available via this path. Neutral wording ("no está disponible",
 // no "aún"/"todavía") stays truthful whether or not a given unsupported
 // action is ever added later.
-describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: unsupported-action heading is truthful, never implies a guaranteed future promise', () => {
-    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
-
-    it('renders "Esta acción no está disponible", never "aún no está disponible"', () => {
-        expect(screenSource).toContain('Esta acción no está disponible');
-        expect(screenSource).not.toMatch(/Esta acción aún no está disponible/);
-    });
-
-    it('the heading is still gated on item.isUnsupported exactly as before -- only the wording changed, not the condition/placement', () => {
-        expect(screenSource).toMatch(/\{item\.isUnsupported && <Text style=\{styles\.turnLabel\}>Esta acción no está disponible<\/Text>\}/);
-    });
-});
-
 // PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX. Root cause
 // of the physical failure was entirely backend (rescheduleCommitmentExecutor
 // used counter_propose instead of a direct due_at edit for a self-owned
 // commitment) -- proven by reading the code and a real validation record
 // (due_at never changed; proposed_due_at did). Cache invalidation itself
-// was never the bug: useAgentExecute already invalidates
+// was never the bug: the agent hook (now useAgentTurn) invalidates
 // ['all-commitments-dashboard'], the SAME query key both TaskDashboardScreen
 // (Hoy) and InsightsScreen (Compromisos) already read from -- both screens
 // correctly displayed the true (unchanged) due_at. This describe block
@@ -480,24 +440,24 @@ describe('PING — AGENT RESPONSE LANGUAGE CONSISTENCY: unsupported-action headi
 // is the appropriate test here (never a brittle one merely inspecting
 // unrelated string literals; every assertion below corresponds to a real,
 // behaviorally-meaningful invalidation call).
-describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgentExecute invalidates every projection that can display a mutated commitment, using the shared canonical query keys (never a duplicated invalidation concept)', () => {
+describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgentTurn invalidates every projection that can display a mutated commitment, using the shared canonical query keys (never a duplicated invalidation concept)', () => {
     const agentSource = fs.readFileSync(path.join(__dirname, '../src/api/query-modules/agent.ts'), 'utf-8');
     const invalidationSource = fs.readFileSync(path.join(__dirname, '../src/api/query-invalidation.ts'), 'utf-8');
 
-    it('useAgentExecute exists and invalidates on mutation success (onSuccess), never fire-and-forget with no cache update', () => {
-        const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+    it('useAgentTurn invalidates on success when the turn changed something, never fire-and-forget with no cache update', () => {
+        const fnMatch = agentSource.match(/export function useAgentTurn\(\)[^]*?\n\}/);
         expect(fnMatch).not.toBeNull();
-        expect(fnMatch![0]).toMatch(/onSuccess: \(\) => \{/);
+        expect(fnMatch![0]).toMatch(/onSuccess: \(result\) => \{\s*if \(!result\.changed\) return;/);
     });
 
     it('invalidates the SAME canonical dashboard key Compromisos/Hoy both already read from -- all-commitments-dashboard', () => {
-        const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        const fnMatch = agentSource.match(/export function useAgentTurn\(\)[^]*?\n\}/);
         expect(fnMatch![0]).toMatch(/invalidateCommitmentViews\(queryClient/);
         expect(invalidationSource).toContain("['all-commitments-dashboard']");
     });
 
     it('also invalidates insights/commitments/group-tasks/group-tasks-conv/conversation-messages/agreement-proposals -- the same superset the app\'s own direct commitment mutations already invalidate, never a narrower set', () => {
-        const fnMatch = agentSource.match(/export function useAgentExecute\(\)[^]*?\n\}/);
+        const fnMatch = agentSource.match(/export function useAgentTurn\(\)[^]*?\n\}/);
         const body = fnMatch![0];
         expect(body).toMatch(/includeAgreementProposals: true/);
         expect(body).toMatch(/includeAgentTurns: true/);
@@ -527,11 +487,7 @@ describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgen
 // Ping->external copy affordance added to AgentPreviewScreen.tsx: long-press
 // on a plain-text bubble (user message or agent prose response) copies
 // item.text via expo-clipboard + expo-haptics, the exact pattern
-// ChatScreen.tsx already uses for normal chat messages. PlanCard/
-// ExecutionCard bubbles are deliberately excluded (structured cards with
-// their own interactive controls / no single "primary text" -- directive:
-// "Do not blindly make entire cards selectable if that damages card
-// interaction").
+// ChatScreen.tsx already uses for normal chat messages.
 describe('PING — COPY / PASTE / CLIPBOARD UX: Agent Preview composer paste (external -> Ping) is native, unblocked, and never auto-sends', () => {
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
 
@@ -558,15 +514,13 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: Agent Preview composer paste (ex
         expect(fnMatch![0]).not.toMatch(/sendInput|useAgentTurn|POST|apiClient/);
     });
 
-    it('keeps a pending plan active while drafting and lets the Core replace it on explicit Send', () => {
-        expect(screenSource).not.toMatch(/handleInputChange[\s\S]*?SOURCE_EDITED/);
+    it('drafting never answers a pending action; only an explicit Send or button does', () => {
         expect(screenSource).toContain('canSendInput(trimmed, isPending)');
         expect(screenSource).toContain('disabled={isPending}');
-        expect(screenSource).toContain('Puedes enviar esta corrección para reemplazar el plan');
     });
 
-    it('keeps the active plan synchronized with FlatList state and leaves room for its confirmation actions', () => {
-        expect(screenSource).toContain('extraData={turnState}');
+    it('re-renders the list while a turn is in flight and leaves room for the Confirm/Cancel buttons', () => {
+        expect(screenSource).toContain('extraData={isPending}');
         expect(screenSource).toContain('onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}');
         expect(screenSource).toMatch(/listContent:\s*\{ padding: 16, paddingBottom: 180 \}/);
     });
@@ -589,23 +543,18 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: Ping -> external copy for Agent 
         expect(body).not.toMatch(/Alert\.alert/);
     });
 
-    it('a plain-text bubble (not PlanCard/ExecutionCard) is long-press-copyable, wired to handleCopyMessage(item.text) -- the message body only, never a sender/date prefix', () => {
+    it('a text bubble is long-press-copyable, wired to handleCopyMessage(item.text) -- the message body only, never a sender/date prefix', () => {
         const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
         expect(renderItemMatch).not.toBeNull();
         const body = renderItemMatch![0];
-        expect(body).toMatch(/const isCopyable = !isPlanCard && !isExecutionCard && !!item\.text;/);
+        expect(body).toMatch(/const isCopyable = !!item\.text;/);
         expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
     });
 
-    it('PlanCard and ExecutionCard bubbles are excluded from long-press-copy -- isCopyable is false whenever isPlanCard or isExecutionCard is true, so their own Confirm/Cancel interaction is never shadowed', () => {
-        expect(screenSource).toMatch(/const isCopyable = !isPlanCard && !isExecutionCard && !!item\.text;/);
-    });
-
-    it('the copyable bubble container still renders AgentPlanCard/AgentExecutionCard and the follow-up/citations/retry children unchanged -- copy affordance wraps the existing bubble, it does not replace its content', () => {
+    it('the copyable bubble container still renders the pending-action/follow-up/citations/retry children -- copy affordance wraps the existing bubble, it does not replace its content', () => {
         const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
         const body = renderItemMatch![0];
-        expect(body).toMatch(/<AgentPlanCard/);
-        expect(body).toMatch(/<AgentExecutionCard result=\{item\.executionResult!\} presentation=\{item\.executionPresentation!\} \/>/);
+        expect(body).toMatch(/item\.pendingActions\?\.map/);
         expect(body).toMatch(/item\.followUp\?\.options/);
         expect(body).toMatch(/citationsSummary &&/);
         expect(body).toMatch(/item\.error && item\.retryInput/);
@@ -623,7 +572,7 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: Ping -> external copy for Agent 
 describe('PING — COPY / PASTE / CLIPBOARD UX: copy content invariant -- clipboard text can never contain internal IDs/enums/JSON for Agent bubbles', () => {
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
 
-    it('copy is wired to item.text exclusively -- never item.rawPlan, item.executionResult, item.status, or any other structured/internal field', () => {
+    it('copy is wired to item.text exclusively -- never item.status, item.pendingActions, or any other structured/internal field', () => {
         const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
         const body = renderItemMatch![0];
         expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
@@ -640,118 +589,6 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: copy content invariant -- clipbo
     });
 });
 
-// PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS. Prior audit
-// deliberately excluded AgentPlanCard/AgentExecutionCard from the
-// long-press-copy added to AgentPreviewScreen.tsx (own interactive
-// Confirm/Cancel controls, no single "primary text"). This closes that gap
-// with an explicit, unobtrusive "Copiar" button inside each card header --
-// never a long-press on the whole card, so it cannot interfere with
-// Confirmar/Cancelar/retry/citation taps. Both cards build their clipboard
-// text from a pure helper function that only concatenates the exact same
-// presentation-layer strings already rendered as <Text> -- never
-// planId/authorizationId/toolId/stepId/internal enums/JSON.
-describe('PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: AgentPlanCard exposes an explicit Copiar action, separate from Confirmar/Cancelar', () => {
-    const cardSource = fs.readFileSync(path.join(__dirname, '../src/components/agent/AgentPlanCard.tsx'), 'utf-8');
-
-    it('imports expo-clipboard and expo-haptics using the same namespace-import style as the rest of the app (no new dependency)', () => {
-        expect(cardSource).toContain("import * as Haptics from 'expo-haptics';");
-        expect(cardSource).toContain("import * as Clipboard from 'expo-clipboard';");
-    });
-
-    it('renders a "Copiar" button wired to handleCopy, separate from the cancelButton/confirmButton TouchableOpacitys', () => {
-        expect(cardSource).toMatch(/accessibilityLabel="Copiar plan"[^]*?<Text style=\{styles\.copyText\}>Copiar<\/Text>/);
-        expect(cardSource).toMatch(/onPress=\{handleCopy\}/);
-    });
-
-    it('handleCopy calls Clipboard.setStringAsync + success haptic only -- never onConfirm/onCancel, never touches active/busy state', () => {
-        const fnMatch = cardSource.match(/const handleCopy = async \(\) => \{[^]*?\n    \};/);
-        expect(fnMatch).not.toBeNull();
-        const body = fnMatch![0];
-        expect(body).toMatch(/Clipboard\.setStringAsync\(buildPlanCopyText\(presentation\)\)/);
-        expect(body).toMatch(/Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Success\)/);
-        expect(body).not.toMatch(/onConfirm\(\)|onCancel\(\)/);
-    });
-
-    it('buildPlanCopyText only concatenates human-readable presentation fields (headline/recipientLabel/contentPreview/dateLabel/effectDescription/conditionLabel/riskLabel) -- the exact same fields already rendered as <Text> in the card', () => {
-        const fnMatch = cardSource.match(/function buildPlanCopyText\(presentation: AgentPlanPresentation\): string \{[^]*?\n\}/);
-        expect(fnMatch).not.toBeNull();
-        const body = fnMatch![0];
-        for (const field of ['headline', 'recipientLabel', 'contentPreview', 'dateLabel', 'effectDescription', 'conditionLabel', 'riskLabel']) {
-            expect(body).toContain(field);
-        }
-    });
-
-    it('buildPlanCopyText never references planId, planDigest, objectiveType, toolId, or stepId, and never JSON.stringify -- clipboard content excludes every internal identifier/enum/payload', () => {
-        const fnMatch = cardSource.match(/function buildPlanCopyText\(presentation: AgentPlanPresentation\): string \{[^]*?\n\}/);
-        const body = fnMatch![0];
-        for (const forbidden of ['planId', 'planDigest', 'objectiveType', 'toolId', 'stepId', 'JSON.stringify']) {
-            expect(body).not.toContain(forbidden);
-        }
-    });
-
-    it('the Confirmar button (confirmButton) still calls only onConfirm, and Cancelar (cancelButton) still calls only onCancel -- copy button addition does not alter either callback', () => {
-        expect(cardSource).toMatch(/style=\{styles\.cancelButton\}\s*\n\s*onPress=\{onCancel\}/);
-        expect(cardSource).toMatch(/style=\{\[styles\.confirmButton, busy && styles\.disabledButton\]\}\s*\n\s*onPress=\{onConfirm\}/);
-    });
-});
-
-describe('PING — COMPLETE AGENT COPY UX FOR STRUCTURED CARDS: AgentExecutionCard exposes an explicit Copiar action for the execution/result prose', () => {
-    const cardSource = fs.readFileSync(path.join(__dirname, '../src/components/agent/AgentExecutionCard.tsx'), 'utf-8');
-
-    it('imports expo-clipboard and expo-haptics using the same namespace-import style as the rest of the app (no new dependency)', () => {
-        expect(cardSource).toContain("import * as Haptics from 'expo-haptics';");
-        expect(cardSource).toContain("import * as Clipboard from 'expo-clipboard';");
-    });
-
-    it('renders a "Copiar" button wired to handleCopy in the card header, alongside (never replacing) the status title', () => {
-        expect(cardSource).toMatch(/accessibilityLabel="Copiar resultado"[^]*?<Text style=\{styles\.copyText\}>Copiar<\/Text>/);
-        expect(cardSource).toMatch(/onPress=\{handleCopy\}/);
-        expect(cardSource).toMatch(/<Text style=\{styles\.title\}>\{STATUS_TITLES\[result\.status\]\}<\/Text>/);
-    });
-
-    it('handleCopy calls Clipboard.setStringAsync + success haptic only -- this card has no confirm/cancel/retry callbacks to protect, but copy must still be read-only (no state mutation)', () => {
-        const fnMatch = cardSource.match(/const handleCopy = async \(\) => \{[^]*?\n    \};/);
-        expect(fnMatch).not.toBeNull();
-        const body = fnMatch![0];
-        expect(body).toMatch(/Clipboard\.setStringAsync\(buildExecutionCopyText\(result, labelFor\)\)/);
-        expect(body).toMatch(/Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Success\)/);
-    });
-
-    it('buildExecutionCopyText uses STATUS_TITLES (human-readable) and labelFor (resolves to a step headline, never a raw stepId) plus failureCopy (human-readable), matching exactly what is rendered', () => {
-        const fnMatch = cardSource.match(/function buildExecutionCopyText\([^]*?\n\}/);
-        expect(fnMatch).not.toBeNull();
-        const body = fnMatch![0];
-        expect(body).toMatch(/STATUS_TITLES\[result\.status\]/);
-        expect(body).toMatch(/labelFor\(step\.stepId\)/);
-        expect(body).toMatch(/failureCopy\(step\.failureCode\)/);
-    });
-
-    it('buildExecutionCopyText never references authorizationId, createdEntityRefs, updatedEntityRefs, toolId, or raw stepId text, and never JSON.stringify -- clipboard content excludes every internal identifier/payload', () => {
-        const fnMatch = cardSource.match(/function buildExecutionCopyText\([^]*?\n\}/);
-        const body = fnMatch![0];
-        for (const forbidden of ['authorizationId', 'createdEntityRefs', 'updatedEntityRefs', 'toolId', 'JSON.stringify']) {
-            expect(body).not.toContain(forbidden);
-        }
-        // stepId is used only as labelFor's lookup argument (`labelFor(step.stepId)`),
-        // never concatenated into a copied line on its own -- confirmed by
-        // asserting every stepId occurrence is inside a labelFor(...) call.
-        const rawStepIdUsages = (body.match(/step\.stepId/g) || []).length;
-        const labelForCalls = (body.match(/labelFor\(step\.stepId\)/g) || []).length;
-        expect(rawStepIdUsages).toBe(labelForCalls);
-    });
-
-    it('AgentExecutionResult itself has no interactive callbacks (no onConfirm/onCancel/onRetry props) -- copy is the only action in this card, so there is nothing else the Copiar button could interfere with', () => {
-        expect(cardSource).not.toMatch(/onConfirm|onCancel|onRetry/);
-    });
-});
-
-// PING — USER-WRITTEN TEXT COPY / PASTE PHYSICAL GAP. Re-audits the exact
-// same invariants certified in the prior copy/paste session, plus the two
-// items this session's audit specifically targeted: (1) delayLongPress
-// alignment with the proven ChatScreen.tsx/MessageItem.tsx pattern (350ms,
-// not RN's 500ms default), and (2) an explicit proof that the Agent
-// composer TextInput is not wrapped by any Pressable/gesture element that
-// could intercept long-press-to-select before it reaches the TextInput.
 describe('PING — USER-WRITTEN TEXT COPY / PASTE: Agent composer text-before-send remains natively selectable/copyable/pasteable, and the own-message bubble long-press-copy is reliable (delayLongPress aligned with chat)', () => {
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
 
@@ -778,7 +615,7 @@ describe('PING — USER-WRITTEN TEXT COPY / PASTE: Agent composer text-before-se
     it('isCopyable is not gated on item.role -- the user\'s own sent bubble and the agent\'s bubble both qualify identically whenever plain text exists', () => {
         const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
         const body = renderItemMatch![0];
-        expect(body).toMatch(/const isCopyable = !isPlanCard && !isExecutionCard && !!item\.text;/);
+        expect(body).toMatch(/const isCopyable = !!item\.text;/);
         expect(body).not.toMatch(/isCopyable = isUser/);
         expect(body).not.toMatch(/isCopyable = !isUser/);
     });

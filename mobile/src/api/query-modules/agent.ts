@@ -1,7 +1,6 @@
-// M-1G — Mobile client for the new read-only Ping Agent (POST /agent/respond,
-// backend/src/controllers/agent.controller.ts). Deliberately separate from
-// legacy-ai.ts (/ai/ask, ai_messages) -- the two coexist, this file never
-// imports from or writes to the legacy module.
+// Mobile client for the Ping assistant (POST /agent/turn) and the voice
+// transcription it accepts. Deliberately separate from legacy-ai.ts (/ai/ask,
+// ai_messages) -- this file never imports from or writes to the legacy module.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { File } from 'expo-file-system';
@@ -48,12 +47,6 @@ export interface AgentRespondResult {
     followUp?: AgentFollowUp;
 }
 
-export interface AgentRespondInput {
-    input?: string;
-    conversationId?: string;
-    voiceInputToken?: string;
-}
-
 // Sección 10 del ticket: locale real del dispositivo, nunca forzado a
 // español. `languageTag` ya viene en el formato "es-CL"/"en-US" que el
 // backend espera; se compone manualmente sólo si expo-localization no lo
@@ -70,20 +63,6 @@ export function getDeviceLocale(): string {
     return 'en-US';
 }
 
-// Sección 2/9/11 del ticket: actorUserId NUNCA se envía (viene de
-// requireAuth en el backend); channel="mobile" es sólo metadata; timezone/
-// locale son los reales del dispositivo, nunca hardcodeados.
-export function buildAgentRequestBody(input: AgentRespondInput): Record<string, unknown> {
-    if (input.voiceInputToken) return { voiceInputToken: input.voiceInputToken };
-    const body: Record<string, unknown> = {
-        input: input.input?.trim(),
-        channel: 'mobile',
-        timezone: getDeviceTimeZone(),
-        locale: getDeviceLocale(),
-    };
-    if (input.conversationId) body.conversationId = input.conversationId;
-    return body;
-}
 
 export interface AgentVoiceTranscriptResult {
     status: 'final';
@@ -247,38 +226,13 @@ export function mapAgentErrorMessage(error: unknown): string {
     return 'No pude responder ahora. Intenta nuevamente.';
 }
 
-export function useAgentRespond() {
-    return useMutation({
-        mutationFn: async (input: AgentRespondInput): Promise<AgentRespondResult> => {
-            const body = buildAgentRequestBody(input);
-            const raw = await apiClient.post('/agent/respond', body);
-            return parseAgentResponse(raw);
-        },
-    });
-}
-
-// ─── M-6: Unified Agent Turn (POST /agent/turn) ──────────────────────────────
-// Single entry point. Core decides: response | plan | clarification | unsupported.
-// Mobile renders based on kind discriminator — NO semantic routing heuristics.
-
-export type AgentTurnKind = 'response' | 'plan' | 'clarification' | 'unsupported';
-export type AgentConversationResultKind = AgentTurnKind | 'execution';
+// ─── Agent Turn (POST /agent/turn) ───────────────────────────────────────────
+// Every surface talks to the assistant through this one entry point. It
+// answers in text and may propose actions that wait for Confirm/Cancel.
 
 export interface AgentTurnDebugMetadata {
     traceId: string;
-    dialogueScopeKey: string | null;
-    stateFound: boolean;
-    dialogueLifecycle: string | null;
-    pendingClarificationField: string | null;
-    openObjectiveType: string | null;
-    dialogueVersion: number | null;
-    turnSequence: number | null;
-    clarificationAttempted: boolean;
-    clarificationOutcome: string | null;
-    routingDecision: string | null;
-    personCandidateCount: number | null;
-    responseKind: string | null;
-    sourceRefCount: number | null;
+    [key: string]: unknown;
 }
 
 export interface AgentTurnResponse {
@@ -286,6 +240,8 @@ export interface AgentTurnResponse {
     response: AgentRespondResult;
     /** Assistant actions proposed in this turn that wait for Confirm/Cancel. */
     pendingActions?: AgentPendingAction[];
+    /** Set when this turn executed a confirmed action; views showing commitments refresh. */
+    changed?: true;
     debug?: AgentTurnDebugMetadata;
 }
 
@@ -294,88 +250,7 @@ export interface AgentPendingAction {
     summary: string;
 }
 
-export interface AgentPlanStepPresentation {
-    stepId: string;
-    toolId: string;
-    headline: string;
-    effectDescription: string;
-    targetLabel?: string;
-    recipientLabel?: string;
-    contentPreview?: string;
-    dateLabel?: string;
-    riskLabel?: string;
-    confirmationLabel: string;
-    cancelLabel: string;
-    requiresExplicitConfirmation: boolean;
-    phase: 'immediate' | 'conditional';
-    conditionLabel?: string;
-}
-
-export interface AgentPlanPresentation {
-    headline: string;
-    summary: string;
-    effectDescription: string;
-    targetLabel?: string;
-    dateLabel?: string;
-    riskLabel?: string;
-    confirmationLabel: string;
-    cancelLabel: string;
-    stepPresentations: AgentPlanStepPresentation[];
-    requiresExplicitConfirmation: boolean;
-    expiresAt: string;
-    planId: string;
-    planDigest: string;
-    objectiveType: string;
-}
-
-export interface AgentTurnPlan {
-    kind: 'plan';
-    confirmationRequested?: boolean;
-    plan: {
-        planId: string;
-        status: string;
-        objectiveType: string;
-        humanReadableSummary: string;
-        steps: {
-            stepId: string;
-            toolId: string;
-            operation: string;
-            dependsOn: string[];
-            expectedEffect: string;
-            sideEffectClass: string;
-            riskLevel: 'low' | 'medium' | 'high';
-            confirmationRequirement: string;
-            conditionDescription: string;
-        }[];
-        canExecute: boolean;
-        clarification?: { field: string; question: string; options?: { id: string; label: string }[] }[];
-        failureMode?: string;
-        failureMessage?: string;
-        planDigest?: string;
-    };
-    presentation: AgentPlanPresentation;
-    debug?: AgentTurnDebugMetadata;
-}
-
-export interface AgentTurnClarification {
-    kind: 'clarification';
-    questions: { field: string; question: string; options?: { id: string; label: string }[] }[];
-    partialResponse?: AgentRespondResult;
-    debug?: AgentTurnDebugMetadata;
-}
-
-export interface AgentTurnUnsupported {
-    kind: 'unsupported';
-    reason: string;
-    supportedExamples?: string[];
-    debug?: AgentTurnDebugMetadata;
-}
-
-export type AgentTurnResult =
-    | AgentTurnResponse
-    | AgentTurnPlan
-    | AgentTurnClarification
-    | AgentTurnUnsupported;
+export type AgentTurnResult = AgentTurnResponse;
 
 export interface AgentConversationTurnRecord {
     id: string;
@@ -384,22 +259,9 @@ export interface AgentConversationTurnRecord {
     clientTurnKey: string;
     inputText: string;
     inputMode: 'text' | 'voice' | 'reviewed_voice_text';
-    resultKind: AgentConversationResultKind;
-    result: AgentConversationEventResult;
+    result: AgentTurnResponse;
     createdAt: string;
 }
-
-export interface AgentConversationHistoryMetadata {
-    dialogueConversationId: string | null;
-}
-
-export interface AgentExecutionConversationEvent {
-    kind: 'execution';
-    execution: AgentExecutionResult;
-    presentation: AgentPlanPresentation;
-}
-
-export type AgentConversationEventResult = AgentTurnResult | AgentExecutionConversationEvent;
 
 export interface AgentTurnInput {
     input?: string;
@@ -411,47 +273,12 @@ export interface AgentTurnInput {
     channel?: 'mobile' | 'web' | 'desktop' | 'tablet' | 'car' | 'device';
     /** Stable across retries of one logical turn; never sent in the body. */
     idempotencyKey?: string;
-    /** Explicit test-build capability opt-in; semantic meaning remains backend-owned. */
-    readCapability?: 'commitment_count_v4';
     /** Confirm/Cancel button answering one pending assistant action; `input` is the button label. */
     actionDecision?: AgentActionDecision;
 }
 
-export const READ_V4_EXACT_COUNT_OPT_IN = 'commitment_count_v4' as const;
-
 export function createAgentTurnIdempotencyKey(): string {
     return `mobile-turn-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-export function buildAgentTurnHeaders(input: AgentTurnInput): Record<string, string> {
-    return input.idempotencyKey
-        ? { 'Idempotency-Key': input.idempotencyKey }
-        : {};
-}
-
-function enabledReadCapability(): typeof READ_V4_EXACT_COUNT_OPT_IN | undefined {
-    return process.env.NODE_ENV !== 'production'
-        && process.env.EXPO_PUBLIC_ENABLE_READ_V4_EXACT_COUNT === 'true'
-        ? READ_V4_EXACT_COUNT_OPT_IN
-        : undefined;
-}
-
-export function buildAgentTurnRequestBody(input: AgentTurnInput): Record<string, unknown> {
-    if (input.voiceInputToken) return { voiceInputToken: input.voiceInputToken };
-    if (input.reviewedVoiceInputToken) return {
-        input: input.input?.trim(),
-        reviewedVoiceInputToken: input.reviewedVoiceInputToken,
-    };
-    const body: Record<string, unknown> = {
-        input: input.input?.trim(),
-        channel: input.channel ?? 'mobile',
-        timezone: getDeviceTimeZone(),
-        locale: getDeviceLocale(),
-    };
-    if (input.conversationId) body.conversationId = input.conversationId;
-    if (input.reviewedVoiceInputToken) body.reviewedVoiceInputToken = input.reviewedVoiceInputToken;
-    if (input.readCapability) body.readCapability = input.readCapability;
-    return body;
 }
 
 export type AgentSurfaceTurnInput = AgentSurfaceRequestInput;
@@ -475,92 +302,40 @@ export function adapterSurfaceForTurn(input: AgentTurnInput): AgentAdapterSurfac
     return surfaceForTurn(input);
 }
 
+/**
+ * Turns saved before the assistant (plans, clarifications, executions) are
+ * shown as their plain text; they can no longer be confirmed.
+ */
+function legacyTurnText(obj: Record<string, unknown>): string | null {
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : null);
+    if (obj.kind === 'plan') {
+        return text((obj.presentation as any)?.summary) ?? text((obj.plan as any)?.humanReadableSummary);
+    }
+    if (obj.kind === 'clarification' && Array.isArray(obj.questions)) {
+        return text(obj.questions.map((question: any) => question?.question).filter(Boolean).join('\n'));
+    }
+    if (obj.kind === 'unsupported') return text(obj.reason);
+    if (obj.kind === 'execution') return text((obj.execution as any)?.humanReadableSummary);
+    return null;
+}
+
 export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
     if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_turn_shape');
     const obj = raw as Record<string, unknown>;
-    // Older production deploys returned the public response directly from
-    // /agent/turn. Accepting that shape keeps a mixed Expo/Render rollout
-    // usable while every current response continues through the discriminator.
-    if (typeof obj.kind !== 'string'
-        && typeof obj.status === 'string'
-        && typeof obj.answer === 'string'
-        && Array.isArray(obj.citations)) {
-        return { kind: 'response', response: parseAgentResponse(obj) };
+    if (obj.kind !== 'response') {
+        const answer = legacyTurnText(obj);
+        if (!answer) throw new Error('invalid_agent_turn_shape');
+        return { kind: 'response', response: { status: 'answered', answer, citations: [] } };
     }
-    if (obj.kind === 'response') {
-        parseAgentResponse(obj.response);
-        const pendingActions = Array.isArray(obj.pendingActions)
-            ? obj.pendingActions.filter((action: any): action is AgentPendingAction => (
-                !!action && typeof action.ref === 'string' && typeof action.summary === 'string'))
-            : [];
-        if (pendingActions.length) return { ...obj, pendingActions } as unknown as AgentTurnResult;
-        const { pendingActions: _ignored, ...rest } = obj;
-        return rest as unknown as AgentTurnResult;
-    } else if (obj.kind === 'read') {
-        // READ V4 is an experimental server-side result. It can still be
-        // replayed by the durable boundary, so project its exact-count and
-        // terminal states into the public response contract instead of
-        // collapsing a valid HTTP 200 into the generic retry error.
-        const execution = obj.execution as Record<string, unknown> | undefined;
-        if (!execution || typeof execution.status !== 'string') throw new Error('invalid_agent_turn_shape');
-        if (execution.status === 'completed' && execution.conclusion === 'count') {
-            const count = execution.count as Record<string, unknown> | undefined;
-            if (!count || !Number.isInteger(count.value) || Number(count.value) < 0) {
-                throw new Error('invalid_agent_turn_shape');
-            }
-            return {
-                kind: 'response',
-                response: {
-                    status: 'answered',
-                    answer: `Tienes ${count.value} compromiso${count.value === 1 ? '' : 's'} pendiente${count.value === 1 ? '' : 's'}.`,
-                    citations: [],
-                },
-            };
-        }
-        if (execution.status === 'completed' && execution.conclusion === 'no_matching_fact') {
-            return {
-                kind: 'response',
-                response: { status: 'no_evidence', answer: 'No encontré compromisos pendientes.', citations: [] },
-            };
-        }
-        if (execution.status === 'unsupported' || execution.status === 'failed') {
-            return {
-                kind: 'response',
-                response: {
-                    status: 'capability_gap',
-                    answer: 'No pude completar esa consulta ahora. Intenta nuevamente.',
-                    citations: [],
-                },
-            };
-        }
-        throw new Error('invalid_agent_turn_shape');
-    } else if (obj.kind === 'plan') {
-        const plan = obj.plan as Record<string, unknown> | undefined;
-        const presentation = obj.presentation as Record<string, unknown> | undefined;
-        if (!plan || !presentation
-            || typeof plan.planId !== 'string'
-            || plan.status !== 'ready_for_authorization'
-            || typeof plan.planDigest !== 'string'
-            || !Array.isArray(plan.steps)
-            || plan.steps.length === 0
-            || presentation.planId !== plan.planId
-            || presentation.planDigest !== plan.planDigest
-            || typeof presentation.confirmationLabel !== 'string'
-            || presentation.requiresExplicitConfirmation !== true
-            || !Array.isArray(presentation.stepPresentations)) {
-            throw new Error('invalid_agent_turn_shape');
-        }
-    } else if (obj.kind === 'clarification') {
-        if (!Array.isArray(obj.questions) || obj.questions.some((question) => (
-            !question || typeof question !== 'object' || typeof (question as Record<string, unknown>).question !== 'string'
-        ))) throw new Error('invalid_agent_turn_shape');
-    } else if (obj.kind === 'unsupported') {
-        if (typeof obj.reason !== 'string') throw new Error('invalid_agent_turn_shape');
-    } else {
-        throw new Error('invalid_agent_turn_shape');
-    }
-    // The backend returns the full discriminated union — we trust the shape
-    return obj as unknown as AgentTurnResult;
+    const result: AgentTurnResponse = { kind: 'response', response: parseAgentResponse(obj.response) };
+    const pendingActions = Array.isArray(obj.pendingActions)
+        ? obj.pendingActions.filter((action: any): action is AgentPendingAction => (
+            !!action && typeof action.ref === 'string' && typeof action.summary === 'string'))
+        : [];
+    if (pendingActions.length) result.pendingActions = pendingActions;
+    if (obj.changed === true) result.changed = true;
+    if (obj.debug && typeof obj.debug === 'object') result.debug = obj.debug as AgentTurnDebugMetadata;
+    return result;
 }
 
 export function parseAgentConversationTurns(raw: unknown): {
@@ -584,29 +359,7 @@ export function parseAgentConversationTurns(raw: unknown): {
             || typeof row.inputText !== 'string'
             || !['text', 'voice', 'reviewed_voice_text'].includes(String(row.inputMode))
             || typeof row.createdAt !== 'string') continue;
-        // READ events are valid Core events but have a different renderer and
-        // are intentionally omitted until the Ping preview exposes that card.
-        if (row.resultKind === 'read') continue;
         try {
-            let result: AgentConversationEventResult;
-            if (row.resultKind === 'execution') {
-                const event = row.result as Record<string, unknown>;
-                const presentation = event?.presentation as Record<string, unknown> | undefined;
-                if (!presentation
-                    || typeof presentation.planId !== 'string'
-                    || typeof presentation.planDigest !== 'string'
-                    || typeof presentation.summary !== 'string'
-                    || !Array.isArray(presentation.stepPresentations)) {
-                    throw new Error('invalid_agent_execution_history_shape');
-                }
-                result = {
-                    kind: 'execution',
-                    execution: parseAgentExecution(event.execution),
-                    presentation: presentation as unknown as AgentPlanPresentation,
-                };
-            } else {
-                result = parseAgentTurnResult(row.result);
-            }
             turns.push({
                 id: row.id,
                 conversationId: row.conversationId,
@@ -614,8 +367,7 @@ export function parseAgentConversationTurns(raw: unknown): {
                 clientTurnKey: row.clientTurnKey,
                 inputText: row.inputText,
                 inputMode: row.inputMode as AgentConversationTurnRecord['inputMode'],
-                resultKind: row.resultKind as AgentConversationResultKind,
-                result,
+                result: parseAgentTurnResult(row.result),
                 createdAt: row.createdAt,
             });
         } catch {
@@ -655,13 +407,11 @@ export function useAgentConversationTurns(conversationId?: string) {
 
 /**
  * Network adapter shared by mobile and future tablet/desktop surfaces. The
- * caller provides only the surface and user turn; capability flags, request
- * headers, parsing and diagnostic handling stay in one place.
+ * caller provides only the surface and user turn; request headers, parsing
+ * and diagnostic handling stay in one place.
  */
 export async function requestAgentSurfaceTurn(input: AgentSurfaceTurnInput): Promise<AgentTurnResult> {
-    const capability = input.readCapability ?? enabledReadCapability();
-    const requestInput = capability === input.readCapability ? input : { ...input, readCapability: capability };
-    const request = buildAgentSurfaceTurnRequest(requestInput);
+    const request = buildAgentSurfaceTurnRequest(input);
     const raw = await apiClient.post('/agent/turn', request.body, request.headers, {
         timeoutMs: AGENT_TURN_REQUEST_TIMEOUT_MS,
     });
@@ -676,7 +426,13 @@ export async function requestAgentSurfaceTurn(input: AgentSurfaceTurnInput): Pro
     return result;
 }
 
+/**
+ * Commitments, proposals and the originating chat can change when a turn
+ * executes a confirmed action, so the same views every direct commitment
+ * mutation refreshes are refreshed here too.
+ */
 export function useAgentTurn() {
+    const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (input: AgentTurnInput): Promise<AgentTurnResult> => {
             return requestAgentSurfaceTurn({
@@ -684,164 +440,8 @@ export function useAgentTurn() {
                 surface: adapterSurfaceForTurn(input),
             });
         },
-    });
-}
-
-// Type guards for discriminated union
-export function isAgentTurnResponse(result: AgentTurnResult): result is AgentTurnResponse {
-    return result.kind === 'response';
-}
-
-export function isAgentTurnPlan(result: AgentTurnResult): result is AgentTurnPlan {
-    return result.kind === 'plan';
-}
-
-export function isAgentTurnClarification(result: AgentTurnResult): result is AgentTurnClarification {
-    return result.kind === 'clarification';
-}
-
-export function isAgentTurnUnsupported(result: AgentTurnResult): result is AgentTurnUnsupported {
-    return result.kind === 'unsupported';
-}
-
-// M-4 authorization/execution contracts consumed by the M-6 surface.
-export interface AgentAuthorizationResult {
-    authorizationId: string;
-    status: 'authorized';
-    expiresAt: string;
-    authorizedStepIds: string[];
-    confirmationLevel: string;
-}
-
-export type AgentExecutionFailureCode =
-    | 'authorization_missing'
-    | 'authorization_expired'
-    | 'authorization_revoked'
-    | 'authorization_mismatch'
-    | 'plan_changed'
-    | 'tool_not_executable'
-    | 'not_authorized'
-    | 'invalid_lifecycle'
-    | 'entity_changed'
-    | 'condition_not_met'
-    | 'idempotent_replay'
-    | 'verification_failed'
-    | 'transient_failure'
-    | 'policy_blocked';
-
-export interface AgentExecutionStepResult {
-    stepId: string;
-    toolId: string;
-    status: 'pending' | 'running' | 'succeeded' | 'failed_retryable' | 'failed_terminal' | 'skipped_condition' | 'blocked' | 'cancelled';
-    failureCode?: AgentExecutionFailureCode;
-    createdEntityRefs: { entityType: string; entityId: string }[];
-    updatedEntityRefs: { entityType: string; entityId: string }[];
-    messageSent: boolean;
-    verified: boolean;
-    idempotentReplay: boolean;
-    waitingOn?: string;
-}
-
-export interface AgentExecutionResult {
-    authorizationId: string;
-    status: 'done' | 'partially_done' | 'waiting' | 'blocked' | 'needs_reauthorization' | 'failed';
-    executedSteps: AgentExecutionStepResult[];
-    failedSteps: AgentExecutionStepResult[];
-    waitingSteps: AgentExecutionStepResult[];
-    createdEntityRefs: { entityType: string; entityId: string }[];
-    updatedEntityRefs: { entityType: string; entityId: string }[];
-    messagesSent: number;
-    requiresFurtherAuthorization: boolean;
-    humanReadableSummary: string;
-}
-
-export function buildAgentAuthorizationRequestBody(source: AgentTurnInput, turn: AgentTurnPlan): Record<string, unknown> {
-    return {
-        ...buildAgentTurnRequestBody(source),
-        planDigest: turn.plan.planDigest,
-        stepIds: turn.plan.steps.map((step) => step.stepId),
-        confirm: true,
-    };
-}
-
-export function parseAgentAuthorization(raw: unknown): AgentAuthorizationResult {
-    if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_authorization_shape');
-    const value = raw as Record<string, unknown>;
-    if (typeof value.authorizationId !== 'string'
-        || value.status !== 'authorized'
-        || typeof value.expiresAt !== 'string'
-        || !Array.isArray(value.authorizedStepIds)
-        || value.authorizedStepIds.some((id) => typeof id !== 'string')
-        || typeof value.confirmationLevel !== 'string') {
-        throw new Error('invalid_agent_authorization_shape');
-    }
-    return value as unknown as AgentAuthorizationResult;
-}
-
-export function parseAgentExecution(raw: unknown): AgentExecutionResult {
-    if (!raw || typeof raw !== 'object') throw new Error('invalid_agent_execution_shape');
-    const value = raw as Record<string, unknown>;
-    const validStatuses = new Set(['done', 'partially_done', 'waiting', 'blocked', 'needs_reauthorization', 'failed']);
-    if (typeof value.authorizationId !== 'string'
-        || typeof value.status !== 'string'
-        || !validStatuses.has(value.status)
-        || !Array.isArray(value.executedSteps)
-        || !Array.isArray(value.failedSteps)
-        || !Array.isArray(value.waitingSteps)
-        || typeof value.humanReadableSummary !== 'string') {
-        throw new Error('invalid_agent_execution_shape');
-    }
-    return value as unknown as AgentExecutionResult;
-}
-
-/**
- * Conversation history metadata is optional for the main Ping entry. The
- * backend accepts the pair only when both values exist; sending an orphaned
- * sourceTurnKey makes an otherwise valid authorized action fail validation
- * before the commitment executor is reached.
- */
-export function buildAgentExecutionRequestBody(input: {
-    authorizationId: string;
-    conversationId?: string;
-    sourceTurnKey?: string;
-}): Record<string, unknown> {
-    const body: Record<string, unknown> = { authorizationId: input.authorizationId };
-    if (input.conversationId && input.sourceTurnKey) {
-        body.conversationId = input.conversationId;
-        body.sourceTurnKey = input.sourceTurnKey;
-    }
-    return body;
-}
-
-export function useAgentAuthorize() {
-    return useMutation({
-        mutationFn: async ({ source, turn }: { source: AgentTurnInput; turn: AgentTurnPlan }): Promise<AgentAuthorizationResult> => {
-            const raw = await apiClient.post('/agent/authorize', buildAgentAuthorizationRequestBody(source, turn));
-            return parseAgentAuthorization(raw);
-        },
-    });
-}
-
-// PING — STALE STATE AFTER AGENT EXECUTION FIX: this mutation can create or
-// mutate a commitment, a commitment_proposal, or a message (any of the 5
-// registered write tools -- send_message/create_commitment/
-// respond_to_proposal/reschedule_commitment/complete_commitment), but had
-// NO cache invalidation at all, unlike every other mutating flow in the app
-// (see useCreateCommitment/useCreateSharedCommitmentProposal above, the
-// established pattern this reuses verbatim). Without this, a screen the
-// user navigates to AFTER the agent reports "Acción completada" (Compromisos,
-// Hoy/insights dashboard, the originating chat) could keep showing
-// pre-mutation cached data. Invalidates the same superset of query keys the
-// app's own direct commitment/proposal mutations already invalidate --
-// never a new invalidation concept, just applied where it was missing.
-export function useAgentExecute() {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (input: { authorizationId: string; conversationId?: string; sourceTurnKey?: string }): Promise<AgentExecutionResult> => {
-            const raw = await apiClient.post('/agent/execute', buildAgentExecutionRequestBody(input));
-            return parseAgentExecution(raw);
-        },
-        onSuccess: () => {
+        onSuccess: (result) => {
+            if (!result.changed) return;
             invalidateCommitmentViews(queryClient, {
                 includeAgreementProposals: true,
                 includeAgentTurns: true,

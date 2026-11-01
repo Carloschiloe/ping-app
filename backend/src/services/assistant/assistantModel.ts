@@ -1,7 +1,6 @@
 // OpenAI Responses adapter for the assistant. Current reasoning models only
-// accept function tools through /v1/responses. The model name comes only
-// from the environment; a slow request is hedged like the other semantic
-// calls. Nothing is stored at the provider (store: false).
+// accept function tools through /v1/responses. A slow request is hedged like
+// the other semantic calls. Nothing is stored at the provider (store: false).
 import OpenAI from 'openai';
 import { hedgedSemanticRequest, traceSemanticProvider } from '../semanticOpenAiTransport.service';
 import type { AssistantChatMessage, AssistantModel, AssistantModelResponse, AssistantToolDefinition } from './assistantTypes';
@@ -60,8 +59,9 @@ export class OpenAiAssistantModel implements AssistantModel {
     }
 }
 
-/** The assistant runs only when a model is configured for it. */
-export function assistantModelFromEnv(): OpenAiAssistantModel | null {
-    const modelName = process.env.PING_ASSISTANT_MODEL?.trim();
-    return modelName ? new OpenAiAssistantModel(modelName) : null;
+export const DEFAULT_ASSISTANT_MODEL = 'gpt-5.6-luna';
+
+/** PING_ASSISTANT_MODEL overrides the model the assistant runs on. */
+export function assistantModelFromEnv(): OpenAiAssistantModel {
+    return new OpenAiAssistantModel(process.env.PING_ASSISTANT_MODEL?.trim() || DEFAULT_ASSISTANT_MODEL);
 }

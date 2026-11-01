@@ -5,18 +5,12 @@
 import type {
     AgentCitation,
     AgentFollowUp,
-    AgentRespondResult,
     AgentResponseStatus,
-    AgentExecutionResult,
     AgentConversationTurnRecord,
     AgentActionDecision,
     AgentPendingAction,
-    AgentPlanPresentation,
-    AgentTurnPlan,
     AgentTurnResult,
-    AgentTurnInput,
 } from '../api/query-modules/agent';
-import type { PendingAgentPlan } from './agentTurnState';
 
 export interface AgentChatMessage {
     id: string;
@@ -35,15 +29,6 @@ export interface AgentChatMessage {
     retryActionDecision?: AgentActionDecision;
     /** Assistant actions proposed by this answer, answered with Confirm/Cancel. */
     pendingActions?: AgentPendingAction[];
-
-    // M-6: extended fields for conversational Agent UX
-    planPresentation?: AgentPlanPresentation;
-    rawPlan?: AgentTurnPlan;
-    isClarification?: boolean;
-    clarificationQuestions?: { field: string; question: string; options?: { id: string; label: string }[] }[];
-    isUnsupported?: boolean;
-    executionResult?: AgentExecutionResult;
-    executionPresentation?: AgentPlanPresentation;
 }
 
 let idCounter = 0;
@@ -54,18 +39,6 @@ function nextId(prefix: string): string {
 
 export function appendUserMessage(messages: AgentChatMessage[], text: string): AgentChatMessage[] {
     return [...messages, { id: nextId('u'), role: 'user', text, createdAt: Date.now() }];
-}
-
-export function appendAgentMessage(messages: AgentChatMessage[], result: AgentRespondResult): AgentChatMessage[] {
-    return [...messages, {
-        id: nextId('a'),
-        role: 'agent',
-        text: result.answer,
-        status: result.status,
-        citations: result.citations,
-        followUp: result.followUp,
-        createdAt: Date.now(),
-    }];
 }
 
 export function appendErrorMessage(
@@ -83,109 +56,30 @@ export function appendErrorMessage(
 }
 
 export function appendAgentTurnMessage(messages: AgentChatMessage[], result: AgentTurnResult): AgentChatMessage[] {
-    if (result.kind === 'response') {
-        const appended = appendAgentMessage(messages, result.response);
-        if (result.pendingActions?.length) appended[appended.length - 1].pendingActions = result.pendingActions;
-        return appended;
-    }
-    if (result.kind === 'plan') {
-        return [...messages, {
-            id: nextId('plan'), role: 'agent', text: result.presentation.summary,
-            createdAt: Date.now(), planPresentation: result.presentation, rawPlan: result,
-        }];
-    }
-    if (result.kind === 'clarification') {
-        const text = result.questions.map((question) => question.question).filter(Boolean).join('\n')
-            || 'Necesito una aclaración antes de continuar.';
-        return [...messages, {
-            id: nextId('clarify'), role: 'agent', text, createdAt: Date.now(),
-            isClarification: true, clarificationQuestions: result.questions,
-        }];
-    }
+    const { response, pendingActions } = result;
     return [...messages, {
-        id: nextId('unsupported'), role: 'agent', text: result.reason, createdAt: Date.now(),
-        isUnsupported: true,
-    }];
-}
-
-export function appendExecutionMessage(
-    messages: AgentChatMessage[],
-    result: AgentExecutionResult,
-    presentation: AgentPlanPresentation,
-): AgentChatMessage[] {
-    return [...messages, {
-        id: nextId('execution'), role: 'agent', text: '', createdAt: Date.now(),
-        executionResult: result, executionPresentation: presentation,
+        id: nextId('a'),
+        role: 'agent',
+        text: response.answer,
+        status: response.status,
+        citations: response.citations,
+        followUp: response.followUp,
+        createdAt: Date.now(),
+        ...(pendingActions?.length ? { pendingActions } : {}),
     }];
 }
 
 export function restoreAgentConversationMessages(turns: AgentConversationTurnRecord[]): AgentChatMessage[] {
     const restored: AgentChatMessage[] = [];
     for (const turn of turns) {
-        restored.push({
-            id: `${turn.id}:user`,
-            role: 'user',
-            text: turn.inputText,
-            createdAt: new Date(turn.createdAt).getTime(),
-        });
-        const withResult = turn.result.kind === 'execution'
-            ? appendExecutionMessage(restored, turn.result.execution, turn.result.presentation)
-            : appendAgentTurnMessage(restored, turn.result);
-        const resultMessage = withResult[withResult.length - 1];
-        if (resultMessage) {
-            resultMessage.id = `${turn.id}:result`;
-            resultMessage.createdAt = new Date(turn.createdAt).getTime();
-        }
-        restored.splice(0, restored.length, ...withResult);
+        const createdAt = new Date(turn.createdAt).getTime();
+        restored.push({ id: `${turn.id}:user`, role: 'user', text: turn.inputText, createdAt });
+        const [result] = appendAgentTurnMessage([], turn.result);
+        restored.push({ ...result, id: `${turn.id}:result`, createdAt });
     }
     return restored;
 }
 
-/**
- * Rehydrates the last still-confirmable plan when the screen is reopened.
- * History cards are otherwise rendered as read-only because the local
- * reducer starts idle, which made a valid plan impossible to confirm after a
- * navigation/reload.
- */
-export function restorePendingAgentPlan(turns: AgentConversationTurnRecord[]): PendingAgentPlan | null {
-    let pending: PendingAgentPlan | null = null;
-    for (const turn of turns) {
-        if (turn.result.kind === 'execution') {
-            pending = null;
-            continue;
-        }
-        if (turn.result.kind !== 'plan') continue;
-        if (turn.result.confirmationRequested === true) continue;
-        if (Date.parse(turn.result.presentation.expiresAt) <= Date.now()) {
-            pending = null;
-            continue;
-        }
-        const historyMetadata = (turn.result as AgentTurnPlan & {
-            __pingAgentHistory?: { dialogueConversationId?: unknown };
-        }).__pingAgentHistory;
-        // New events distinguish the actor self-chat used for durable
-        // storage from the semantic scope used by Core. Older events lack
-        // this marker and retain the historical conversationId behavior.
-        const hasSemanticScopeMarker = historyMetadata
-            && Object.prototype.hasOwnProperty.call(historyMetadata, 'dialogueConversationId');
-        const dialogueConversationId = hasSemanticScopeMarker
-            ? (typeof historyMetadata.dialogueConversationId === 'string'
-                ? historyMetadata.dialogueConversationId
-                : undefined)
-            : turn.conversationId;
-        const source: AgentTurnInput = {
-            input: turn.inputText,
-            conversationId: dialogueConversationId,
-            channel: 'mobile',
-            idempotencyKey: turn.clientTurnKey,
-        };
-        pending = { turn: turn.result, source, sourceText: turn.inputText };
-    }
-    return pending;
-}
-
-// Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca
-// permitir un segundo envío mientras uno está en curso.
 /**
  * Confirm/Cancel buttons belong to the latest answer only: once the user says
  * or taps anything else, the assistant decides what is still pending.
@@ -194,10 +88,9 @@ export function isLatestAgentMessage(messages: AgentChatMessage[], id: string): 
     return messages.length > 0 && messages[messages.length - 1].id === id;
 }
 
+// Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca
+// permitir un segundo envío mientras uno está en curso.
 export function canSendInput(input: string, isPending: boolean): boolean {
-    // La edición sólo prepara una posible corrección. El envío explícito
-    // deja que el Core decida si reemplaza el plan pendiente, inicia otra
-    // solicitud o sale del contexto; nunca ejecuta por sí solo.
     return input.trim().length > 0 && !isPending;
 }
 
@@ -230,14 +123,9 @@ export function describeCitationTypes(citations: AgentCitation[] | undefined): s
 // 'answered'/'no_evidence'/'capability_gap' all rendered through the exact
 // same generic bubble, indistinguishable from each other. This can
 // misrepresent an explicit absence-of-evidence or capability-gap response
-// as an ordinary confident answer -- exactly the truthfulness gap this
-// backend's own synthesis pipeline goes to great lengths to avoid
-// server-side (see agentResponseSynthesizer.service.ts's deterministic
-// no_evidence/capability_gap templates), undone by collapsing it back to
-// one bubble client-side. 'answered' intentionally returns null (the
-// normal case needs no extra label) -- only genuinely non-confident
-// statuses get one, same convention as isClarification/isUnsupported's
-// existing turnLabel treatment right above this in AgentPreviewScreen.tsx.
+// as an ordinary confident answer. 'answered' intentionally returns null
+// (the normal case needs no extra label) -- only genuinely non-confident
+// statuses get one.
 export function describeStatusLabel(status: AgentResponseStatus | undefined): string | null {
     if (status === 'no_evidence') return 'Sin evidencia suficiente';
     if (status === 'capability_gap') return 'Esto todavía no lo puedo hacer';
