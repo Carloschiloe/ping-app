@@ -70,6 +70,9 @@ export const TOOL_ARGUMENT_SCHEMAS: Record<string, z.ZodTypeAny> = {
     remember_fact: z.object({
         factContent: z.string().trim().min(1).max(2000),
     }).strict(),
+    forget_fact: z.object({
+        memoryRecordId: UUID,
+    }).strict(),
     edit_commitment: z.object({
         commitmentId: UUID,
         title: z.string().trim().min(1).max(120),
@@ -204,7 +207,7 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
     // record has no such scope.
     remember_fact: {
         toolId: 'remember_fact', version: 1, category: 'WRITE', domain: 'memory',
-        description: 'Stores a fact the user explicitly asked Ping to remember, as the actor\'s own durable memory record. Confirmation is ALWAYS explicit — never inferred from casual conversation.',
+        description: 'Stores a fact about the user as the actor\'s own durable memory record, whether the user asked for it or Ping offered it after the user mentioned it. Confirmation is ALWAYS explicit — never inferred from casual conversation.',
         // A real, durable domain write (a genuine memory_records row, not a
         // trivially-undoable draft edit) -- same classification tier as
         // create_commitment, never the lighter 'reversible' tier.
@@ -212,6 +215,15 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
         authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.memory', failureModes: ['missing_context', 'policy_blocked'],
+    },
+    // M11 — forget_fact: drops one of the actor's own remembered facts.
+    forget_fact: {
+        toolId: 'forget_fact', version: 1, category: 'WRITE', domain: 'memory',
+        description: 'Forgets one fact the user had asked Ping to remember. Owner-only.',
+        argumentNames: ['memoryRecordId'], sideEffectClass: 'state_change',
+        authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
+        supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
+        auditCategory: 'write.memory', failureModes: ['entity_not_found'],
     },
     edit_commitment: {
         toolId: 'edit_commitment', version: 1, category: 'WRITE', domain: 'commitment',

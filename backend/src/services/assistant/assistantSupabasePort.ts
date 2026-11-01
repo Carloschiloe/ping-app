@@ -15,6 +15,7 @@ import {
 } from '../retrieval.service';
 import { retrieveMemory } from '../memory.service';
 import { enforceMemoryCanonicalDominance } from '../canonicalTruthRegistry';
+import { listUserFacts } from '../memoryFacts.service';
 import { executeAuthorization } from '../agentExecution.service';
 import type { AgentPlanStep } from '../../types/agentPlan';
 import type { RetrievalCommitment } from '../../types/retrieval';
@@ -138,6 +139,11 @@ export class SupabaseAssistantDataPort implements AssistantDataPort {
         return enforceMemoryCanonicalDominance(rows)
             .filter((row) => row.isCurrent)
             .map((row) => ({ id: row.id, content: row.canonicalText }));
+    }
+
+    async listKnownFacts(): Promise<AssistantMemoryHit[]> {
+        const facts = await listUserFacts(this.actorUserId);
+        return facts.map((fact) => ({ id: fact.id, content: fact.text }));
     }
 
     async createPendingAction(input: { steps: AgentPlanStep[]; objectiveType: string; summary: string }): Promise<{ id: string; expiresAt: string }> {

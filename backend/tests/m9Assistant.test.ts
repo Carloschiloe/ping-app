@@ -210,6 +210,65 @@ describe('M9 assistant tools — safety contract', () => {
     });
 });
 
+describe('M11 assistant memory', () => {
+    const systemText = (model: ScriptedModel) => model.seen[0].filter((message) => message.role === 'system').map((message) => message.content).join('\n');
+    const FACT_ID = 'ffffffff-0000-4000-8000-000000000001';
+
+    it('starts every turn knowing the remembered facts, by ref and never by id', async () => {
+        const chat = new Conversation();
+        const model = new ScriptedModel(['Es la doctora Rojas.']);
+        await runAssistantTurn(
+            { actorUserId: BENCH_ACTOR, text: '¿cómo se llama mi dentista?', timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: chat.history },
+            { data: chat.world, model },
+        );
+        expect(systemText(model)).toContain('m1 — Mi dentista es la doctora Rojas, en Providencia.');
+        expect(systemText(model)).not.toContain(FACT_ID);
+    });
+
+    it('forgets a fact only after the user confirms, and stops showing it', async () => {
+        const chat = new Conversation();
+        const proposal = await chat.say('olvida lo del dentista', [[['propose_forget', { ref: 'm1' }]], '¿Lo olvido?']);
+        expect(toolResults(proposal)[0]).toMatchObject({ status: 'waiting_for_user_confirmation' });
+        expect(toolResults(proposal)[0].summary).toContain('Olvidar: «Mi dentista es la doctora Rojas');
+        expect(chat.world.forgotten).toEqual([]);
+
+        await chat.say('sí', [[['confirm_action', { action: 'a1' }]], 'Listo, lo olvidé.']);
+        expect(chat.world.forgotten).toEqual([FACT_ID]);
+
+        const model = new ScriptedModel(['No lo sé.']);
+        await runAssistantTurn(
+            { actorUserId: BENCH_ACTOR, text: '¿y mi dentista?', timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: chat.history },
+            { data: chat.world, model },
+        );
+        expect(systemText(model)).not.toContain('Rojas');
+    });
+
+    it('cannot forget a fact the conversation never showed', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('olvida todo', [[['propose_forget', { ref: 'm7' }]], 'No encontré eso.']);
+        expect(toolResults(output)[0]).toMatchObject({ error: 'unknown_ref' });
+        expect(chat.world.pending.size).toBe(0);
+    });
+
+    it('search results carry refs that can be forgotten', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('¿qué sabes de mi dentista?', [[['search_memory', { query: 'dentista' }]], 'Es la doctora Rojas.']);
+        expect(toolResults(output)[0].facts[0]).toEqual({ ref: 'm1', fact: 'Mi dentista es la doctora Rojas, en Providencia.' });
+    });
+
+    it('answers normally when the facts cannot be loaded', async () => {
+        const world = new BenchWorld();
+        world.listKnownFacts = async () => { throw new Error('db down'); };
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const output = await runAssistantTurn(
+            { actorUserId: BENCH_ACTOR, text: 'hola', timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: { turns: [], refs: [], actions: [] } },
+            { data: world, model: new ScriptedModel(['Hola.']) },
+        );
+        warn.mockRestore();
+        expect(output.answer).toBe('Hola.');
+    });
+});
+
 describe('M9 assistant helpers', () => {
     beforeEach(() => {
         clearAssistantHistoryCacheForTests();

@@ -22,8 +22,7 @@ const AGREEMENT_SRC = fs.readFileSync(
     path.join(__dirname, '..', 'src/utils/agreement.ts'), 'utf-8',
 );
 // PING — CANCELAR/ARCHIVAR LABEL MISMATCH FIX: src/screens/HoyScreen.tsx was
-// dead code (zero importers, confirmed via docs/generated/import-index.json
-// -- importedBy: []) and has been deleted. The real, currently-reachable
+// dead code (zero importers) and has been deleted. The real, currently-reachable
 // archive/cancel UI for a canonical commitment is CommitmentDetailSheet.tsx
 // (opened from InsightsScreen.tsx, the actual current Hoy/Compromisos
 // surface) -- this is what FIX 2's own "Archivar/Cancelar" wording actually

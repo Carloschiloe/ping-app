@@ -17,6 +17,7 @@ import * as privateFileController from '../controllers/privateFile.controller';
 import * as attachmentController from '../controllers/attachment.controller';
 import * as agentTurnController from '../controllers/agentTurn.controller';
 import * as agentConversationTurnController from '../controllers/agentConversationTurn.controller';
+import * as memoryFactsController from '../controllers/memoryFacts.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
@@ -182,6 +183,8 @@ router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
 router.get('/conversations/:id/agent-turns', requireAuth, agentConversationTurnController.list);
 router.delete('/conversations/:id/agent-turns', requireAuth, agentConversationTurnController.clear);
+router.get('/memory/facts', requireAuth, memoryFactsController.list);
+router.delete('/memory/facts/:id', requireAuth, memoryFactsController.forget);
 router.get(
     '/conversations/:id/shared-content',
     requireAuth,

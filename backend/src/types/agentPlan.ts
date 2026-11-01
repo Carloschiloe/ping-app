@@ -91,6 +91,7 @@ export const AGENT_OBJECTIVE_TYPE_VALUES = [
     'complete_existing_commitment',
     'respond_to_existing_proposal',
     'remember_fact',
+    'forget_fact',
     'cancel_existing_commitment',
     'unsupported',
 ] as const;

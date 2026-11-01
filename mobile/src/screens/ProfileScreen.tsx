@@ -19,6 +19,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { EditProfileSheet } from '../components/perfil/EditProfileSheet';
 import { CalendarsSheet } from '../components/perfil/CalendarsSheet';
 import { FocusModeSheet } from '../components/perfil/FocusModeSheet';
+import { MemorySheet } from '../components/perfil/MemorySheet';
 
 export default function ProfileScreen() {
     const { theme } = useAppTheme();
@@ -54,6 +55,7 @@ export default function ProfileScreen() {
     const [editProfileVisible, setEditProfileVisible] = useState(false);
     const [calendarsVisible, setCalendarsVisible] = useState(false);
     const [focusModeVisible, setFocusModeVisible] = useState(false);
+    const [memoryVisible, setMemoryVisible] = useState(false);
 
     // Cloud Accounts
     const { data: cloudAccounts = [], refetch: refetchAccounts } = useCalendarAccounts();
@@ -412,6 +414,21 @@ export default function ProfileScreen() {
                 </View>
             </View>
 
+            {/* MEMORY */}
+            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>MEMORIA DE PING</Text>
+            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
+                <TouchableOpacity style={styles.row} onPress={() => setMemoryVisible(true)} accessibilityLabel="Lo que Ping recuerda">
+                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
+                        <Ionicons name="bulb-outline" size={20} color={theme.colors.accent} />
+                    </View>
+                    <View style={styles.rowBody}>
+                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Lo que Ping recuerda</Text>
+                        <Text style={[styles.rowSubtitle, { color: theme.colors.text.secondary }]}>Ver u olvidar lo que le contaste</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
+                </TouchableOpacity>
+            </View>
+
             {/* PREFERENCES */}
             <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>PREFERENCIAS</Text>
             <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
@@ -479,6 +496,8 @@ export default function ProfileScreen() {
                 onActivateFocus={handleActivateFocus}
                 onCancelFocus={handleCancelFocus}
             />
+
+            <MemorySheet visible={memoryVisible} onClose={() => setMemoryVisible(false)} />
         </ScrollView>
     );
 }

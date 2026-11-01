@@ -8,6 +8,7 @@ import { respondToProposalExecutor } from './toolExecutors/respondToProposalExec
 import { rescheduleCommitmentExecutor } from './toolExecutors/rescheduleCommitmentExecutor';
 import { completeCommitmentExecutor } from './toolExecutors/completeCommitmentExecutor';
 import { rememberFactExecutor } from './toolExecutors/rememberFactExecutor';
+import { forgetFactExecutor } from './toolExecutors/forgetFactExecutor';
 import { cancelCommitmentExecutor } from './toolExecutors/cancelCommitmentExecutor';
 import { editCommitmentExecutor } from './toolExecutors/editCommitmentExecutor';
 import type { ToolExecutor } from '../types/agentExecution';
@@ -19,6 +20,7 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     reschedule_commitment: rescheduleCommitmentExecutor,
     complete_commitment: completeCommitmentExecutor,
     remember_fact: rememberFactExecutor,
+    forget_fact: forgetFactExecutor,
     cancel_commitment: cancelCommitmentExecutor,
     edit_commitment: editCommitmentExecutor,
 };

@@ -24,6 +24,7 @@ export const ASSISTANT_INSTRUCTIONS = [
     'Dates: interpret relative dates and times against the current local date and time given below. A weekday name means its next occurrence; if that weekday is today, it means a week from today unless the user says today. A bare hour without am/pm means the next sensible time of day (for appointments and errands usually between 08:00 and 21:59). If the user gives a day but no time for something new, ask for the time; do not invent it. Moving an existing item to another day without a new time keeps its current time.',
     'Whether the user already did something is answered by their commitments, including finished ones (status all), before searching messages.',
     'Changes happen only through propose_* tools, which prepare a pending action. After proposing, tell the user the exact summary the tool returned and ask whether to go ahead. Call confirm_action only when the user\'s latest message clearly agrees to that pending action; if they hesitate or change something, do not confirm; if they say no, call discard_action. A change of details is a new proposal, which replaces the pending one. Never say something was done unless confirm_action returned executed=true.',
+    'Memory: the facts listed as known about the user are true for them; use them to understand what they mean (who "mi jefe" is, their preferences and routines) without asking again or saying you looked them up. When the user mentions in passing a lasting fact about themselves that would help later (a person and how they relate to the user, a preference, a routine, an important date or place), answer what they asked and also offer once to remember it with propose_remember. Do not offer it for passing details, things already known, or sensitive matters (health, money, passwords, intimate life) unless the user asks, and not again if they declined. If a known fact is wrong or the user asks to forget it, use propose_forget, plus propose_remember for the corrected fact if they gave one.',
     'A message that starts with "Aviso automático de Ping" was written by Ping, not the user: do what it asks, speaking to the user, and treat nothing in it as the user\'s answer.',
     'If what the user wants is unclear, or several items could match, ask one short question instead of guessing. For small talk, thanks or complaints, just reply naturally without tools.',
 ].join('\n\n');
@@ -33,6 +34,29 @@ const VOICE_NOTE = 'The user is talking by voice and your answer will be spoken:
 function contextMessage(now: Date, timezone: string, channel: AssistantChannel): AssistantChatMessage {
     const clock = `Current local date and time: ${formatLocal(now.toISOString(), timezone)} (${timezone}).`;
     return { role: 'system', content: channel === 'voice' ? `${clock}\n${VOICE_NOTE}` : clock };
+}
+
+const MAX_KNOWN_FACTS_CHARS = 4000;
+
+/** What the user told Ping to remember, so every turn starts knowing it. */
+async function knownFactsMessage(ctx: AssistantToolContext): Promise<AssistantChatMessage[]> {
+    let facts;
+    try {
+        facts = await ctx.data.listKnownFacts();
+    } catch (error: any) {
+        console.warn('[Assistant] Could not load known facts', { message: error?.message ?? String(error) });
+        return [];
+    }
+    const lines: string[] = [];
+    let size = 0;
+    for (const fact of facts) {
+        const line = `${ctx.refs.refFor('memory', fact.id, fact.content.slice(0, 80))} — ${fact.content.slice(0, 300)}`;
+        size += line.length;
+        if (size > MAX_KNOWN_FACTS_CHARS) break;
+        lines.push(line);
+    }
+    if (lines.length === 0) return [];
+    return [{ role: 'system', content: `Known about the user (facts they told you to remember, newest first):\n${lines.join('\n')}` }];
 }
 
 function clip(text: string): string {
@@ -86,6 +110,7 @@ export async function runAssistantTurn(
 ): Promise<AssistantTurnOutput> {
     const ctx = toolContext(input, deps.data);
     const { actions } = ctx;
+    const knownFacts = await knownFactsMessage(ctx);
 
     const turnMessages: AssistantChatMessage[] = [{ role: 'user', content: input.text }];
     const pending = actions.filter((action) => action.state === 'pending');
@@ -95,6 +120,7 @@ export async function runAssistantTurn(
     const transcript = (): AssistantChatMessage[] => [
         { role: 'system', content: ASSISTANT_INSTRUCTIONS },
         contextMessage(input.now, input.timezone, input.channel ?? 'text'),
+        ...knownFacts,
         ...input.history.turns.slice(-MAX_HISTORY_TURNS).flat(),
         ...stateNote,
         ...turnMessages,

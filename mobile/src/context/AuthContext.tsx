@@ -158,7 +158,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             }, 1000 * 60 * 2); // 2 minutes
         };
 
-        let interval: NodeJS.Timeout;
+        let interval: ReturnType<typeof setInterval> | undefined;
         let activeUserId: string | null = null;
 
         supabase.auth.getSession().then(async ({ data: { session } }) => {
