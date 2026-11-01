@@ -272,10 +272,12 @@ describe('M9 assistant helpers', () => {
             { result: { kind: 'response', __pingAgentHistory: { dialogueConversationId: 'other', assistant: memory('otro', 'c9') } } },
             { result: { kind: 'response', __pingAgentHistory: { dialogueConversationId: null } } },
             { result: { kind: 'response', __pingAgentHistory: { dialogueConversationId: null, assistant: memory('dos', 'c2') } } },
+            { result: { kind: 'response', __pingAgentHistory: { dialogueConversationId: 'self-chat', assistant: memory('tres', 'c3') } } },
         ] as any);
-        const history = await loadAssistantHistory(BENCH_ACTOR, 'self-chat', undefined);
-        expect(history.turns.map((turn) => (turn[0] as { content: string }).content)).toEqual(['uno', 'dos']);
-        expect(history.refs.map((entry) => entry.ref)).toEqual(['c2']);
+        // Unscoped rows predate the shared scope and belong to the self-chat.
+        const history = await loadAssistantHistory(BENCH_ACTOR, 'self-chat', 'self-chat');
+        expect(history.turns.map((turn) => (turn[0] as { content: string }).content)).toEqual(['uno', 'dos', 'tres']);
+        expect(history.refs.map((entry) => entry.ref)).toEqual(['c3']);
         expect(vi.mocked(listAgentConversationTurns)).toHaveBeenCalledWith(BENCH_ACTOR, 'self-chat', 20, { includeAssistantMemory: true });
         expect(await loadAssistantHistory(BENCH_ACTOR, undefined, undefined)).toEqual({ turns: [], refs: [], actions: [] });
     });

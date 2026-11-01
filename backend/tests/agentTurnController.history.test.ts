@@ -56,7 +56,7 @@ describe('Agent Turn controller — every surface reaches the assistant', () => 
         expect(res.json).toHaveBeenCalledWith(answer);
         expect(assistantTurnMock).toHaveBeenCalledWith(expect.objectContaining({
             actorUserId: 'actor-1', text: '¿Qué pendientes tengo esta semana?',
-            historyConversationId: 'self-conversation-1', dialogueConversationId: undefined,
+            historyConversationId: 'self-conversation-1', dialogueConversationId: 'self-conversation-1',
             channel: 'text', userWordsHeard: true, timezone: 'America/Santiago',
         }));
         expect(persistMock).toHaveBeenCalledWith(expect.objectContaining({
