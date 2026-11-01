@@ -110,6 +110,10 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 channel: req.body.channel === 'mobile_voice' ? 'voice' : 'text',
                 userWordsHeard: req.body.voiceInputSource !== 'provider',
             });
+            // The answer goes out before the history row is written: the next
+            // turn reads this memory from the in-process cache, and persistence
+            // failures are already best-effort.
+            res.status(200).json(result);
             if (historyConversationId) {
                 phase = 'persist_conversation_event';
                 await persistTurnWithRuntimePolicy({
@@ -123,7 +127,6 @@ export async function turn(req: Request, res: Response): Promise<void> {
                     assistant: memory,
                 }, false);
             }
-            res.status(200).json(result);
             return;
         }
 

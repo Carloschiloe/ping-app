@@ -1,6 +1,6 @@
 // M9 assistant — offline tests. A scripted model stands in for the provider,
 // so these check the safety contract of the tools and the loop, not language.
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/services/agentConversationTurn.service', () => ({
     listAgentConversationTurns: vi.fn(),
@@ -10,7 +10,13 @@ import { listAgentConversationTurns } from '../src/services/agentConversationTur
 import { runAssistantTurn, type AssistantTurnInput } from '../src/services/assistant/assistantService';
 import { AssistantRefTable } from '../src/services/assistant/assistantRefs';
 import { describeLocal, localDateTimeToIso, localDayRangeToIso } from '../src/services/assistant/assistantTime';
-import { compactAssistantMemory, loadAssistantHistory } from '../src/services/assistant/assistantTurn.service';
+import {
+    clearAssistantHistoryCacheForTests,
+    compactAssistantMemory,
+    forgetAssistantHistory,
+    loadAssistantHistory,
+    runAssistantModeTurn,
+} from '../src/services/assistant/assistantTurn.service';
 import { toResponsesInput } from '../src/services/assistant/assistantModel';
 import type {
     AssistantChatMessage,
@@ -205,6 +211,11 @@ describe('M9 assistant tools — safety contract', () => {
 });
 
 describe('M9 assistant helpers', () => {
+    beforeEach(() => {
+        clearAssistantHistoryCacheForTests();
+        vi.mocked(listAgentConversationTurns).mockReset();
+    });
+
     it('refs are stable per entity and resolve only by kind', () => {
         const refs = new AssistantRefTable();
         expect(refs.refFor('commitment', 'x', 'X')).toBe('c1');
@@ -267,5 +278,26 @@ describe('M9 assistant helpers', () => {
         expect(history.refs.map((entry) => entry.ref)).toEqual(['c2']);
         expect(vi.mocked(listAgentConversationTurns)).toHaveBeenCalledWith(BENCH_ACTOR, 'self-chat', 20, { includeAssistantMemory: true });
         expect(await loadAssistantHistory(BENCH_ACTOR, undefined, undefined)).toEqual({ turns: [], refs: [], actions: [] });
+    });
+
+    it('the next turn reads the previous one from memory until the history is cleared', async () => {
+        vi.mocked(listAgentConversationTurns).mockResolvedValue([] as any);
+        const world = new BenchWorld();
+        const turn = (text: string, steps: Step[]) => runAssistantModeTurn(
+            { actorUserId: BENCH_ACTOR, text, historyConversationId: 'self-chat', dialogueConversationId: 'chat-1' },
+            { model: new ScriptedModel(steps), data: world, now: new Date(BENCH_NOW) },
+        );
+        await turn('completa la llamada', [[LIST_TODAY], [['propose_complete', { ref: 'c1', note: null }]], '¿Confirmas?']);
+        expect(vi.mocked(listAgentConversationTurns)).toHaveBeenCalledTimes(1);
+
+        const yes = await turn('sí', [[['confirm_action', { action: 'a1' }]], 'Hecho.']);
+        expect(vi.mocked(listAgentConversationTurns)).toHaveBeenCalledTimes(1);
+        expect(yes.memory.actions[0].state).toBe('confirmed');
+        expect(world.executed).toHaveLength(1);
+
+        expect((await loadAssistantHistory(BENCH_ACTOR, 'self-chat', 'other-scope')).turns).toHaveLength(0);
+        forgetAssistantHistory(BENCH_ACTOR, 'self-chat');
+        expect((await loadAssistantHistory(BENCH_ACTOR, 'self-chat', 'chat-1')).turns).toHaveLength(0);
+        expect(vi.mocked(listAgentConversationTurns)).toHaveBeenCalledTimes(3);
     });
 });

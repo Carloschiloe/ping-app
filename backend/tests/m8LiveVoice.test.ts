@@ -143,7 +143,10 @@ describe('M8 live voice environment boundary', () => {
         const html = getM8LiveVoiceClientHtml('unit-test-nonce');
         expect(html).toContain('navigator.mediaDevices?.getUserMedia');
         expect(html).toContain('RTCPeerConnection');
-        expect(html).toContain("voiceInputSource:lastCoreInputSource==='transcript'?'transcript':'provider'");
+        expect(html).toContain("const source=lastCoreInputSource==='transcript'?'transcript':'provider'");
+        expect(html).toContain('voiceInputSource:source');
+        // Early requests only for a turn whose bridge tool response is in flight.
+        expect(html).toContain("!responseActive||responsePurpose!=='tool_selection'||responseTurnId!==turnId)return");
         expect(html).toContain('response.cancel');
         expect(html).toContain('voice_stage');
         expect(html).toContain('microphone_permission_timeout');

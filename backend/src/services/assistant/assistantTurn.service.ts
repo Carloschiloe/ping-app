@@ -26,6 +26,34 @@ function validTimezone(timezone: unknown): string {
     }
 }
 
+// The latest dialogue memory per actor and scope, kept in process so a turn
+// does not wait on the history table and the next turn does not depend on
+// the previous one having been persisted yet. The table stays the source after
+// a restart or on another instance.
+const HISTORY_CACHE_TTL_MS = 15 * 60 * 1000;
+const HISTORY_CACHE_MAX = 500;
+const historyCache = new Map<string, { history: AssistantHistory; at: number }>();
+
+function historyCacheKey(actorUserId: string, historyConversationId: string, dialogueConversationId: string | undefined): string {
+    return `${actorUserId}|${historyConversationId}|${dialogueConversationId?.trim() || ''}`;
+}
+
+function rememberHistory(key: string, history: AssistantHistory): void {
+    historyCache.delete(key);
+    historyCache.set(key, { history, at: Date.now() });
+    if (historyCache.size > HISTORY_CACHE_MAX) historyCache.delete(historyCache.keys().next().value!);
+}
+
+/** Drops cached dialogue memory after the user clears a conversation's history. */
+export function forgetAssistantHistory(actorUserId: string, historyConversationId: string): void {
+    const prefix = `${actorUserId}|${historyConversationId}|`;
+    for (const key of [...historyCache.keys()]) if (key.startsWith(prefix)) historyCache.delete(key);
+}
+
+export function clearAssistantHistoryCacheForTests(): void {
+    historyCache.clear();
+}
+
 /** Earlier assistant turns of the same dialogue scope, oldest first. */
 export async function loadAssistantHistory(
     actorUserId: string,
@@ -34,6 +62,8 @@ export async function loadAssistantHistory(
 ): Promise<AssistantHistory> {
     const empty: AssistantHistory = { turns: [], refs: [], actions: [] };
     if (!historyConversationId) return empty;
+    const cached = historyCache.get(historyCacheKey(actorUserId, historyConversationId, dialogueConversationId));
+    if (cached && Date.now() - cached.at < HISTORY_CACHE_TTL_MS) return cached.history;
     const scope = dialogueConversationId?.trim() || null;
     const rows = await listAgentConversationTurns(actorUserId, historyConversationId, HISTORY_ROWS, { includeAssistantMemory: true });
     const memories = rows
@@ -67,11 +97,13 @@ export async function runAssistantModeTurn(input: {
 }, deps: { model?: AssistantModel; data?: AssistantDataPort; now?: Date } = {}): Promise<{ result: AgentTurnResponse; memory: AssistantMemory }> {
     const model = deps.model ?? assistantModelFromEnv();
     if (!model) throw new Error('Assistant mode requires PING_ASSISTANT_MODEL');
+    const startedAt = Date.now();
     const history = await loadAssistantHistory(input.actorUserId, input.historyConversationId, input.dialogueConversationId)
         .catch((error) => {
             console.warn('[Assistant] History unavailable; continuing without it.', error?.message ?? error);
             return { turns: [], refs: [], actions: [] } as AssistantHistory;
         });
+    const historyMs = Date.now() - startedAt;
     const output = await runAssistantTurn({
         actorUserId: input.actorUserId,
         text: input.text,
@@ -81,8 +113,20 @@ export async function runAssistantModeTurn(input: {
         channel: input.channel,
         userWordsHeard: input.userWordsHeard,
     }, { model, data: deps.data ?? new SupabaseAssistantDataPort(input.actorUserId, undefined, input.traceId) });
+    const memory = compactAssistantMemory(output.memory);
+    if (input.historyConversationId) {
+        rememberHistory(historyCacheKey(input.actorUserId, input.historyConversationId, input.dialogueConversationId), {
+            turns: [...history.turns, memory.messages].slice(-HISTORY_ROWS),
+            refs: memory.refs,
+            actions: memory.actions,
+        });
+    }
+    console.info('[Assistant] Turn timing', {
+        traceId: input.traceId, channel: input.channel ?? 'text', historyMs, turnMs: Date.now() - startedAt - historyMs,
+        tools: output.trace.map((entry) => entry.name),
+    });
     return {
         result: { kind: 'response', response: { status: 'answered', answer: output.answer, citations: output.citations } },
-        memory: compactAssistantMemory(output.memory),
+        memory,
     };
 }

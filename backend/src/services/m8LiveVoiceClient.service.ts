@@ -20,7 +20,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500, TRANSCRIPT_WAIT_MS=1500;
   let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,outputPlaybackPending=false,pendingPlaybackInterruption=false,coreResultReady=false,responseActive=false,responseHasAudio=false,responseProviderId=null,responseTurnId=null,responseOutputText='',responseAudioDeltaCount=0,responsePurpose='tool_selection',coreTurnInFlight=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle',pendingTranscript=null,pendingTranscriptTurnId=null,pendingTranscriptWaiter=null,resolvePendingTranscript=null;
-  let pendingVoicePlan=null,lastCoreInputSource=null;
+  let pendingVoicePlan=null,lastCoreInputSource=null,prefetchedCore=null;
   const id=()=>{try{return crypto.randomUUID()}catch{return 'm8-'+Date.now()+'-'+Math.random().toString(16).slice(2)}};
   const post=(message)=>{try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(message))}catch{}};
   const setStatus=(text,hint,active=false)=>{statusEl.textContent=text;hintEl.textContent=hint||'';orb.className=active?'orb active':'orb'};
@@ -51,7 +51,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   const cancelResponse=(cause)=>{if(!responseActive){telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_skipped_no_active_response',sideEffects:0});return false}try{responseActive=false;telemetry('response_cancel',{cancelCause:cause,detailCode:'response_cancel_sent',sideEffects:0});sendEvent({type:'response.cancel'});return true}catch(error){telemetry('error',{detailCode:'response_cancel_failed',cancelCause:cause,...errorDetails(error),sideEffects:0});return false}};
   const usableTranscript=(value)=>typeof value==='string'&&value.trim().length>0&&value.trim().toLowerCase()!=='[inaudible noise]';
   const beginTurnTranscript=()=>{pendingTranscript=null;pendingTranscriptTurnId=activeTurnId;resolvePendingTranscript=null;pendingTranscriptWaiter=new Promise(resolve=>{resolvePendingTranscript=resolve})};
-  const rememberFinalTranscript=(value)=>{if(!activeTurnId||!usableTranscript(value))return;pendingTranscript=value.trim();pendingTranscriptTurnId=activeTurnId;if(resolvePendingTranscript){resolvePendingTranscript(pendingTranscript);resolvePendingTranscript=null}};
+  const rememberFinalTranscript=(value)=>{if(!activeTurnId||!usableTranscript(value))return;pendingTranscript=value.trim();pendingTranscriptTurnId=activeTurnId;if(resolvePendingTranscript){resolvePendingTranscript(pendingTranscript);resolvePendingTranscript=null}prefetchCore(pendingTranscript,activeTurnId)};
   const chooseCoreInput=async(providerInput,turnId)=>{
     lastCoreInputSource=null;
     if(turnId&&pendingTranscriptTurnId===turnId&&usableTranscript(pendingTranscript)){telemetry('transcript_received',{transcript:safeText(pendingTranscript,500),detailCode:'input_transcription_selected_for_core',sideEffects:0});lastCoreInputSource='transcript';return pendingTranscript}
@@ -73,6 +73,12 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
   // turn key so the server replays the bound execution instead of writing twice.
   const spokenSummary=(value)=>typeof value==='string'?value.split('\\n').map(line=>line.replace(/^[\\s\\u2713\\u2717\\u23f3]+/u,'').trim()).filter(Boolean).join(' '):'';
   const voiceResponse=(text)=>({kind:'response',authorizedText:text,confirmationRequired:false});
+  const coreTurnKey=(turnId)=>'m8-voice-'+cfg.voiceSessionId+'-'+(turnId||id());
+  const requestCore=async(input,source,turnKey)=>{const body={input,channel:'mobile_voice',voiceInputSource:source,locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId,currentCommitmentId:cfg.currentCommitmentId};const response=await withTimeout(fetch(cfg.apiUrl+'/agent/turn',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json','Idempotency-Key':turnKey},body:JSON.stringify(body)}),20000,'core_request_timeout');return {body,turnKey,response,text:await response.text()}};
+  // The user's own transcription can reach Ping while the realtime model is
+  // still selecting the bridge tool. Only a turn that already has that tool
+  // response in flight is sent early, so every early request is answered.
+  const prefetchCore=(input,turnId)=>{if(!cfg||!turnId||coreTurnInFlight||prefetchedCore?.turnId===turnId||!responseActive||responsePurpose!=='tool_selection'||responseTurnId!==turnId)return;const promise=requestCore(input,'transcript',coreTurnKey(turnId));promise.catch(()=>{});prefetchedCore={turnId,input,promise};telemetry('core_request_started',{turnId,detailCode:'agent_turn_prefetched_from_transcript',sideEffects:0})};
   async function executeConfirmedVoicePlan(core,confirmBody,turnId){
     const digest=core.plan?.planDigest;const steps=Array.isArray(core.plan?.steps)?core.plan.steps:[];
     // Kept after execution on purpose: a repeated confirmation of the same plan
@@ -113,10 +119,10 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     const coreStartedAt=Date.now();
     telemetry('core_request_started',{turnId:turnId||activeTurnId,transcript:safeText(input,500),detailCode:'agent_turn_started',sideEffects:0});
     stage('core_request_started','Ping está pensando','Consultando el mismo Ping Core.',{sideEffects:0});
-    const turnKey='m8-voice-'+cfg.voiceSessionId+'-'+(turnId||activeTurnId||id());
-    const body={input,channel:'mobile_voice',voiceInputSource:lastCoreInputSource==='transcript'?'transcript':'provider',locale:cfg.locale,timezone:cfg.timezone,conversationId:cfg.conversationId,currentCommitmentId:cfg.currentCommitmentId};
-    const response=await withTimeout(fetch(cfg.apiUrl+'/agent/turn',{method:'POST',headers:{Authorization:cfg.authorization,'Content-Type':'application/json','Idempotency-Key':turnKey},body:JSON.stringify(body)}),20000,'core_request_timeout');
-    const text=await response.text();let result=null;try{result=JSON.parse(text)}catch{}
+    const source=lastCoreInputSource==='transcript'?'transcript':'provider';
+    const early=prefetchedCore&&prefetchedCore.turnId===(turnId||activeTurnId)&&prefetchedCore.input===input&&source==='transcript'?prefetchedCore:null;prefetchedCore=null;
+    const {body,turnKey,response,text}=await (early?early.promise:requestCore(input,source,coreTurnKey(turnId||activeTurnId)));
+    let result=null;try{result=JSON.parse(text)}catch{}
     stage('core_response_received',response.ok?'Respuesta recibida':'Core no disponible','Preparando la respuesta de voz.',{httpStatus:response.status,sideEffects:0});
     if(!response.ok)throw new Error('core_'+response.status);
     const core=result||{kind:'error',status:'unavailable'};let presentation=buildM8VoiceCorePresentation(core);const kind=presentation.kind;
@@ -144,7 +150,7 @@ main{text-align:center;padding:28px}.orb{width:112px;height:112px;border-radius:
     if(event.type==='response.function_call_arguments.done'&&assistantSpeaking&&responseActive)cancelResponse('function_call_before_core_result');
     if(event.type==='conversation.item.input_audio_transcription.completed'||event.type==='input_audio_transcription.completed'){rememberFinalTranscript(event.transcript||event.text);telemetry('transcript_received',{transcript:safeText(event.transcript||event.text,500),detailCode:'input_transcription_completed',sideEffects:0});return}
     if(event.type==='input_audio_buffer.speech_started'){const wasAssistantSpeaking=assistantSpeaking;const wasOutputPending=outputPlaybackPending&&!wasAssistantSpeaking;lastVadState='speech_started';pendingPlaybackInterruption=wasOutputPending;if(wasAssistantSpeaking){cancelResponse('speech_started_while_assistant_speaking');setAudioGate(false);outputPlaybackPending=false;pendingPlaybackInterruption=false;telemetry('barge_in',{cancelCause:'speech_started_while_assistant_speaking',selfAudioCaptureSuspected:coreResultReady,vadState:lastVadState,sideEffects:0});stage('barge_in_detected','Ping te escucha','Interrumpiendo la respuesta anterior.',{sideEffects:0});assistantSpeaking=false}if(!activeTurnId){activeTurnId=id();turnSequence+=1;beginTurnTranscript()}}
-    if(event.type==='input_audio_buffer.speech_stopped'){lastVadState='speech_stopped';if(activeTurnId&&!assistantSpeaking&&!responseActive&&!coreTurnInFlight){createResponse('user_turn_ready','required')}return}
+    if(event.type==='input_audio_buffer.speech_stopped'){lastVadState='speech_stopped';if(activeTurnId&&!assistantSpeaking&&!responseActive&&!coreTurnInFlight){createResponse('user_turn_ready','required');if(pendingTranscriptTurnId===activeTurnId&&usableTranscript(pendingTranscript))prefetchCore(pendingTranscript,activeTurnId)}return}
     if((event.type==='response.output_audio_transcript.delta'||event.type==='response.output_audio.delta'||event.type==='response.audio.delta')&&coreResultReady&&!assistantSpeaking){audioResponseCount+=1;lastAudioState='playing'}
     if(event.type==='session.created'){providerSessionCreated=true;providerSessionId=event.session?.id||providerSessionId;if(sessionTimer)clearTimeout(sessionTimer);if(resolveSessionCreated)resolveSessionCreated(true);resolveSessionCreated=null;rejectSessionCreated=null;telemetry('session_connected',{sessionId:providerSessionId});stage('session_connected','Ping está escuchando','Habla cuando quieras.');stage('listening','Ping está listo','Habla cuando quieras.');return}
     if(event.type==='input_audio_buffer.speech_started'){telemetry('speech_started',{selfAudioCaptureSuspected:false,vadState:lastVadState,sideEffects:0});return}

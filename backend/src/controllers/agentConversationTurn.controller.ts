@@ -4,6 +4,7 @@ import {
     isAgentConversationTurnPersistenceEnabled,
     listAgentConversationTurns,
 } from '../services/agentConversationTurn.service';
+import { forgetAssistantHistory } from '../services/assistant/assistantTurn.service';
 import { AppError } from '../utils/AppError';
 
 export async function list(req: Request, res: Response): Promise<void> {
@@ -34,6 +35,7 @@ export async function clear(req: Request, res: Response): Promise<void> {
             ? req.query.dialogueScopeKey
             : undefined;
         const result = await clearAgentConversationHistory(req.user!.id, String(req.params.id), requestedScope);
+        forgetAssistantHistory(req.user!.id, String(req.params.id));
         res.json({ enabled: true, cleared: true, ...result });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
