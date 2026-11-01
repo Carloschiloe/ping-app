@@ -67,7 +67,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
         const { envelope } = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
         const inputText = envelope.content.trim();
         if (!inputText) throw new AppError('Agent input is required', 400);
-        const dialogueConversationId = envelope.conversationId ?? undefined;
+        const explicitConversationId = envelope.conversationId ?? undefined;
         const inputMode = req.body.reviewedVoiceInputToken
             ? 'reviewed_voice_text' as const
             : req.body.voiceInputToken
@@ -86,8 +86,12 @@ export async function turn(req: Request, res: Response): Promise<void> {
         }
 
         const historyConversationId = isAgentConversationTurnPersistenceEnabled()
-            ? await resolveHistoryConversationId({ actorUserId, explicitConversationId: dialogueConversationId })
+            ? await resolveHistoryConversationId({ actorUserId, explicitConversationId })
             : undefined;
+        // The main Ping tab and the chat with Ping are one conversation: the
+        // self-chat. Its memory lives in one dialogue scope, whichever way the
+        // user came in, so a proposal made in one is answered from the other.
+        const dialogueConversationId = explicitConversationId ?? historyConversationId;
         phase = 'assistant_turn';
         const { result, memory } = await runAssistantModeTurn({
             actorUserId, text: inputText, timezone: envelope.timeZone ?? req.body.timezone,

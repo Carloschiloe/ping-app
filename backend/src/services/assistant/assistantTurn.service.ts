@@ -64,7 +64,9 @@ export async function loadAssistantHistory(
     const rows = await listAgentConversationTurns(actorUserId, historyConversationId, HISTORY_ROWS, { includeAssistantMemory: true });
     const memories = rows
         .map((row) => (row.result as any)?.__pingAgentHistory)
-        .filter((metadata) => metadata && (metadata.dialogueConversationId ?? null) === scope && metadata.assistant?.version === 1)
+        // Rows written before the main tab shared the self-chat scope carry
+        // none; they belong to the self-chat.
+        .filter((metadata) => metadata && (metadata.dialogueConversationId ?? historyConversationId) === (scope ?? historyConversationId) && metadata.assistant?.version === 1)
         .map((metadata) => metadata.assistant as AssistantMemory);
     const latest = memories[memories.length - 1];
     if (!latest) return empty;

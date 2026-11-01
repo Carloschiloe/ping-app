@@ -55,6 +55,8 @@ export class SupabaseAssistantDataPort implements AssistantDataPort {
         private readonly actorUserId: string,
         private readonly now: () => Date = () => new Date(),
         private readonly traceId?: string,
+        /** How long a proposal waits for the user; longer when Ping wrote it unprompted. */
+        private readonly pendingTtlMs: number = PENDING_TTL_MS,
     ) {}
 
     async listCommitments(query: CommitmentQuery): Promise<AssistantCommitment[]> {
@@ -140,7 +142,7 @@ export class SupabaseAssistantDataPort implements AssistantDataPort {
 
     async createPendingAction(input: { steps: AgentPlanStep[]; objectiveType: string; summary: string }): Promise<{ id: string; expiresAt: string }> {
         const now = this.now();
-        const expiresAt = new Date(now.getTime() + PENDING_TTL_MS).toISOString();
+        const expiresAt = new Date(now.getTime() + this.pendingTtlMs).toISOString();
         const digest = createHash('sha256')
             .update(JSON.stringify({ actor: this.actorUserId, objectiveType: input.objectiveType, steps: input.steps }))
             .digest('hex');
