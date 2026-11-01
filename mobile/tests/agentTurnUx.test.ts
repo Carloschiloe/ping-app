@@ -107,6 +107,20 @@ describe('Agent Turn API boundary', () => {
         expect(messages[1]).toMatchObject({ id: 't0:result', role: 'agent', text: 'Crearé el compromiso.' });
     });
 
+    it('shows a turn Ping wrote on its own initiative as its message alone', () => {
+        const history = parseAgentConversationTurns({
+            enabled: true,
+            turns: [{
+                id: 'i1', conversationId: 'c', actorUserId: 'u', clientTurnKey: 'daily_summary:u:2026-11-02',
+                inputText: 'Aviso automático de Ping (no lo escribió el usuario): es la mañana.', inputMode: 'text',
+                resultKind: 'response', result: { ...answer('Buenos días. Hoy tienes una cosa.'), initiative: { kind: 'daily_summary' } },
+                createdAt: new Date(0).toISOString(),
+            }],
+        });
+        expect(restoreAgentConversationMessages(history.turns))
+            .toEqual([expect.objectContaining({ id: 'i1:result', role: 'agent', text: 'Buenos días. Hoy tienes una cosa.' })]);
+    });
+
     const screen = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf8');
     const agentApi = fs.readFileSync(path.join(__dirname, '../src/api/query-modules/agent.ts'), 'utf8');
 

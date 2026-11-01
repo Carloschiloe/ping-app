@@ -73,7 +73,7 @@ export function restoreAgentConversationMessages(turns: AgentConversationTurnRec
     const restored: AgentChatMessage[] = [];
     for (const turn of turns) {
         const createdAt = new Date(turn.createdAt).getTime();
-        restored.push({ id: `${turn.id}:user`, role: 'user', text: turn.inputText, createdAt });
+        if (!turn.result.initiative) restored.push({ id: `${turn.id}:user`, role: 'user', text: turn.inputText, createdAt });
         const [result] = appendAgentTurnMessage([], turn.result);
         restored.push({ ...result, id: `${turn.id}:result`, createdAt });
     }

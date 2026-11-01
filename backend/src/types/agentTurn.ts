@@ -18,8 +18,12 @@ export interface AgentTurnResponse {
     pendingActions?: AgentTurnPendingAction[];
     /** Set when this turn executed a confirmed action, so clients refresh their views. */
     changed?: true;
+    /** Set when Ping wrote this turn on its own initiative; there is no user message to show. */
+    initiative?: { kind: AgentTurnInitiativeKind };
     debug?: AgentDeviceDebugMetadata;
 }
+
+export type AgentTurnInitiativeKind = 'daily_summary';
 
 export interface AgentTurnPendingAction {
     /** Conversation-scoped opaque ref, answered with `actionDecision`. */
