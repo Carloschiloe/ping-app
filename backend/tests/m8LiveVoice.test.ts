@@ -200,7 +200,8 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("confirmed_user_turn_after_pending_output");
         expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("createResponse('user_turn_ready','required')");
-        expect(html).toContain("createResponse('core_result_authorized','none')");
+        expect(html).toContain("createResponse('core_result_authorized','none',presentation.authorizedText)");
+        expect(html).toContain('di exactamente este texto, palabra por palabra');
         expect(html).toContain("const resolveM8VoiceConfirmationState=");
         expect(html).toContain("const confirmationState=resolveM8VoiceConfirmationState(core)");
         expect(html).toContain("responseHasAudio=toolChoice!=='required'");
