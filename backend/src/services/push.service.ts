@@ -147,7 +147,7 @@ export const checkDueCommitments = async () => {
 /**
  * Phase 24: Standalone helper to send a single push notification to a token.
  */
-export const sendPushNotification = async (pushToken: string, title: string, body: string) => {
+export const sendPushNotification = async (pushToken: string, title: string, body: string, data?: Record<string, unknown>) => {
     if (!Expo.isExpoPushToken(pushToken)) {
         console.warn('[Push] Invalid push token rejected');
         return;
@@ -158,6 +158,7 @@ export const sendPushNotification = async (pushToken: string, title: string, bod
             sound: 'default',
             title,
             body,
+            ...(data ? { data } : {}),
         }]);
     } catch (err) {
         console.error('[Push] sendPushNotification error:', err);

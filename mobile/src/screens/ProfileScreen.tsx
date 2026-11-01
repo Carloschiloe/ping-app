@@ -41,6 +41,11 @@ export default function ProfileScreen() {
     const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
     const [lastSeenEnabled, setLastSeenEnabled] = useState(true);
 
+    // Notices Ping sends on its own
+    const [dailySummaryEnabled, setDailySummaryEnabled] = useState(true);
+    const [summaryHour, setSummaryHour] = useState(8);
+    const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
+
     // Focus Mode State (kept from original implementation)
     const [focusActive, setFocusActive] = useState(false);
     const [focusRemainingLabel, setFocusRemainingLabel] = useState('');
@@ -111,6 +116,13 @@ export default function ProfileScreen() {
                     setLastSeenEnabled(data.privacy_last_seen ?? true);
                 }
             });
+            supabase.from('profiles').select('assistant_daily_summary, assistant_summary_hour, assistant_overdue_notices').eq('id', user.id).single().then(({ data }) => {
+                if (data) {
+                    setDailySummaryEnabled(data.assistant_daily_summary ?? true);
+                    setSummaryHour(data.assistant_summary_hour ?? 8);
+                    setOverdueNoticesEnabled(data.assistant_overdue_notices ?? true);
+                }
+            });
         }
 
         // Load Focus Mode state
@@ -157,6 +169,21 @@ export default function ProfileScreen() {
     const handleToggleLastSeen = async (value: boolean) => {
         setLastSeenEnabled(value);
         await supabase.from('profiles').update({ privacy_last_seen: value }).eq('id', user!.id);
+    };
+
+    const handleToggleDailySummary = async (value: boolean) => {
+        setDailySummaryEnabled(value);
+        await supabase.from('profiles').update({ assistant_daily_summary: value }).eq('id', user!.id);
+    };
+
+    const handleSelectSummaryHour = async (hour: number) => {
+        setSummaryHour(hour);
+        await supabase.from('profiles').update({ assistant_summary_hour: hour }).eq('id', user!.id);
+    };
+
+    const handleToggleOverdueNotices = async (value: boolean) => {
+        setOverdueNoticesEnabled(value);
+        await supabase.from('profiles').update({ assistant_overdue_notices: value }).eq('id', user!.id);
     };
 
     const handleActivateFocus = async (minutes: number) => {
@@ -332,6 +359,59 @@ export default function ProfileScreen() {
                 </View>
             </View>
 
+            {/* PING NOTICES */}
+            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>AVISOS DE PING</Text>
+            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
+                <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator }]}>
+                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
+                        <Ionicons name="sunny-outline" size={20} color={theme.colors.text.primary} />
+                    </View>
+                    <View style={styles.rowBody}>
+                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Resumen de la mañana</Text>
+                    </View>
+                    <Switch
+                        value={dailySummaryEnabled}
+                        onValueChange={handleToggleDailySummary}
+                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                        thumbColor={theme.colors.white}
+                    />
+                </View>
+
+                {dailySummaryEnabled && (
+                    <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator }]}>
+                        <View style={styles.rowBody}>
+                            <Text style={[styles.rowSubtitle, { color: theme.colors.text.secondary }]}>Hora del resumen</Text>
+                        </View>
+                        {SUMMARY_HOURS.map((hour) => (
+                            <TouchableOpacity
+                                key={hour}
+                                onPress={() => handleSelectSummaryHour(hour)}
+                                accessibilityLabel={`Resumen a las ${hour}`}
+                                accessibilityState={{ selected: summaryHour === hour }}
+                                style={[styles.hourChip, { backgroundColor: summaryHour === hour ? theme.colors.accent : theme.colors.surfaceMuted }]}
+                            >
+                                <Text style={[styles.hourChipText, { color: summaryHour === hour ? theme.colors.white : theme.colors.text.primary }]}>{hour}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                )}
+
+                <View style={styles.row}>
+                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
+                        <Ionicons name="alarm-outline" size={20} color={theme.colors.text.primary} />
+                    </View>
+                    <View style={styles.rowBody}>
+                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Avisar si algo se me pasa</Text>
+                    </View>
+                    <Switch
+                        value={overdueNoticesEnabled}
+                        onValueChange={handleToggleOverdueNotices}
+                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
+                        thumbColor={theme.colors.white}
+                    />
+                </View>
+            </View>
+
             {/* PREFERENCES */}
             <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>PREFERENCIAS</Text>
             <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
@@ -403,8 +483,13 @@ export default function ProfileScreen() {
     );
 }
 
+// Morning summary hours the user can pick (the server accepts 5 to 11).
+const SUMMARY_HOURS = [6, 7, 8, 9, 10];
+
 const createStyles = (theme: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
+    hourChip: { minWidth: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+    hourChipText: { fontSize: 14, fontWeight: '600' },
     content: { paddingHorizontal: 16 },
 
     headerBlock: {
