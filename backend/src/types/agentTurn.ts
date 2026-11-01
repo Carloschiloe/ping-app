@@ -14,7 +14,15 @@ export type AgentTurnConfirmationState = 'required' | 'received';
 export interface AgentTurnResponse {
     kind: 'response';
     response: AgentPublicResponse;
+    /** Assistant mode: actions proposed in this turn that wait for the user's answer. */
+    pendingActions?: AgentTurnPendingAction[];
     debug?: AgentDeviceDebugMetadata;
+}
+
+export interface AgentTurnPendingAction {
+    /** Conversation-scoped opaque ref, answered with `actionDecision`. */
+    ref: string;
+    summary: string;
 }
 
 export interface AgentTurnPlan {

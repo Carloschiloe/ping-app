@@ -66,6 +66,9 @@ export async function turn(req: Request, res: Response): Promise<void> {
         const actorUserId = req.user!.id;
 
         const idempotencyKey = req.get('Idempotency-Key');
+        if (req.body.actionDecision && !isAssistantModeEnabled()) {
+            throw new AppError('Action decisions require the assistant', 400);
+        }
         if (req.body.readCapability !== undefined) {
             phase = 'exact_read_v4';
             if (!idempotencyKey) throw new AppError('Idempotency-Key is required for READ V4', 400);
@@ -109,6 +112,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
                 historyConversationId, dialogueConversationId, traceId,
                 channel: req.body.channel === 'mobile_voice' ? 'voice' : 'text',
                 userWordsHeard: req.body.voiceInputSource !== 'provider',
+                actionDecision: req.body.actionDecision,
             });
             // The answer goes out before the history row is written: the next
             // turn reads this memory from the in-process cache, and persistence

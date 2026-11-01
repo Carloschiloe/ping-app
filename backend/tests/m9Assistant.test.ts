@@ -301,3 +301,64 @@ describe('M9 assistant helpers', () => {
         expect(vi.mocked(listAgentConversationTurns)).toHaveBeenCalledTimes(3);
     });
 });
+
+describe('M9 assistant — Confirm/Cancel buttons', () => {
+    beforeEach(() => {
+        clearAssistantHistoryCacheForTests();
+        vi.mocked(listAgentConversationTurns).mockReset();
+        vi.mocked(listAgentConversationTurns).mockResolvedValue([] as any);
+    });
+
+    const setup = () => {
+        const world = new BenchWorld();
+        const turn = (text: string, steps: Step[], actionDecision?: { action: string; decision: 'confirm' | 'discard' }) => runAssistantModeTurn(
+            { actorUserId: BENCH_ACTOR, text, historyConversationId: 'self-chat', dialogueConversationId: 'chat-1', actionDecision },
+            { model: new ScriptedModel(steps), data: world, now: new Date(BENCH_NOW) },
+        );
+        return { world, turn };
+    };
+
+    it('returns the action proposed in this turn, and only then', async () => {
+        const { turn } = setup();
+        const proposal = await turn('completa la llamada', [[LIST_TODAY], [['propose_complete', { ref: 'c1', note: null }]], '¿Confirmas?']);
+        expect(proposal.result.pendingActions).toEqual([{ ref: 'a1', summary: proposal.memory.actions[0].summary }]);
+        const aside = await turn('¿y qué hora es?', ['Son las 10.']);
+        expect(aside.result.pendingActions).toBeUndefined();
+    });
+
+    it('Confirm executes the pending action once, without the model, and the conversation remembers it', async () => {
+        const { world, turn } = setup();
+        await turn('completa la llamada', [[LIST_TODAY], [['propose_complete', { ref: 'c1', note: null }]], '¿Confirmas?']);
+        const model = new ScriptedModel([]);
+        const pressed = await runAssistantModeTurn(
+            { actorUserId: BENCH_ACTOR, text: 'Confirmar', historyConversationId: 'self-chat', dialogueConversationId: 'chat-1', actionDecision: { action: 'a1', decision: 'confirm' } },
+            { model, data: world, now: new Date(BENCH_NOW) },
+        );
+        expect(model.seen).toHaveLength(0);
+        expect(world.executed).toHaveLength(1);
+        expect(pressed.memory.actions[0].state).toBe('confirmed');
+        expect(pressed.result.response.answer).toMatch(/^Listo\. /);
+        expect(pressed.result.pendingActions).toBeUndefined();
+        expect(pressed.memory.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);
+
+        const twice = await turn('Confirmar', [], { action: 'a1', decision: 'confirm' });
+        expect(world.executed).toHaveLength(1);
+        expect(twice.result.response.answer).toBe('Esa propuesta ya no está pendiente; no hice ningún cambio.');
+    });
+
+    it('Cancel discards it; a superseded or unknown action changes nothing', async () => {
+        const { world, turn } = setup();
+        await turn('completa la llamada', [[LIST_TODAY], [['propose_complete', { ref: 'c1', note: null }]], '¿Confirmas?']);
+        const cancelled = await turn('Cancelar', [], { action: 'a1', decision: 'discard' });
+        expect(cancelled.memory.actions[0].state).toBe('discarded');
+        expect(cancelled.result.response.answer).toBe('Listo, no hice ningún cambio.');
+
+        await turn('completa la llamada', [[LIST_TODAY], [['propose_complete', { ref: 'c1', note: null }]], '¿Confirmas?']);
+        await turn('mejor la de Ana', [[LIST_TODAY], [['propose_complete', { ref: 'c2', note: null }]], '¿Confirmas?']);
+        const stale = await turn('Confirmar', [], { action: 'a2', decision: 'confirm' });
+        const unknown = await turn('Confirmar', [], { action: 'a99', decision: 'confirm' });
+        expect(stale.result.response.answer).toBe('Esa propuesta ya no está pendiente; no hice ningún cambio.');
+        expect(unknown.result.response.answer).toBe('Esa propuesta ya no está pendiente; no hice ningún cambio.');
+        expect(world.executed).toHaveLength(0);
+    });
+});

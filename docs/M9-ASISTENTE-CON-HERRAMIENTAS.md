@@ -128,7 +128,7 @@ Corren contra el backend real con datos de prueba marcados, y verifican el resul
 |---|---|---|
 | F1 | Capa de herramientas, `ref`, acciones pendientes y bucle de texto con `gpt-5.6-luna` detrás de `PING_AGENT_MODE=assistant`. El camino actual queda intacto | Suite verde y banco de texto |
 | F2 | Voz: la transcripción de la sesión de tiempo real llega al mismo asistente (`/agent/turn`), que razona y usa las herramientas; la voz solo escucha y habla. Un "sí" que el modelo de voz reconstruyó (sin transcripción del usuario) no confirma | Tests y tu prueba en Expo Go |
-| F3 | Confirmación sobre acciones congeladas en texto y voz; tarjeta de confirmación adaptada en la app | 0 escrituras sin confirmar y Expo Go |
+| F3 | Confirmación sobre acciones congeladas: por texto o voz ("sí") o con los botones Confirmar/Cancelar que la app muestra bajo la respuesta que propone la acción. El botón envía `actionDecision` con la `ref` de esa acción; el servidor ejecuta `confirm_action`/`discard_action` con las mismas comprobaciones, sin pasar por el modelo, y lo deja en la conversación | 0 escrituras sin confirmar y Expo Go |
 | F4 | Borrado del clasificador y sus pruebas; se retira el flag | Suite completa verde y banco igual o mejor |
 | F5 | Despliegue a producción | Tu autorización |
 

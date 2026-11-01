@@ -37,7 +37,7 @@ import {
     authorizeThenExecuteAgentPlan, canConfirmAgentPlan, initialAgentTurnUiState,
     reduceAgentTurnUi, type AgentTurnUiState, type PendingAgentPlan,
 } from '../src/utils/agentTurnState';
-import { restorePendingAgentPlan } from '../src/utils/agentChat';
+import { appendAgentTurnMessage, isLatestAgentMessage, restorePendingAgentPlan } from '../src/utils/agentChat';
 
 const presentation = {
     headline: 'Enviaré un mensaje a Alejandra',
@@ -307,5 +307,34 @@ describe('M-6 mobile API and presentation boundary', () => {
         expect(planCard).toContain('step.conditionLabel');
         expect(planCard).toContain("flexDirection: 'column-reverse'");
         expect(planCard).toContain('minHeight: 48');
+    });
+});
+
+describe('M9 assistant Confirm/Cancel buttons', () => {
+    it('sends the decision with the button label as a text turn', () => {
+        const request = buildAgentSurfaceTurnRequest({
+            surface: 'mobile_text', input: 'Confirmar', idempotencyKey: 'k1',
+            actionDecision: { action: 'a2', decision: 'confirm' },
+        });
+        expect(request.body).toMatchObject({ input: 'Confirmar', channel: 'mobile', actionDecision: { action: 'a2', decision: 'confirm' } });
+        expect(request.headers['Idempotency-Key']).toBe('k1');
+        expect(buildAgentSurfaceTurnRequest({ surface: 'mobile_text', input: 'hola' }).body).not.toHaveProperty('actionDecision');
+    });
+
+    it('keeps well-formed pending actions on the answer and shows buttons only on the latest one', () => {
+        const result = parseAgentTurnResult({
+            kind: 'response',
+            response: { status: 'answered', answer: '¿Lo agendo?', citations: [] },
+            pendingActions: [{ ref: 'a1', summary: 'Crear «x» el lunes a las 11:00' }, { ref: 7 }],
+        });
+        expect(result.kind === 'response' && result.pendingActions).toEqual([{ ref: 'a1', summary: 'Crear «x» el lunes a las 11:00' }]);
+        const plain = parseAgentTurnResult({ kind: 'response', response: { status: 'answered', answer: 'Hola', citations: [] }, pendingActions: 'x' });
+        expect(plain).not.toHaveProperty('pendingActions');
+
+        const messages = appendAgentTurnMessage([], result);
+        expect(messages[0].pendingActions).toHaveLength(1);
+        expect(isLatestAgentMessage(messages, messages[0].id)).toBe(true);
+        const later = appendAgentTurnMessage(messages, plain);
+        expect(isLatestAgentMessage(later, messages[0].id)).toBe(false);
     });
 });

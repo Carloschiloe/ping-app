@@ -3,7 +3,7 @@
 // production data port and returns a normal Agent Turn response.
 import { listAgentConversationTurns } from '../agentConversationTurn.service';
 import { assistantModelFromEnv } from './assistantModel';
-import { runAssistantTurn, type AssistantChannel } from './assistantService';
+import { runAssistantDecision, runAssistantTurn, type AssistantChannel, type AssistantDecision } from './assistantService';
 import { SupabaseAssistantDataPort } from './assistantSupabasePort';
 import type { AgentTurnResponse } from '../../types/agentTurn';
 import type { AssistantChatMessage, AssistantHistory, AssistantMemory, AssistantModel, AssistantDataPort } from './assistantTypes';
@@ -94,6 +94,8 @@ export async function runAssistantModeTurn(input: {
     traceId?: string;
     channel?: AssistantChannel;
     userWordsHeard?: boolean;
+    /** A Confirm/Cancel button: answers that pending action without the model. */
+    actionDecision?: { action: string; decision: AssistantDecision };
 }, deps: { model?: AssistantModel; data?: AssistantDataPort; now?: Date } = {}): Promise<{ result: AgentTurnResponse; memory: AssistantMemory }> {
     const model = deps.model ?? assistantModelFromEnv();
     if (!model) throw new Error('Assistant mode requires PING_ASSISTANT_MODEL');
@@ -104,15 +106,17 @@ export async function runAssistantModeTurn(input: {
             return { turns: [], refs: [], actions: [] } as AssistantHistory;
         });
     const historyMs = Date.now() - startedAt;
-    const output = await runAssistantTurn({
+    const base = {
         actorUserId: input.actorUserId,
         text: input.text,
         timezone: validTimezone(input.timezone),
         now: deps.now ?? new Date(),
         history,
-        channel: input.channel,
-        userWordsHeard: input.userWordsHeard,
-    }, { model, data: deps.data ?? new SupabaseAssistantDataPort(input.actorUserId, undefined, input.traceId) });
+    };
+    const data = deps.data ?? new SupabaseAssistantDataPort(input.actorUserId, undefined, input.traceId);
+    const output = input.actionDecision
+        ? await runAssistantDecision({ ...base, ...input.actionDecision }, { data })
+        : await runAssistantTurn({ ...base, channel: input.channel, userWordsHeard: input.userWordsHeard }, { model, data });
     const memory = compactAssistantMemory(output.memory);
     if (input.historyConversationId) {
         rememberHistory(historyCacheKey(input.actorUserId, input.historyConversationId, input.dialogueConversationId), {
@@ -125,8 +129,16 @@ export async function runAssistantModeTurn(input: {
         traceId: input.traceId, channel: input.channel ?? 'text', historyMs, turnMs: Date.now() - startedAt - historyMs,
         tools: output.trace.map((entry) => entry.name),
     });
+    const proposed = new Set(output.trace.flatMap((entry) => (entry.proposedAction ? [entry.proposedAction.ref] : [])));
+    const pendingActions = memory.actions
+        .filter((action) => action.state === 'pending' && proposed.has(action.ref))
+        .map(({ ref, summary }) => ({ ref, summary }));
     return {
-        result: { kind: 'response', response: { status: 'answered', answer: output.answer, citations: output.citations } },
+        result: {
+            kind: 'response',
+            response: { status: 'answered', answer: output.answer, citations: output.citations },
+            ...(pendingActions.length ? { pendingActions } : {}),
+        },
         memory,
     };
 }

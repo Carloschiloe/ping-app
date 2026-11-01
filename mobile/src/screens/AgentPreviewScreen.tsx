@@ -14,14 +14,15 @@ import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import {
     createAgentTurnIdempotencyKey, mapAgentErrorMessage, useAgentAuthorize, useAgentExecute, useAgentTurn,
-    isAgentConversationEventsEnabled, useAgentConversationTurns, type AgentFollowUpOption, type AgentVoiceTranscriptResult,
+    isAgentConversationEventsEnabled, useAgentConversationTurns, type AgentActionDecision, type AgentFollowUpOption,
+    type AgentPendingAction, type AgentVoiceTranscriptResult,
 } from '../api/query-modules/agent';
 import { useSelfConversationId, useClearAgentConversationHistory } from '../api/query-modules/conversations';
 import { ApiError } from '../api/client';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage,
     appendExecutionMessage, appendUserMessage,
-    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel,
+    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel, isLatestAgentMessage,
     restoreAgentConversationMessages, restorePendingAgentPlan, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
@@ -153,14 +154,14 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         return () => clearTimeout(timer);
     }, [messages]);
 
-    const sendInput = (rawInput: string, retryIdempotencyKey?: string) => {
+    const sendInput = (rawInput: string, retryIdempotencyKey?: string, actionDecision?: AgentActionDecision) => {
         const trimmed = rawInput.trim();
         if (!canSendInput(trimmed, isPending) || retryBlockedUntil > Date.now() || sendInFlightRef.current) return;
         // React state updates are batched. This ref closes the small window in
         // which two native taps can arrive before `isPending` re-renders.
         sendInFlightRef.current = true;
         const pendingPlanBeforeSubmit = turnState.pendingPlan;
-        const matchingVoiceDraft = voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
+        const matchingVoiceDraft = !actionDecision && voiceDraft?.text.trim() === trimmed ? voiceDraft : null;
         const requestChannel: 'mobile' | 'tablet' = adapterSurface === 'tablet' ? 'tablet' : 'mobile';
         const idempotencyKey = retryIdempotencyKey ?? createAgentTurnIdempotencyKey();
         // The user has now seen the transcript and pressed Send. Preserve the
@@ -174,13 +175,16 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 conversationId,
                 channel: requestChannel,
                 idempotencyKey,
+                ...(actionDecision ? { actionDecision } : {}),
             };
 
         setMessages((prev) => appendUserMessage(prev, trimmed));
         localInteractionRef.current = true;
         dispatchTurn({ type: 'SUBMIT', source, sourceText: trimmed });
-        setInputText('');
-        setVoiceDraft(null);
+        if (!actionDecision) {
+            setInputText('');
+            setVoiceDraft(null);
+        }
         setVoiceError(null);
         setIsSlow(false);
         setRetryBlockedUntil(0);
@@ -228,13 +232,21 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 }
                 dispatchTurn({ type: 'FAIL', message: mapAgentErrorMessage(error), status: error instanceof ApiError ? error.status : null });
                 setMessages((prev) => appendErrorMessage(prev, mapAgentErrorMessage(error), trimmed,
-                    source.idempotencyKey, retryAfterSeconds));
+                    source.idempotencyKey, retryAfterSeconds, actionDecision));
             },
         });
     };
 
     const handleSend = () => sendInput(inputText);
-    const handleRetry = (retryInput: string, retryIdempotencyKey?: string) => sendInput(retryInput, retryIdempotencyKey);
+    const handleRetry = (retryInput: string, retryIdempotencyKey?: string, retryActionDecision?: AgentActionDecision) => (
+        sendInput(retryInput, retryIdempotencyKey, retryActionDecision)
+    );
+    // A button answers exactly the action it is shown with; the label is what
+    // the history shows as the user's turn.
+    const handleActionDecision = (action: AgentPendingAction, decision: AgentActionDecision['decision']) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        sendInput(decision === 'confirm' ? 'Confirmar' : 'Cancelar', undefined, { action: action.ref, decision });
+    };
     const handleCopyMessage = async (text: string) => {
         if (!text) return;
         await Clipboard.setStringAsync(text);
@@ -388,6 +400,37 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         </>
                     )}
 
+                    {!isUser && item.pendingActions?.map((action) => {
+                        const answerable = isLatestAgentMessage(messages, item.id);
+                        return (
+                            <View key={action.ref} style={styles.pendingAction} testID="ping-pending-action">
+                                <Text style={styles.pendingActionSummary}>{action.summary}</Text>
+                                {answerable && (
+                                    <View style={styles.pendingActionButtons}>
+                                        <TouchableOpacity
+                                            style={[styles.pendingActionBtn, styles.pendingActionCancel]}
+                                            onPress={() => handleActionDecision(action, 'discard')}
+                                            disabled={isPending}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Cancelar: ${action.summary}`}
+                                        >
+                                            <Text style={styles.pendingActionCancelText}>Cancelar</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.pendingActionBtn, styles.pendingActionConfirm, isPending && styles.pendingActionDisabled]}
+                                            onPress={() => handleActionDecision(action, 'confirm')}
+                                            disabled={isPending}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Confirmar: ${action.summary}`}
+                                        >
+                                            <Text style={styles.pendingActionConfirmText}>Confirmar</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
+                        );
+                    })}
+
                     {!isUser && item.followUp?.options && item.followUp.options.length > 0 && (
                         <View style={styles.optionsRow}>
                             {item.followUp.options.map((opt) => (
@@ -411,7 +454,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     )}
 
                     {item.error && item.retryInput && (
-                        <TouchableOpacity onPress={() => handleRetry(item.retryInput!, item.retryIdempotencyKey)} style={styles.retryBtn} disabled={isPending || retryBlockedUntil > Date.now()}>
+                        <TouchableOpacity onPress={() => handleRetry(item.retryInput!, item.retryIdempotencyKey, item.retryActionDecision)} style={styles.retryBtn} disabled={isPending || retryBlockedUntil > Date.now()}>
                             <Text style={styles.retryText}>{retryBlockedUntil > Date.now() ? 'Espera el límite…' : 'Reintentar'}</Text>
                         </TouchableOpacity>
                     )}
@@ -668,6 +711,19 @@ function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
             paddingHorizontal: 10, paddingVertical: 6,
         },
         optionChipText: { color: theme.colors.accent, fontSize: 13, fontWeight: '600' },
+
+        pendingAction: {
+            marginTop: 10, padding: 12, borderRadius: 12, gap: 10,
+            borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface,
+        },
+        pendingActionSummary: { fontSize: 14, lineHeight: 20, color: theme.colors.text.primary, fontWeight: '600' },
+        pendingActionButtons: { flexDirection: 'row', gap: 8 },
+        pendingActionBtn: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, paddingHorizontal: 12 },
+        pendingActionCancel: { borderWidth: 1, borderColor: theme.colors.border },
+        pendingActionCancelText: { color: theme.colors.text.primary, fontSize: 15, fontWeight: '600' },
+        pendingActionConfirm: { backgroundColor: theme.colors.info },
+        pendingActionConfirmText: { color: theme.colors.white, fontSize: 15, fontWeight: '700' },
+        pendingActionDisabled: { opacity: 0.6 },
 
         citationsBtn: { marginTop: 8, alignSelf: 'flex-start', paddingVertical: 4 },
         citationsText: { fontSize: 12, color: theme.colors.text.muted, textDecorationLine: 'underline' },

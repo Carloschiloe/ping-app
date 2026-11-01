@@ -9,6 +9,8 @@ import type {
     AgentResponseStatus,
     AgentExecutionResult,
     AgentConversationTurnRecord,
+    AgentActionDecision,
+    AgentPendingAction,
     AgentPlanPresentation,
     AgentTurnPlan,
     AgentTurnResult,
@@ -30,6 +32,9 @@ export interface AgentChatMessage {
     retryInput?: string;
     retryIdempotencyKey?: string;
     retryAfterSeconds?: number;
+    retryActionDecision?: AgentActionDecision;
+    /** Assistant actions proposed by this answer, answered with Confirm/Cancel. */
+    pendingActions?: AgentPendingAction[];
 
     // M-6: extended fields for conversational Agent UX
     planPresentation?: AgentPlanPresentation;
@@ -69,15 +74,20 @@ export function appendErrorMessage(
     retryInput: string,
     retryIdempotencyKey?: string,
     retryAfterSeconds?: number,
+    retryActionDecision?: AgentActionDecision,
 ): AgentChatMessage[] {
     return [...messages, {
         id: nextId('e'), role: 'agent', text, createdAt: Date.now(), error: true,
-        retryInput, retryIdempotencyKey, retryAfterSeconds,
+        retryInput, retryIdempotencyKey, retryAfterSeconds, retryActionDecision,
     }];
 }
 
 export function appendAgentTurnMessage(messages: AgentChatMessage[], result: AgentTurnResult): AgentChatMessage[] {
-    if (result.kind === 'response') return appendAgentMessage(messages, result.response);
+    if (result.kind === 'response') {
+        const appended = appendAgentMessage(messages, result.response);
+        if (result.pendingActions?.length) appended[appended.length - 1].pendingActions = result.pendingActions;
+        return appended;
+    }
     if (result.kind === 'plan') {
         return [...messages, {
             id: nextId('plan'), role: 'agent', text: result.presentation.summary,
@@ -176,6 +186,14 @@ export function restorePendingAgentPlan(turns: AgentConversationTurnRecord[]): P
 
 // Sección 30/31 del ticket: nunca enviar vacío/sólo-espacios, y nunca
 // permitir un segundo envío mientras uno está en curso.
+/**
+ * Confirm/Cancel buttons belong to the latest answer only: once the user says
+ * or taps anything else, the assistant decides what is still pending.
+ */
+export function isLatestAgentMessage(messages: AgentChatMessage[], id: string): boolean {
+    return messages.length > 0 && messages[messages.length - 1].id === id;
+}
+
 export function canSendInput(input: string, isPending: boolean): boolean {
     // La edición sólo prepara una posible corrección. El envío explícito
     // deja que el Core decida si reemplaza el plan pendiente, inicia otra

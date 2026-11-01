@@ -12,10 +12,11 @@ import {
     buildAgentSurfaceRequest,
     surfaceForTurn,
     type AgentAdapterSurface,
+    type AgentActionDecision,
     type AgentSurfaceRequestInput,
 } from '../agentSurfaceAdapter';
 export { buildAgentSurfaceRequest, channelForSurface, publicPingSurface, surfaceForDeviceType, surfaceForTurn } from '../agentSurfaceAdapter';
-export type { AgentAdapterChannel, AgentAdapterSurface, AgentSurfaceRequestContext, AgentSurfaceRequestInput } from '../agentSurfaceAdapter';
+export type { AgentActionDecision, AgentAdapterChannel, AgentAdapterSurface, AgentSurfaceRequestContext, AgentSurfaceRequestInput } from '../agentSurfaceAdapter';
 
 // M-1H: 'commitment_proposal' — un compromiso todavía no confirmado (tabla
 // commitment_proposals, distinta de commitments) — ver backend
@@ -283,7 +284,14 @@ export interface AgentTurnDebugMetadata {
 export interface AgentTurnResponse {
     kind: 'response';
     response: AgentRespondResult;
+    /** Assistant actions proposed in this turn that wait for Confirm/Cancel. */
+    pendingActions?: AgentPendingAction[];
     debug?: AgentTurnDebugMetadata;
+}
+
+export interface AgentPendingAction {
+    ref: string;
+    summary: string;
 }
 
 export interface AgentPlanStepPresentation {
@@ -405,6 +413,8 @@ export interface AgentTurnInput {
     idempotencyKey?: string;
     /** Explicit test-build capability opt-in; semantic meaning remains backend-owned. */
     readCapability?: 'commitment_count_v4';
+    /** Confirm/Cancel button answering one pending assistant action; `input` is the button label. */
+    actionDecision?: AgentActionDecision;
 }
 
 export const READ_V4_EXACT_COUNT_OPT_IN = 'commitment_count_v4' as const;
@@ -479,6 +489,13 @@ export function parseAgentTurnResult(raw: unknown): AgentTurnResult {
     }
     if (obj.kind === 'response') {
         parseAgentResponse(obj.response);
+        const pendingActions = Array.isArray(obj.pendingActions)
+            ? obj.pendingActions.filter((action: any): action is AgentPendingAction => (
+                !!action && typeof action.ref === 'string' && typeof action.summary === 'string'))
+            : [];
+        if (pendingActions.length) return { ...obj, pendingActions } as unknown as AgentTurnResult;
+        const { pendingActions: _ignored, ...rest } = obj;
+        return rest as unknown as AgentTurnResult;
     } else if (obj.kind === 'read') {
         // READ V4 is an experimental server-side result. It can still be
         // replayed by the durable boundary, so project its exact-count and

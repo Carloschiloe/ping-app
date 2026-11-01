@@ -9,6 +9,7 @@ import type {
     AssistantDataPort,
     AssistantHistory,
     AssistantModel,
+    AssistantToolCall,
     AssistantTurnOutput,
 } from './assistantTypes';
 
@@ -50,24 +51,40 @@ export interface AssistantTurnInput {
     userWordsHeard?: boolean;
 }
 
-export async function runAssistantTurn(
-    input: AssistantTurnInput,
-    deps: { data: AssistantDataPort; model: AssistantModel },
-): Promise<AssistantTurnOutput> {
-    const refs = new AssistantRefTable(input.history.refs);
+function toolContext(
+    input: Pick<AssistantTurnInput, 'actorUserId' | 'timezone' | 'now' | 'history' | 'userWordsHeard'>,
+    data: AssistantDataPort,
+): AssistantToolContext {
     const actions = input.history.actions.map((action) => ({ ...action }));
-    const ctx: AssistantToolContext = {
+    return {
         actorUserId: input.actorUserId,
         timezone: input.timezone,
         now: input.now,
-        data: deps.data,
-        refs,
+        data,
+        refs: new AssistantRefTable(input.history.refs),
         actions,
         priorActionRefs: new Set(actions.map((action) => action.ref)),
         userWordsHeard: input.userWordsHeard ?? true,
         trace: [],
         citations: new Map(),
     };
+}
+
+function output(ctx: AssistantToolContext, answer: string, messages: AssistantChatMessage[]): AssistantTurnOutput {
+    return {
+        answer,
+        citations: [...ctx.citations.values()],
+        memory: { version: 1, refs: ctx.refs.toJSON(), actions: ctx.actions, messages },
+        trace: ctx.trace,
+    };
+}
+
+export async function runAssistantTurn(
+    input: AssistantTurnInput,
+    deps: { data: AssistantDataPort; model: AssistantModel },
+): Promise<AssistantTurnOutput> {
+    const ctx = toolContext(input, deps.data);
+    const { actions } = ctx;
 
     const turnMessages: AssistantChatMessage[] = [{ role: 'user', content: input.text }];
     const pending = actions.filter((action) => action.state === 'pending');
@@ -97,11 +114,46 @@ export async function runAssistantTurn(
     }
     if (!answer) answer = 'No alcancé a terminar eso. ¿Me lo dices de nuevo?';
     turnMessages.push({ role: 'assistant', content: answer });
+    return output(ctx, answer, turnMessages);
+}
 
-    return {
-        answer,
-        citations: [...ctx.citations.values()],
-        memory: { version: 1, refs: refs.toJSON(), actions, messages: turnMessages },
-        trace: ctx.trace,
+export type AssistantDecision = 'confirm' | 'discard';
+
+export interface AssistantDecisionInput extends Omit<AssistantTurnInput, 'channel' | 'userWordsHeard'> {
+    /** Ref of the pending action the user answered with a button. */
+    action: string;
+    decision: AssistantDecision;
+}
+
+function decisionAnswer(decision: AssistantDecision, result: Record<string, unknown>): string {
+    if (result.executed === true) return `Listo. ${result.summary}.`;
+    if (result.discarded === true) return 'Listo, no hice ningún cambio.';
+    if (result.error === 'expired') return 'Esa propuesta expiró y no hice ningún cambio. Pídemela de nuevo.';
+    if (result.error === 'unknown_action' || result.error === 'not_pending') return 'Esa propuesta ya no está pendiente; no hice ningún cambio.';
+    return decision === 'confirm' ? 'No pude completarlo; no se hizo ningún cambio.' : 'No pude descartarla; no se hizo ningún cambio.';
+}
+
+/**
+ * A Confirm/Cancel button answers one pending action directly: the same
+ * confirm_action/discard_action tool runs with the same checks, without asking
+ * the model, and the exchange is recorded so the conversation knows it.
+ */
+export async function runAssistantDecision(
+    input: AssistantDecisionInput,
+    deps: { data: AssistantDataPort },
+): Promise<AssistantTurnOutput> {
+    const ctx = toolContext(input, deps.data);
+    const call: AssistantToolCall = {
+        id: `button_${input.decision}_${input.action}`,
+        type: 'function',
+        function: { name: input.decision === 'confirm' ? 'confirm_action' : 'discard_action', arguments: JSON.stringify({ action: input.action }) },
     };
+    const result = await runAssistantTool(call.function.name, call.function.arguments, ctx) as Record<string, unknown>;
+    const answer = decisionAnswer(input.decision, result);
+    return output(ctx, answer, [
+        { role: 'user', content: input.text },
+        { role: 'assistant', content: null, tool_calls: [call] },
+        { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) },
+        { role: 'assistant', content: answer },
+    ]);
 }
