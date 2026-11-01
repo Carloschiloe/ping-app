@@ -86,6 +86,19 @@ describe('Agent Turn controller — every surface reaches the assistant', () => 
         expect(assistantTurnMock).toHaveBeenLastCalledWith(expect.objectContaining({ channel: 'voice', userWordsHeard: false }));
     });
 
+    it('asks a live-voice user to repeat when the text is the transcription prompt echoed back', async () => {
+        const res = response();
+        await turn(request({
+            input: 'contexto:\nTranscribe en español de Chile. Conserva nombres propios, fechas, horas y números; no traduzcas ni agregues palabras.',
+            channel: 'mobile_voice', voiceInputSource: 'transcript',
+        }), res);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+            response: expect.objectContaining({ answer: 'No te escuché bien. ¿Puedes repetirlo?' }),
+        }));
+        expect(assistantTurnMock).not.toHaveBeenCalled();
+        expect(persistMock).not.toHaveBeenCalled();
+    });
+
     it('passes a Confirm/Cancel button decision through', async () => {
         await turn(request({ input: 'Confirmar', actionDecision: { action: 'a1', decision: 'confirm' } }), response());
         expect(assistantTurnMock).toHaveBeenLastCalledWith(expect.objectContaining({ actionDecision: { action: 'a1', decision: 'confirm' } }));

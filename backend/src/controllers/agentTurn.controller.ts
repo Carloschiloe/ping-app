@@ -11,6 +11,7 @@ import {
 import { getOrCreateSelfConversationId } from '../services/conversation.service';
 import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
 import { runAssistantModeTurn } from '../services/assistant/assistantTurn.service';
+import { isM8VoiceTranscriptionPromptEcho } from '../services/m8VoiceTranscriptionPrompt';
 
 type PersistTurnInput = Parameters<typeof persistAgentConversationTurn>[0];
 
@@ -72,6 +73,17 @@ export async function turn(req: Request, res: Response): Promise<void> {
             : req.body.voiceInputToken
                 ? 'voice' as const
                 : 'text' as const;
+
+        // A live-voice turn whose text is the transcription model echoing its
+        // own prompt is not something the user said: ask again without
+        // running the assistant or recording a turn.
+        if (req.body.channel === 'mobile_voice' && isM8VoiceTranscriptionPromptEcho(inputText)) {
+            res.status(200).json({
+                kind: 'response',
+                response: { status: 'answered', answer: 'No te escuché bien. ¿Puedes repetirlo?', citations: [] },
+            });
+            return;
+        }
 
         const historyConversationId = isAgentConversationTurnPersistenceEnabled()
             ? await resolveHistoryConversationId({ actorUserId, explicitConversationId: dialogueConversationId })
