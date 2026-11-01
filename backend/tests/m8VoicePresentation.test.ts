@@ -22,28 +22,19 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
         })).toEqual({
             kind: 'response',
             authorizedText: 'La revisión quedó registrada.',
-            confirmationRequired: false,
         });
     });
 
-    it('preserves clarification questions exactly', () => {
-        expect(buildM8VoiceCorePresentation({
-            kind: 'clarification',
-            questions: [{ field: 'scope', question: '¿Qué alcance quieres revisar?' }],
-        }).authorizedText).toBe('¿Qué alcance quieres revisar?');
-    });
-
-    it('uses an honest deterministic fallback for empty clarification', () => {
-        const result = buildM8VoiceCorePresentation({ kind: 'clarification', questions: [] });
+    it('uses an honest deterministic fallback for an empty answer', () => {
+        const result = buildM8VoiceCorePresentation({ kind: 'response', response: { answer: '  ' } });
         expect(result.authorizedText).toBe(EMPTY_CORE_PRESENTATION);
         expect(result.authorizedText).not.toMatch(/causa|acceso|compromiso/i);
     });
 
     it('uses the same honest fallback for empty Core errors', () => {
-        expect(buildM8VoiceCorePresentation({ kind: 'error' })).toMatchObject({
+        expect(buildM8VoiceCorePresentation({ kind: 'error' })).toEqual({
             kind: 'error',
             authorizedText: EMPTY_CORE_PRESENTATION,
-            confirmationRequired: false,
         });
     });
 
@@ -56,44 +47,8 @@ describe('M8 Voice ↔ Core presentation boundary', () => {
     });
 
     it('cannot manufacture an access statement when Core does not supply one', () => {
-        const result = buildM8VoiceCorePresentation({ kind: 'clarification', questions: [] });
+        const result = buildM8VoiceCorePresentation({ kind: 'response', response: {} });
         expect(result.authorizedText).not.toMatch(/acceso|calendario/i);
-    });
-
-    it('preserves plan confirmation semantics from Core presentation', () => {
-        expect(buildM8VoiceCorePresentation({
-            kind: 'plan',
-            confirmationState: 'required',
-            confirmationRequested: true,
-            presentation: {
-                summary: 'Se preparará la actualización.',
-                headline: 'Actualizar',
-                requiresExplicitConfirmation: true,
-                confirmationLabel: 'Confirmar',
-                cancelLabel: 'Cancelar',
-                stepPresentations: [{ effectDescription: 'Se preparará la actualización para mañana a las 10:00.' }],
-            },
-        })).toMatchObject({
-            kind: 'plan',
-            authorizedText: 'Se preparará la actualización para mañana a las 10:00.',
-            confirmationRequired: true,
-            confirmationLabel: 'Confirmar',
-            cancelLabel: 'Cancelar',
-        });
-    });
-
-    it('fails closed when legacy confirmationRequested is present without explicit received state', () => {
-        expect(buildM8VoiceCorePresentation({
-            kind: 'plan',
-            confirmationRequested: true,
-            presentation: { summary: 'Crear', requiresExplicitConfirmation: true },
-        }).confirmationRequired).toBe(true);
-        expect(buildM8VoiceCorePresentation({
-            kind: 'plan',
-            confirmationState: 'received',
-            confirmationRequested: true,
-            presentation: { summary: 'Crear', requiresExplicitConfirmation: true },
-        }).confirmationRequired).toBe(false);
     });
 
     it('does not authorize pre-Core narration and sends only the Core projection', () => {

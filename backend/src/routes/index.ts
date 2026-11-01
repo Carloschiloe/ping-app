@@ -15,21 +15,13 @@ import * as operationController from '../controllers/operation.controller';
 import * as contactController from '../controllers/contact.controller';
 import * as privateFileController from '../controllers/privateFile.controller';
 import * as attachmentController from '../controllers/attachment.controller';
-import * as agentController from '../controllers/agent.controller';
-import * as agentPlanController from '../controllers/agentPlan.controller';
 import * as agentTurnController from '../controllers/agentTurn.controller';
 import * as agentConversationTurnController from '../controllers/agentConversationTurn.controller';
-import * as agentAuthorizeController from '../controllers/agentAuthorize.controller';
-import * as agentExecuteController from '../controllers/agentExecute.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
-import { agentRequestSchema } from '../schemas/agentRequest.schema';
-import { agentPlanRequestSchema } from '../schemas/agentPlanRequest.schema';
 import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
-import { agentAuthorizeRequestSchema } from '../schemas/agentAuthorizeRequest.schema';
-import { agentExecuteRequestSchema } from '../schemas/agentExecuteRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
 import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
@@ -60,24 +52,11 @@ import { getM8LiveVoiceTelemetryPersistenceStatus } from '../services/m8LiveVoic
 
 export const router = Router();
 
-// M-1F: límite dedicado por endpoint — más estricto que el global de app.ts
-// porque cada request puede costar hasta 2 llamadas LLM. Cada ruta tiene su
-// propio bucket: compartir un único middleware hacía que llamadas a
-// /agent/respond y /agent/plan agotaran el presupuesto de /agent/turn (y
-// viceversa), produciendo 429 para la siguiente consulta válida. El límite
-// sigue siendo por usuario autenticado, con fallback a IP.
-const agentRespondRateLimiter = createAgentRateLimiter('respond');
-const agentPlanRateLimiter = createAgentRateLimiter('plan');
+// Límite dedicado por endpoint, más estricto que el global de app.ts porque
+// cada turno puede costar varias llamadas al modelo. Es por usuario
+// autenticado, con fallback a IP.
 const agentTurnRateLimiter = createAgentRateLimiter('turn');
 
-// M-4 (sección 52) — límite más estricto que el de lectura/planificación:
-// /agent/authorize y /agent/execute pueden producir efectos secundarios
-// reales (mensajes enviados, commitments creados) -- repetidos taps de un
-// botón nunca deben poder convertirse en un flood de escrituras. La
-// protección REAL contra duplicados es la idempotencia a nivel de Core
-// (agent_executions unique + digest binding), este límite es defensa en
-// profundidad adicional, no el mecanismo primario.
-const agentExecutionRateLimiter = createAgentRateLimiter('execution', 10);
 const agentVoiceRateLimiter = createAgentRateLimiter('voice', 10);
 const agentVoiceCaptureRateLimiter = createAgentRateLimiter('voice-capture', 10);
 const agentVoiceSessionRateLimiter = createAgentRateLimiter('voice-session', 6);
@@ -343,7 +322,7 @@ router.post(
     attachmentController.createReadUrl
 );
 
-// AI (legacy — no tocado por M-1F; coexiste temporalmente con /agent/respond, ver docs/M-1F-AGENT-ORCHESTRATOR.md "Legacy coexistence")
+// AI (legacy — coexiste con el asistente de /agent/turn)
 router.get('/ai/health', requireAuth, aiController.getHealth);
 router.post('/ai/ask', requireAuth, aiController.askPing);
 router.get('/ai/history', requireAuth, aiController.getHistory);
@@ -399,67 +378,15 @@ router.get(
     m8LiveVoiceController.readTelemetry,
 );
 
-router.post(
-    '/agent/respond',
-    requireAuth,
-    agentRespondRateLimiter,
-    validateRequest(agentRequestSchema),
-    agentController.respond,
-);
-
-// Ping Agent Planning (M-3) — READ-ONLY planning preview, structurally
-// separate from /agent/respond so the minimal, already-certified
-// AgentPublicResponse contract (types/agent.ts) is never polluted with plan
-// fields (sección 38 del ticket M-3: "prefer clear separation if response
-// contract becomes polluted"). No execution endpoint exists — this only
-// ever returns a dry-run AgentPlan (draft/needs_clarification/
-// ready_for_authorization), never a side effect. Same rate limiter as
-// /agent/respond: up to 1 LLM call per request (objective interpretation).
-router.post(
-    '/agent/plan',
-    requireAuth,
-    agentPlanRateLimiter,
-    validateRequest(agentPlanRequestSchema),
-    agentPlanController.plan,
-);
-
-// Ping Agent Turn (M-6) — unified entry point. Core decides deterministically:
-// read-only → response, action → plan, ambiguous → clarification.
-// Mobile MUST NOT contain semantic routing heuristics.
-// Same rate limiter as /agent/respond: up to 2 LLM calls (interpret + synthesize/plan).
+// Ping Agent Turn — the single entry point: every surface reaches the same
+// assistant, which reads with tools and only proposes changes; a change runs
+// after the user's explicit confirmation in a later turn.
 router.post(
     '/agent/turn',
     requireAuth,
     agentTurnRateLimiter,
     validateRequest(agentTurnRequestSchema),
     agentTurnController.turn,
-);
-
-// Ping Agent Authorization + Execution (M-4) — the ONLY endpoints in the
-// Agent pipeline that can produce a real side effect, and only via a
-// re-derived, digest-verified plan bound to a durable, atomically-consumed
-// authorization (sección 1/3/9/38 del ticket M-4). /agent/respond and
-// /agent/plan remain exactly as certified in M-1F/M-3 — neither is touched
-// here, neither can execute anything (sección 72/73).
-router.post(
-    '/agent/authorize',
-    requireAuth,
-    agentExecutionRateLimiter,
-    validateRequest(agentAuthorizeRequestSchema),
-    agentAuthorizeController.authorize,
-);
-router.post(
-    '/agent/authorize/:authorizationId/revoke',
-    requireAuth,
-    agentExecutionRateLimiter,
-    agentAuthorizeController.revoke,
-);
-router.post(
-    '/agent/execute',
-    requireAuth,
-    agentExecutionRateLimiter,
-    validateRequest(agentExecuteRequestSchema),
-    agentExecuteController.execute,
 );
 
 // Insights

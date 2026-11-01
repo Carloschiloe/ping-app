@@ -1,33 +1,27 @@
-// M-6 — Agent Turn Controller. Single unified entry point for mobile.
-// Mirrors agent.controller.ts discipline: reads req.user.id, delegates to service,
-// maps result to discriminated union, maps known errors to HTTP.
+// Agent Turn Controller. Single entry point for every Ping surface: text,
+// reviewed dictation and live voice all reach the same assistant, which keeps
+// its dialogue memory inside the persisted turn.
 import { Request, Response } from 'express';
-import { runAgentTurn } from '../services/agentTurn.service';
 import { AppError } from '../utils/AppError';
 import { generateTraceId } from '../utils/overdueTrace';
-import { runExactCommitmentCountV4 } from '../services/agentTurnReadV4Boundary.service';
-import { isDurableGeneralAgentTurnEnabled, runDurableAgentTurn } from '../services/agentTurnDurableBoundary.service';
 import {
     isAgentConversationTurnPersistenceEnabled,
-    loadLatestAgentReadContext,
     persistAgentConversationTurn,
 } from '../services/agentConversationTurn.service';
 import { getOrCreateSelfConversationId } from '../services/conversation.service';
-import { resolveAgentRequestInput, resolveTextSurface } from '../services/agentInputEnvelope.service';
-import { buildDialogueScopeKey, getAgentDialogueReadContextSnapshot } from '../services/agentDialogueState.service';
+import { resolveAgentRequestInput } from '../services/agentInputEnvelope.service';
+import { runAssistantModeTurn } from '../services/assistant/assistantTurn.service';
 
 type PersistTurnInput = Parameters<typeof persistAgentConversationTurn>[0];
 
 /**
  * History improves continuity but must not turn a valid answer into a generic
- * 500 while the process-local fallback is active. Durable action turns stay
- * strict because their commit is part of their correctness contract.
+ * 500: the next turn already reads this memory from the in-process cache.
  */
-async function persistTurnWithRuntimePolicy(input: PersistTurnInput, required: boolean): Promise<void> {
+async function persistTurn(input: PersistTurnInput): Promise<void> {
     try {
         await persistAgentConversationTurn(input);
     } catch (error: any) {
-        if (required) throw error;
         console.warn('[AgentTurn] Conversation history persistence degraded; answer preserved.', {
             message: error?.message ?? String(error),
             errorCode: typeof error?.code === 'string' ? error.code : null,
@@ -59,139 +53,53 @@ async function resolveHistoryConversationId(input: {
 }
 
 export async function turn(req: Request, res: Response): Promise<void> {
-    let traceId = generateTraceId();
+    const traceId = generateTraceId();
     let phase = 'start';
     try {
         const actorUserId = req.user!.id;
-
         const idempotencyKey = req.get('Idempotency-Key');
-        if (req.body.readCapability !== undefined) {
-            phase = 'exact_read_v4';
-            if (!idempotencyKey) throw new AppError('Idempotency-Key is required for READ V4', 400);
-            const result = await runExactCommitmentCountV4({
-                actorUserId, input: req.body.input, idempotencyKey,
-                readCapability: req.body.readCapability, conversationId: req.body.conversationId,
-                locale: req.body.locale, timezone: req.body.timezone,
-            });
-            const historyConversationId = isAgentConversationTurnPersistenceEnabled()
-                ? await resolveHistoryConversationId({ actorUserId, explicitConversationId: req.body.conversationId })
-                : undefined;
-            if (historyConversationId) {
-                await persistTurnWithRuntimePolicy({
-                    actorUserId,
-                    conversationId: historyConversationId,
-                    dialogueConversationId: req.body.conversationId,
-                    clientTurnKey: idempotencyKey,
-                    inputText: req.body.input,
-                    inputMode: 'text',
-                    result,
-                }, false);
-            }
-            res.status(200).json(result);
-            return;
-        }
 
-        const durableEnabled = isDurableGeneralAgentTurnEnabled();
-        if (durableEnabled && !idempotencyKey) {
-            throw new AppError('Idempotency-Key is required for durable Agent Turn', 400);
-        }
+        // Dictation arrives as a signed voice token. Its envelope is the only
+        // authoritative source of the transcript and conversation; a token the
+        // user did not review can be answered but never confirms an action.
+        phase = 'resolve_input';
+        const { envelope } = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
+        const inputText = envelope.content.trim();
+        if (!inputText) throw new AppError('Agent input is required', 400);
+        const dialogueConversationId = envelope.conversationId ?? undefined;
+        const inputMode = req.body.reviewedVoiceInputToken
+            ? 'reviewed_voice_text' as const
+            : req.body.voiceInputToken
+                ? 'voice' as const
+                : 'text' as const;
 
-        const turnInput = {
-            actorUserId,
-            input: req.body.input,
-            voiceInputToken: req.body.voiceInputToken,
-            reviewedVoiceInputToken: req.body.reviewedVoiceInputToken,
-            conversationId: req.body.conversationId,
-            channel: req.body.channel,
-            locale: req.body.locale,
-            timezone: req.body.timezone,
-            traceId,
-        };
-        // Resolve once at the HTTP boundary when history is enabled. For voice
-        // and reviewed voice, the signed envelope is the only authoritative
-        // source of conversationId and transcript text; never trust a client
-        // copy for durable provenance.
-        let historyInput: ReturnType<typeof resolveAgentRequestInput> | null = null;
-        let historyConversationId: string | undefined;
-        if (isAgentConversationTurnPersistenceEnabled()) {
-            phase = 'resolve_history_input';
-            historyInput = resolveAgentRequestInput({ actorUserId, body: req.body, traceId });
-            phase = 'resolve_history_conversation';
-            historyConversationId = await resolveHistoryConversationId({
-                actorUserId,
-                explicitConversationId: historyInput.envelope.conversationId ?? req.body.conversationId,
-            });
-        }
-        // Storage scope and Core dialogue scope are intentionally separate for
-        // the main Ping surface: its events live in the actor self-chat, but
-        // semantic continuity remains `agent:mobile` when no conversation was
-        // supplied by the client.
-        const dialogueConversationId = historyInput?.envelope.conversationId ?? req.body.conversationId;
-        const dialogueScopeKey = buildDialogueScopeKey({
-            conversationId: dialogueConversationId,
-            surface: historyInput?.envelope.surface ?? resolveTextSurface(req.body.channel),
-        });
-        const localReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled()
-            ? getAgentDialogueReadContextSnapshot(actorUserId, dialogueScopeKey)
-            : null;
-        const fallbackReadContext = !durableEnabled && historyConversationId && isAgentConversationTurnPersistenceEnabled() && !localReadContext
-            ? await loadLatestAgentReadContext(actorUserId, historyConversationId).catch((error) => {
-                console.warn('[AgentTurn] Persisted read context unavailable; continuing without fallback.', error?.message ?? error);
-                return null;
-            })
-            : null;
-        phase = durableEnabled ? 'run_durable_turn' : 'run_legacy_turn';
-        const durableHistoryInput = durableEnabled && historyConversationId && historyInput?.envelope.content
-            ? {
-                conversationId: historyConversationId,
-                clientTurnKey: idempotencyKey!,
-                inputText: historyInput.envelope.content,
-                inputMode: req.body.reviewedVoiceInputToken
-                    ? 'reviewed_voice_text' as const
-                    : req.body.voiceInputToken
-                        ? 'voice' as const
-                        : 'text' as const,
-                dialogueConversationId: dialogueConversationId ?? undefined,
-            }
+        const historyConversationId = isAgentConversationTurnPersistenceEnabled()
+            ? await resolveHistoryConversationId({ actorUserId, explicitConversationId: dialogueConversationId })
             : undefined;
-        const result = durableEnabled
-            ? await runDurableAgentTurn(turnInput, { fallbackReadContext }, idempotencyKey!, undefined, undefined, durableHistoryInput)
-            : await runAgentTurn(turnInput, { fallbackReadContext });
-
-        if (isAgentConversationTurnPersistenceEnabled() && historyConversationId && historyInput?.envelope.content && !durableHistoryInput) {
+        phase = 'assistant_turn';
+        const { result, memory } = await runAssistantModeTurn({
+            actorUserId, text: inputText, timezone: envelope.timeZone ?? req.body.timezone,
+            historyConversationId, dialogueConversationId, traceId,
+            channel: req.body.channel === 'mobile_voice' ? 'voice' : 'text',
+            userWordsHeard: inputMode !== 'voice' && req.body.voiceInputSource !== 'provider',
+            actionDecision: req.body.actionDecision,
+        });
+        // The answer goes out before the history row is written: the next
+        // turn reads this memory from the in-process cache.
+        res.status(200).json(result);
+        if (historyConversationId) {
             phase = 'persist_conversation_event';
-            // The durable boundary above is the correctness contract for the
-            // turn: it commits the dialogue checkpoint and replay atomically.
-            // Conversation events are a secondary history projection. A
-            // transient projection outage must not turn an already valid
-            // answer/plan into a generic HTTP 500 or make the user retry a
-            // turn that was already admitted and committed. The persistence
-            // helper still emits a structured warning so the outage remains
-            // observable and can be repaired without losing the response.
-            await persistTurnWithRuntimePolicy({
+            await persistTurn({
                 actorUserId,
                 conversationId: historyConversationId,
-                dialogueConversationId: dialogueConversationId ?? undefined,
+                dialogueConversationId,
                 clientTurnKey: idempotencyKey ?? traceId,
-                inputText: historyInput.envelope.content,
-                inputMode: req.body.reviewedVoiceInputToken
-                    ? 'reviewed_voice_text'
-                    : req.body.voiceInputToken
-                        ? 'voice'
-                        : 'text',
-                // The process-local dialogue snapshot is only a projection
-                // for the legacy fallback. Persist its bounded scope beside
-                // the response so a restart/device change can restore the
-                // temporal/status window without trusting old evidence.
-                readContext: !durableEnabled && result.kind === 'response'
-                    ? getAgentDialogueReadContextSnapshot(actorUserId, dialogueScopeKey)
-                    : undefined,
+                inputText,
+                inputMode,
                 result,
-            }, false);
+                assistant: memory,
+            });
         }
-
-        // All valid turn results are HTTP 200 — the kind discriminator tells mobile what to render
-        res.status(200).json(result);
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         console.error('[AgentTurn] request failed', {
@@ -202,6 +110,7 @@ export async function turn(req: Request, res: Response): Promise<void> {
             errorCode: typeof error?.code === 'string' ? error.code : null,
             errorMessage: typeof error?.message === 'string' ? error.message.slice(0, 300) : String(error).slice(0, 300),
         });
+        if (res.headersSent) return;
         res.status(statusCode).json({
             error: statusCode === 500 ? 'The agent could not process your request right now.' : error.message,
         });

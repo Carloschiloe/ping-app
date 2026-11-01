@@ -302,7 +302,7 @@ export interface AgentPlanPublicResponse {
     clarification?: ClarificationQuestion[];
     failureMode?: AgentPlanFailureMode;
     failureMessage?: string;
-    // M-4 — el cliente debe ecoar este valor tal cual en POST /agent/authorize
+    // M-4 — huella del plan congelado que se autoriza
     // (nunca reconstruirlo) para que Core pueda comparar contra el digest
     // que re-deriva desde cero en ese momento (sección 9/10/74: nunca se
     // confía en un plan JSON devuelto por el cliente, sólo en este hash).

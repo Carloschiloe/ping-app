@@ -19,7 +19,6 @@
     "test:migrations:fresh": "node scripts/test-migrations-from-scratch.mjs",
     "test:m4-agent-execution:postgres": "node scripts/test-agent-execution-postgres.mjs",
     "test:m7-agent-admission:postgres": "node scripts/test-agent-turn-admission-postgres.mjs",
-    "test:m4-agent:local-e2e": "node scripts/e2e-agent-m4-local.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "attachments:audit-expired": "node dist/scripts/audit-expired-message-attachments.js"

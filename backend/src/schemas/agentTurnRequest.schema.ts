@@ -12,8 +12,19 @@ export const agentTurnRequestSchema = z.object({
         channel: z.string().trim().max(40).optional(),
         locale: z.string().trim().max(20).optional(),
         timezone: z.string().trim().max(60).optional(),
-        readCapability: z.string().trim().max(80).optional(),
+        // Live voice: whether the input is the user's own transcription or
+        // the realtime model's rendering of it (which cannot confirm actions).
+        voiceInputSource: z.enum(['transcript', 'provider']).optional(),
+        // Assistant mode: a Confirm/Cancel button answering one pending action.
+        // `input` carries the button's visible label for the history.
+        actionDecision: z.object({
+            action: z.string().regex(/^a\d{1,6}$/),
+            decision: z.enum(['confirm', 'discard']),
+        }).strict().optional(),
     }).superRefine((body, context) => {
+        if (body.actionDecision && (!body.input || body.voiceInputToken || body.reviewedVoiceInputToken)) {
+            context.addIssue({ code: z.ZodIssueCode.custom, message: 'An action decision is a text turn with the button label as input' });
+        }
         if (body.voiceInputToken && (body.input || body.reviewedVoiceInputToken)) {
             context.addIssue({ code: z.ZodIssueCode.custom, message: 'A fresh voice token cannot be combined with text or a reviewed voice token' });
         } else if (body.reviewedVoiceInputToken && !body.input) {

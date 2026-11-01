@@ -7,6 +7,7 @@ import type { AgentExecutionResult } from '../types/agentExecution';
 import type { AgentPlanPresentation } from '../types/agentTurn';
 import type { AgentReadContext } from '../types/agentDialogueState';
 import { isCanonicalCommitmentStatus } from '../utils/commitmentStatus';
+import type { AssistantMemory } from './assistant/assistantTypes';
 
 const MAX_HISTORY_INPUT_LENGTH = 12_000;
 const MAX_HISTORY_RESULT_BYTES = 128_000;
@@ -59,6 +60,8 @@ export interface AgentConversationHistoryMetadata {
         timeRange: AgentReadContext['timeRange'];
         statuses: AgentReadContext['statuses'];
     } | null;
+    /** Assistant mode: what the next turn needs to continue the dialogue. Server-only. */
+    assistant?: AssistantMemory | null;
 }
 
 const HISTORY_METADATA_KEY = '__pingAgentHistory' as const;
@@ -67,6 +70,7 @@ function addHistoryMetadata(
     result: AgentConversationEventResult,
     dialogueConversationId: string | undefined,
     readContext?: AgentReadContext | null,
+    assistant?: AssistantMemory | null,
 ): AgentConversationEventResult {
     const copy = { ...(result as unknown as Record<string, unknown>) };
     const metadata: AgentConversationHistoryMetadata = {
@@ -78,6 +82,7 @@ function addHistoryMetadata(
             statuses: readContext.statuses ?? null,
         };
     }
+    if (assistant) metadata.assistant = assistant;
     copy[HISTORY_METADATA_KEY] = metadata;
     return copy as unknown as AgentConversationEventResult;
 }
@@ -107,6 +112,7 @@ function fingerprint(inputText: string, inputMode: string, result: AgentConversa
             ...(metadata as Record<string, unknown>),
         };
         delete (stableResult[HISTORY_METADATA_KEY] as Record<string, unknown>).readContext;
+        delete (stableResult[HISTORY_METADATA_KEY] as Record<string, unknown>).assistant;
     }
     return createHash('sha256')
         .update(JSON.stringify({ inputText, inputMode, result: publicResult(stableResult as unknown as AgentConversationEventResult) }))
@@ -170,6 +176,7 @@ async function persistAgentConversationEvent(input: {
     result: AgentConversationEventResult;
     dialogueConversationId?: string;
     readContext?: AgentReadContext | null;
+    assistant?: AssistantMemory | null;
 }): Promise<{ turnId: string; idempotentReplay: boolean; createdAt: string }> {
     await assertConversationParticipant(input.actorUserId, input.conversationId);
 
@@ -182,6 +189,7 @@ async function persistAgentConversationEvent(input: {
         publicResult(input.result),
         input.dialogueConversationId,
         input.readContext,
+        input.assistant,
     );
     const serializedResult = JSON.stringify(result);
     if (Buffer.byteLength(serializedResult, 'utf8') > MAX_HISTORY_RESULT_BYTES) {
@@ -230,6 +238,7 @@ export async function persistAgentConversationTurn(input: {
     dialogueConversationId?: string;
     /** Core-derived read scope used only to restore safe temporal/status continuity. */
     readContext?: AgentReadContext | null;
+    assistant?: AssistantMemory | null;
 }) {
     return persistAgentConversationEvent({ ...input, resultKind: input.result.kind });
 }
@@ -375,6 +384,7 @@ export async function listAgentConversationTurns(
     actorUserId: string,
     conversationId: string,
     limit = 100,
+    options: { includeAssistantMemory?: boolean } = {},
 ): Promise<AgentConversationTurnRecord[]> {
     await assertConversationParticipant(actorUserId, conversationId);
     const { data, error } = await supabaseAdmin
@@ -402,10 +412,18 @@ export async function listAgentConversationTurns(
         inputText: row.input_text,
         inputMode: row.input_mode,
         resultKind: row.result_kind,
-        result: row.result,
+        result: options.includeAssistantMemory ? row.result : withoutAssistantMemory(row.result),
         createdAt: row.created_at,
         }))
         .reverse();
+}
+
+/** Assistant memory holds internal ids; it never leaves the server. */
+function withoutAssistantMemory(result: any): any {
+    const metadata = result?.[HISTORY_METADATA_KEY];
+    if (!metadata || typeof metadata !== 'object' || !('assistant' in metadata)) return result;
+    const { assistant: _assistant, ...rest } = metadata;
+    return { ...result, [HISTORY_METADATA_KEY]: rest };
 }
 
 function isClearedAgentHistoryRow(row: any): boolean {
