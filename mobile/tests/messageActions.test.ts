@@ -123,3 +123,10 @@ describe('PING — USER-WRITTEN TEXT COPY / PASTE: normal chat own-message bubbl
         expect(modalSource).toContain("(!isAttachment || attachmentKind === 'image')");
     });
 });
+
+describe('chat operation state', () => {
+    it('is only requested for operation chats', () => {
+        const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ChatScreen.tsx'), 'utf-8');
+        expect(screenSource).toMatch(/useConversationOperationState\(\s*route\.params\.mode === 'operation' \? conversationId : null,\s*\)/);
+    });
+});
