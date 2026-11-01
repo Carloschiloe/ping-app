@@ -197,7 +197,11 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         return () => clearInterval(timer);
     }, [remoteRecorder]);
     const { data: groupTasks = [] } = useConversationGroupTasks(conversationId);
-    const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(conversationId);
+    // Only operation chats have operation state; asking for it in a plain chat is a wasted
+    // request that fails while the operation module is off.
+    const { data: operationState, isLoading: isOperationStateLoading } = useConversationOperationState(
+        route.params.mode === 'operation' ? conversationId : null,
+    );
     const { mutateAsync: createCommitment, isPending: isPendingCommitment } = useCreateCommitment();
     const {
         mutateAsync: createSharedProposal,
