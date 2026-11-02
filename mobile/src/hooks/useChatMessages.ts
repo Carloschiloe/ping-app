@@ -15,6 +15,7 @@ import { uploadPrivateMessageAttachment } from '../lib/privateFiles';
 import { hasConfirmedClientMessage } from '../utils/messageReconciliation';
 import { needsDeliveryReceipt, needsReadReceipt } from '../utils/messageReceipts';
 import { getDeviceTimeZone } from '../utils/timeZone';
+import { resolveMessageMetadata } from '../utils/messageCompat';
 
 export function useChatMessages(conversationId: string, user: any, isFocused: boolean, scrollToMessageId?: string) {
     const queryClient = useQueryClient();
@@ -59,7 +60,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         }
     }, []);
 
-    const { isConnected, queue, addToQueue } = useOfflineSync(syncSender);
+    const { isConnected, queue, addToQueue, retryNow, discard } = useOfflineSync(syncSender);
 
     const {
         data: infiniteData,
@@ -80,8 +81,11 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
     const deliveredTracker = useRef<Set<string>>(new Set());
 
     const messages = useMemo(() => {
-        const serverMessages = infiniteData?.pages.flatMap(page => page.messages) || [];
-        
+        // System notices (old task updates) are not shown: the task card in
+        // the chat already tells its current state.
+        const serverMessages = (infiniteData?.pages.flatMap(page => page.messages) || [])
+            .filter((message: any) => !resolveMessageMetadata(message)?.isSystem);
+
         // Filter queue messages for THIS conversation
         const pendingForThisConv = queue
             .filter(q =>
@@ -126,6 +130,7 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
                             fileName: q.attachment.fileName,
                             durationMs: q.attachment.durationMs,
                             uploadState: q.attachment.uploadState,
+                            localUri: q.attachment.localUri,
                         },
                     },
                 } : {}),
@@ -366,8 +371,12 @@ export function useChatMessages(conversationId: string, user: any, isFocused: bo
         error,
         isFetching,
         retryMessages: refetch,
+        retryPendingMessage: retryNow,
+        discardPendingMessage: discard,
+        // Only while a send is actually in flight; a message waiting for its
+        // next retry already says so on its own bubble.
         isSending: isSendingMutation || queue.some(q =>
-            q.conversationId === conversationId && q.state !== 'rejected'
+            q.conversationId === conversationId && q.state === 'syncing'
         ),
         isConnected, 
         fetchNextPage,

@@ -179,7 +179,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         isFetchingNextPage,
         targetFound,
         sendMessage,
-        reactToMessage
+        reactToMessage,
+        retryPendingMessage,
+        discardPendingMessage,
     } = useChatMessages(conversationId, user, isFocused, messageWindowTarget);
 
     useEffect(() => {
@@ -299,9 +301,6 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
                     profileId={!isGroup && !isSelf ? otherUser?.id : undefined}
                     isGroup={!!isGroup}
-                    isSelf={!!isSelf}
-                    onVoiceCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'voice' })}
-                    onVideoCall={() => navigation.navigate('Call', { conversationId, otherUser, isGroup: !!isGroup, type: 'video' })}
                     onPing={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
                     onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
                     onMenu={() => setHeaderMenuVisible(true)}
@@ -475,9 +474,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         if (messages.length === 0) return;
         if (route.params?.commitmentTitle) {
             const title = route.params.commitmentTitle.toLowerCase();
-            const systemMatch = messages.find(m => m?.meta?.isSystem && m.text?.toLowerCase().includes(title));
-            const anyMatch = messages.find(m => m.text?.toLowerCase().includes(title));
-            const target = systemMatch || anyMatch;
+            const target = messages.find(m => m.text?.toLowerCase().includes(title));
             if (target?.id) {
                 scrollToMessage(target.id);
             }
@@ -713,6 +710,14 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     groupParticipants={groupParticipants}
                     onPress={(msg) => {
                         if (isMultiSelecting) { toggleSelect(msg.id); return; }
+                        if (msg?.status === 'rejected_offline') {
+                            Alert.alert('No se envió', '¿Qué quieres hacer con este mensaje?', [
+                                { text: 'Volver', style: 'cancel' },
+                                { text: 'Eliminar', style: 'destructive', onPress: () => discardPendingMessage(msg.id) },
+                                { text: 'Reintentar', onPress: () => retryPendingMessage(msg.id) },
+                            ]);
+                            return;
+                        }
                         const messageMeta = resolveMessageMetadata(msg);
                         if (msg?._isSuggestionTap || messageMeta.suggestedTask) {
                             const suggestion = messageMeta.suggestedTask;
@@ -769,7 +774,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 />
             </>
         );
-    }, [activeOperationCommitment?.id, conversationMode, groupParticipants, groupTasks, highlightedMsgId, isGroup, isMultiSelecting, menuAnim, messages, selectedMessageIds, styles, swipeableRowRefs, toggleSelect, user]);
+    }, [activeOperationCommitment?.id, conversationMode, discardPendingMessage, groupParticipants, groupTasks, highlightedMsgId, isGroup, isMultiSelecting, menuAnim, messages, retryPendingMessage, selectedMessageIds, styles, swipeableRowRefs, toggleSelect, user]);
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>

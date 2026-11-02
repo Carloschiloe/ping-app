@@ -101,7 +101,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
     const color = avatarColor(colorStr);
     const preview = previewOverride ?? (isTyping
         ? (typers[0].isRecording ? 'Grabando audio…' : 'Escribiendo…')
-        : (lastMsg ? (isSystem ? `Sistema · ${lastMsg.text}` : lastMsg.text) : 'Sin mensajes aún'));
+        : (lastMsg && !isSystem ? lastMsg.text : 'Sin mensajes aún'));
 
     return (
         <Pressable

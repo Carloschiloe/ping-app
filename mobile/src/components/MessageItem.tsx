@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform, Alert,
+    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform,
     ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -206,8 +206,7 @@ const MessageItemComponent = ({
     }
 
     const meta = item.metadata ?? item.meta ?? {};
-    const isSystem = meta?.isSystem;
-    const isMe = item.sender_id === user?.id && !isSystem;
+    const isMe = item.sender_id === user?.id;
     // COMMITMENT UX + ACTOR-AWARE SUGGESTIONS — hallazgo físico real: el
     // botón "Agendar" sólo miraba `meta?.suggestedTask`, nunca (a) si el
     // mensaje ya produjo una proposal/commitment real (`groupTasks` ya se
@@ -234,61 +233,13 @@ const MessageItemComponent = ({
         ? resolveDeletedMessageLabel(item)
         : (item.content ?? item.text ?? '');
 
-    if (isSystem) {
-        const completion = meta?.operationCompletion;
-        if (meta?.messageType === 'operation_completion' && completion) {
-            const outcomeMap: Record<string, string> = {
-                resolved: 'Resuelto',
-                pending_followup: 'Queda pendiente',
-                needs_review: 'Requiere revision',
-            };
-
-            return (
-                <View style={styles.systemWrap}>
-                    <View style={styles.systemBubbleSpecial}>
-                        <View style={styles.systemBadge}>
-                            <Text style={styles.systemBadgeText}>Sistema</Text>
-                        </View>
-                        <Text style={styles.systemText}>{msgText}</Text>
-                        <TouchableOpacity
-                            style={styles.systemActionChip}
-                            onPress={() => {
-                                Alert.alert(
-                                    'Cierre de tarea',
-                                    [
-                                        `Cerro: ${completion.completed_by_name || 'Alguien'}`,
-                                        `Resultado: ${outcomeMap[completion.outcome] || 'Resuelto'}`,
-                                        `Hora: ${formatTime(completion.completed_at || item.created_at)}`,
-                                        completion.note ? `Observacion: ${completion.note}` : 'Sin observacion final',
-                                    ].join('\n')
-                                );
-                            }}
-                        >
-                            <Text style={styles.systemActionChipText}>Ver cierre</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            );
-        }
-
-        return (
-            <View style={styles.systemWrap}>
-                <View style={styles.systemBubble}>
-                    <View style={styles.systemBadge}>
-                        <Text style={styles.systemBadgeText}>Sistema</Text>
-                    </View>
-                    <Text style={styles.systemText}>{msgText}</Text>
-                </View>
-            </View>
-        );
-    }
-
     const trimmedText = msgText.trim();
     const pendingAttachmentState = !isTombstoned
         && (meta?.attachment?.uploadState === 'pending_local'
             || meta?.attachment?.uploadState === 'unavailable')
         ? meta.attachment.uploadState
         : null;
+    const pendingFailed = item.status === 'rejected_offline' || pendingAttachmentState === 'unavailable';
     // Canonical render priority — a tombstoned message must never reach any
     // media-derived branch (image/video/audio/document wrapper, aspect
     // ratio, thumbnail, bubbleMedia padding, resolveAttachmentUrl). This is
@@ -415,7 +366,7 @@ const MessageItemComponent = ({
                     </TouchableOpacity>
                 )}
 
-                {!isMe && !isSystem && (
+                {!isMe && (
                     <TouchableOpacity
                         style={styles.senderAvatarContainer}
                         onPress={async () => {
@@ -509,7 +460,7 @@ const MessageItemComponent = ({
                             </View>
                         )}
 
-                        {!isMe && !isSystem && isGroup && (
+                        {!isMe && isGroup && (
                             <Text style={[styles.senderName, item.reply_to && { marginTop: -2, marginBottom: 0 }]} numberOfLines={1}>
                                 {(() => {
                                     const p = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
@@ -519,22 +470,30 @@ const MessageItemComponent = ({
                         )}
 
                         {pendingAttachmentState ? (
-                            <View style={styles.privateMediaLoading}>
-                                <Ionicons
-                                    name={pendingAttachmentState === 'unavailable'
-                                        ? 'alert-circle-outline'
-                                        : 'time-outline'}
-                                    size={18}
-                                    color={pendingAttachmentState === 'unavailable'
-                                        ? '#ef4444'
-                                        : theme.colors.text.secondary}
-                                />
-                                <Text style={styles.privateMediaLoadingText}>
-                                    {pendingAttachmentState === 'unavailable'
-                                        ? 'Adjunto no disponible'
-                                        : 'Adjunto pendiente'}
-                                    {meta?.attachment?.fileName ? `: ${meta.attachment.fileName}` : ''}
-                                </Text>
+                            // A photo or video still on its way: show what was
+                            // picked and say plainly whether it is going or failed.
+                            <View style={styles.pendingMedia}>
+                                {meta?.attachment?.localUri && meta?.attachment?.mimeType?.startsWith('image/') ? (
+                                    <Image source={{ uri: meta.attachment.localUri }} style={styles.pendingMediaThumb} />
+                                ) : (
+                                    <View style={[styles.pendingMediaThumb, styles.pendingMediaIcon]}>
+                                        <Ionicons
+                                            name={meta?.attachment?.mimeType?.startsWith('video/') ? 'videocam-outline' : 'document-outline'}
+                                            size={28}
+                                            color={theme.colors.text.secondary}
+                                        />
+                                    </View>
+                                )}
+                                <View style={styles.pendingMediaLabel}>
+                                    <Ionicons
+                                        name={pendingFailed ? 'alert-circle' : 'time-outline'}
+                                        size={14}
+                                        color={pendingFailed ? '#ef4444' : 'white'}
+                                    />
+                                    <Text style={styles.pendingMediaText}>
+                                        {pendingFailed ? 'No se envió · toca para reintentar' : 'Enviando…'}
+                                    </Text>
+                                </View>
                             </View>
                         ) : hasPrivateAttachment && !mediaUrl && privateMediaState === 'unavailable' ? (
                             <View style={styles.privateMediaLoading}>
@@ -834,6 +793,15 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 8,
         paddingHorizontal: 12,
     },
+    pendingMedia: { width: 220, height: 160, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.surfaceMuted },
+    pendingMediaThumb: { width: '100%', height: '100%' },
+    pendingMediaIcon: { alignItems: 'center', justifyContent: 'center' },
+    pendingMediaLabel: {
+        position: 'absolute', left: 0, right: 0, bottom: 0,
+        flexDirection: 'row', alignItems: 'center', gap: 6,
+        paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    },
+    pendingMediaText: { color: 'white', fontSize: 12, fontWeight: '700' },
     privateMediaLoadingText: {
         color: theme.colors.text.secondary,
         fontSize: 12,
@@ -901,48 +869,6 @@ const createStyles = (theme: any) => StyleSheet.create({
         paddingTop: 8,
     },
     docIconWrap: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-    systemWrap: { alignItems: 'center', marginVertical: 6 },
-    systemBubble: {
-        backgroundColor: theme.colors.surfaceMuted, borderRadius: 12,
-        paddingHorizontal: 14, paddingVertical: 6,
-        borderWidth: 1, borderColor: theme.colors.separator, maxWidth: '90%',
-    },
-    systemBadge: {
-        alignSelf: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 999,
-        backgroundColor: theme.colors.surfaceElevated,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
-        marginBottom: 6,
-    },
-    systemBadgeText: {
-        fontSize: 10,
-        fontWeight: '800',
-        color: theme.colors.text.muted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.6,
-    },
-    systemBubbleSpecial: {
-        backgroundColor: theme.colors.surfaceElevated, borderRadius: 14,
-        paddingHorizontal: 14, paddingVertical: 8,
-        borderWidth: 1, borderColor: theme.colors.separator, maxWidth: '92%',
-        alignItems: 'center',
-        gap: 6,
-    },
-    systemText: { fontSize: 12.5, color: theme.colors.text.secondary, textAlign: 'center', fontWeight: '500' },
-    systemActionChip: {
-        backgroundColor: theme.colors.accentSoft,
-        borderRadius: 999,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-    },
-    systemActionChipText: {
-        color: theme.colors.accent,
-        fontSize: 12,
-        fontWeight: '700',
-    },
     checkbox: { justifyContent: 'center', paddingRight: 8, paddingLeft: 2 },
     checkCircle: {
         width: 22,

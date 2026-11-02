@@ -11,7 +11,6 @@ import {
     sharedContentViewState,
     visualFilters,
 } from '../src/utils/sharedContent';
-import { getChatHeaderCapabilities } from '../src/utils/chatHeaderCapabilities';
 import { getMessageFocusDecision } from '../src/utils/messageFocus';
 
 const item: SharedContentItem = {
@@ -57,11 +56,6 @@ describe('Shared Content mobile presentation', () => {
         expect(lightTheme.colors.text.primary).not.toBe(darkTheme.colors.text.primary);
         expect(lightTheme.colors.accent).toBeTruthy();
         expect(darkTheme.colors.accent).toBeTruthy();
-    });
-
-    it('hides call and participant actions only in self-chat', () => {
-        expect(getChatHeaderCapabilities(true)).toEqual({ voiceCall: false, videoCall: false, participantActions: false });
-        expect(getChatHeaderCapabilities(false)).toEqual({ voiceCall: true, videoCall: true, participantActions: true });
     });
 
     it('focuses loaded and remote-window messages once and handles deletion', () => {

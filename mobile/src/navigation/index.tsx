@@ -130,11 +130,6 @@ const ConversationsStack = () => {
             component={AgentPreviewScreen}
             options={{ headerShown: false }}
         />
-        <ConversationsStackNav.Screen
-            name="AgentPreview"
-            component={AgentPreviewScreen}
-            options={{ headerShown: false }}
-        />
     </ConversationsStackNav.Navigator>
     );
 };

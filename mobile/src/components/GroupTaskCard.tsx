@@ -23,6 +23,7 @@ import {
 } from '../utils/agreement';
 import { getProposalActorPresentation } from '../utils/actorPresentation';
 import { AgreementParticipantsList } from './AgreementParticipantsList';
+import { dayBadge } from './compromisos/dayBadge';
 
 interface GroupTaskCardProps {
     commitment: any;
@@ -115,14 +116,6 @@ export default function GroupTaskCard({
         ? 'Todos'
         : (currentUserId === assignedId ? 'Tú' : (commitment.assignee?.full_name || 'Alguien'));
 
-    const responsibilityLabel = `Responsable: ${assigneeName}`;
-    const requesterLabel = isAgreementProposal
-        ? proposalPresentation!.relationLabel
-        : (isOwner ? 'Creada por ti' : `Solicita: ${requesterName}`);
-
-    const dueDateStr = commitment.due_at
-        ? format(new Date(commitment.due_at), "dd MMM · HH:mm", { locale: es }).replace('.', '')
-        : null;
     const dueDateFull = commitment.due_at
         ? format(new Date(commitment.due_at), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '')
         : null;
@@ -367,127 +360,77 @@ export default function GroupTaskCard({
 
     const statusInfo = getStatusInfo();
 
-    const meetingStyle = isMeeting
-        ? (theme.isDark
-            ? {
-                backgroundColor: theme.colors.surfaceMuted,
-                borderColor: theme.colors.separator,
-                borderLeftWidth: 4,
-                borderLeftColor: theme.colors.accent,
-            }
-            : styles.cardMeeting)
-        : null;
+    // Compact card: the day on the left (same badge as Hoy), the title, and
+    // one quiet line with who it is for and what it is waiting on. Finished,
+    // cancelled and rejected items fade so they never compete with the chat.
+    const isFinished = isDone || isCancelled || isRejected;
+    const badge = dayBadge(commitment.due_at);
+    const assigneeShort = assigneeName === 'Tú' ? 'ti' : assigneeName === 'Todos' ? 'todos' : assigneeName;
+    const hint = isFinished
+        ? null
+        : isActionCompletedPendingResolution
+            ? 'Acción realizada · falta cerrar'
+            : (agreementWaitingLabel || waitingLabel || (!isAccepted ? statusInfo.label : null));
+    const hintIsMine = canRespondToAgreement || isWaitingOnMe;
+    const metaParts = [isMeeting ? 'Reunión' : null, `Para ${assigneeShort}`].filter(Boolean).join(' · ');
+    const canOpenMenu = !hideActions && !isCompactOperationCard && (!isFinished || (isReopenable && (isOwner || isAssignee)));
 
     return (
         <TouchableOpacity
             activeOpacity={0.92}
             onPress={() => setShowDetails(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`${typeLabel}: ${commitment.title}`}
             style={[
             styles.cardContainer,
-            theme.isDark && {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.separator,
-                shadowOpacity: 0,
-            },
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator },
             isTimelineNode && styles.timelineCard,
-            meetingStyle,
-            isPast && (theme.isDark ? { opacity: 0.6, backgroundColor: theme.colors.surfaceMuted } : styles.cardPast),
-            isRejected && (theme.isDark ? { backgroundColor: '#3b1d1d', borderColor: '#7f1d1d' } : styles.cardRejected),
+            (isFinished || isPast) && styles.cardFinished,
         ]}
         >
-            {/* Left side: Time or Timeline Circle */}
-            <View style={styles.leftTimeline}>
-                <View style={[
-                    styles.nodeCircle,
-                    isMeeting && styles.nodeCircleMeeting,
-                    isDone && styles.nodeCircleDone,
-                    isPast && styles.nodeCirclePast
-                ]}>
-                   <Ionicons 
-                        name={isMeeting ? "calendar" : isDone ? "checkmark" : "list"} 
-                        size={12} 
-                        color="white" 
-                    />
-                </View>
-                <Text style={[styles.nodeTime, theme.isDark && { color: theme.colors.text.muted }]}>{dueDateStr || '--:--'}</Text>
+            <View style={[styles.dayBadge, { backgroundColor: theme.colors.surfaceMuted }]}>
+                <Text style={[styles.dayBadgeDay, { color: theme.colors.text.primary }]} numberOfLines={1}>{badge.day}</Text>
+                {!!badge.detail && (
+                    <Text style={[styles.dayBadgeDetail, { color: theme.colors.text.muted }]} numberOfLines={1}>{badge.detail}</Text>
+                )}
             </View>
 
-            {/* Center: Main Info */}
             <View style={styles.mainContent}>
-                <Text style={[styles.taskTitle, theme.isDark && { color: theme.colors.text.primary }, isDone && styles.textDone]} numberOfLines={2}>
+                <Text
+                    style={[
+                        styles.taskTitle,
+                        { color: theme.colors.text.primary },
+                        (isCancelled || isRejected) && styles.textStruck,
+                    ]}
+                    numberOfLines={1}
+                >
                     {commitment.title}
                 </Text>
-                
-                {/* Sección 15 del ticket: "Responsable: ..."/"Propone:
-                    Carlo..." son información semántica PRIMARIA -- nunca
-                    deben elipsarse para dejar espacio a un badge. Antes,
-                    ambas líneas compartían fila horizontal con badgesRow
-                    (statusBadge/activeOperationBadge), que tomaba su ancho
-                    intrínseco primero y dejaba el resto (a veces muy poco)
-                    para el texto con numberOfLines={1}. Ahora el texto va en
-                    su PROPIA columna de ancho completo, con numberOfLines={2}
-                    (nunca 1) -- los badges se muestran DEBAJO, nunca
-                    compitiendo por el mismo ancho horizontal. */}
-                <View style={styles.footerColumn}>
-                    <Text style={[styles.assigneeText, theme.isDark && { color: theme.colors.text.secondary }]} numberOfLines={2}>{responsibilityLabel}</Text>
-                    <Text style={[styles.requesterText, theme.isDark && { color: theme.colors.text.muted }]} numberOfLines={2}>{requesterLabel}</Text>
-
-                    {(isActiveOperation || !isCompactOperationCard) && (
-                        <View style={styles.badgesRow}>
-                            {isActiveOperation && (
-                                <View style={[styles.activeOperationBadge, theme.isDark && { backgroundColor: theme.colors.accentSoft }]}>
-                                    <Text style={[styles.activeOperationBadgeText, theme.isDark && { color: theme.colors.accent }]}>EN OPERACION</Text>
-                                </View>
-                            )}
-                            {!isCompactOperationCard && (
-                            <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
-                                    {statusInfo.label}
-                                </Text>
-                            </View>
-                            )}
-                        </View>
+                <Text style={[styles.metaLine, { color: theme.colors.text.muted }]} numberOfLines={1}>
+                    {metaParts}
+                    {isFinished && (
+                        <Text style={{ color: statusInfo.color, fontWeight: '700' }}>{` · ${statusInfo.label}`}</Text>
                     )}
-                </View>
-
-                {isRejected && rejectionReason && (
-                    <Text style={[styles.rejectionText, theme.isDark && { color: theme.colors.danger }]}>Motivo: {rejectionReason}</Text>
-                )}
-
-                {isActionCompletedPendingResolution && (
-                    <Text style={[styles.operationHint, theme.isDark && { color: theme.colors.text.secondary }]}>
-                        ☑️ Acción realizada · pendiente de confirmar resolución
-                    </Text>
-                )}
-
-                {!isDone && !isRejected && !isCancelled && (agreementWaitingLabel || waitingLabel) && (
-                    <Text style={[styles.operationHint, theme.isDark && { color: theme.colors.text.secondary }]}>
-                        {(canRespondToAgreement || isWaitingOnMe) ? '👉 ' : '⏳ '}{agreementWaitingLabel || waitingLabel}
-                    </Text>
-                )}
-
-                {isOperationMode && isActiveOperation && (
-                    <Text style={[styles.operationHint, theme.isDark && { color: theme.colors.text.secondary }]}>
-                        {isProposed
-                            ? 'Acepta o ajusta esta tarea aqui. Luego sigue la ejecucion desde la franja superior.'
-                            : 'La planificacion queda aqui. La ejecucion se marca desde la franja superior.'}
-                    </Text>
-                )}
+                    {!!hint && (
+                        <Text style={{ color: hintIsMine ? theme.colors.accent : theme.colors.text.muted, fontWeight: hintIsMine ? '700' : '500' }}>{` · ${hint}`}</Text>
+                    )}
+                    {isActiveOperation && (
+                        <Text style={{ color: theme.colors.accent, fontWeight: '700' }}>{' · En operación'}</Text>
+                    )}
+                </Text>
             </View>
 
-            {/* Right: Quick Actions */}
-            <View style={styles.rightActions}>
-                {!hideActions && !isCompactOperationCard && (!isDone && !isRejected && !isCancelled || (isReopenable && (isOwner || isAssignee))) && (
-                    <TouchableOpacity onPress={() => setShowActions(true)} style={styles.moreBtn}>
-                        <Ionicons name="ellipsis-vertical" size={20} color={theme.isDark ? theme.colors.text.muted : '#94a3b8'} />
-                    </TouchableOpacity>
-                )}
-                {isDone && (
-                    <View style={styles.doneIcon}>
-                        <Ionicons name="checkmark-done-circle" size={24} color="#10b981" />
-                    </View>
-                )}
-            </View>
+            {canOpenMenu && (
+                <TouchableOpacity
+                    onPress={() => setShowActions(true)}
+                    style={styles.moreBtn}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Acciones de la tarea"
+                >
+                    <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text.muted} />
+                </TouchableOpacity>
+            )}
 
             {/* Actions Modal */}
             {!hideActions && (
@@ -817,158 +760,32 @@ export default function GroupTaskCard({
 const styles = StyleSheet.create({
     cardContainer: {
         flexDirection: 'row',
-        backgroundColor: 'white',
-        borderRadius: 16,
-        padding: 10,
-        marginVertical: 4,
-        shadowColor: '#6366f1',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-        elevation: 2,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
+        alignItems: 'center',
+        gap: 10,
+        borderRadius: 12,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        marginVertical: 3,
+        borderWidth: StyleSheet.hairlineWidth,
     },
+    cardFinished: { opacity: 0.55 },
+    dayBadge: { width: 52, borderRadius: 8, paddingVertical: 4, alignItems: 'center' },
+    dayBadgeDay: { fontSize: 12, fontWeight: '800', textTransform: 'capitalize' },
+    dayBadgeDetail: { fontSize: 10.5, fontWeight: '600', marginTop: 1 },
+    textStruck: { textDecorationLine: 'line-through' },
+    metaLine: { fontSize: 12, marginTop: 2 },
+    statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+    statusBadgeText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
     timelineCard: {
         marginLeft: 0, 
-    },
-    cardMeeting: {
-        backgroundColor: '#f8faff',
-        borderColor: '#e0e7ff',
-        borderLeftWidth: 4,
-        borderLeftColor: '#6366f1',
-    },
-    cardPast: {
-        opacity: 0.6,
-        backgroundColor: '#f8fafc',
-    },
-    cardRejected: {
-        backgroundColor: '#fff1f1',
-        borderColor: '#fee2e2',
-    },
-    leftTimeline: {
-        width: 72,
-        alignItems: 'center',
-        paddingTop: 4,
-        marginRight: 8,
-    },
-    nodeCircle: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: '#10b981', // Task green
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 2,
-        borderColor: 'white',
-        zIndex: 5,
-    },
-    nodeCircleMeeting: {
-        backgroundColor: '#6366f1', // Meeting indigo
-    },
-    nodeCircleDone: {
-        backgroundColor: '#10b981',
-    },
-    nodeCirclePast: {
-        backgroundColor: '#94a3b8',
-    },
-    nodeTime: {
-        fontSize: 10,
-        fontWeight: '800',
-        color: '#64748b',
-        marginTop: 6,
-        textAlign: 'center',
-        lineHeight: 12,
     },
     mainContent: {
         flex: 1,
         justifyContent: 'center',
     },
-    taskTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#1e293b',
-        marginBottom: 8,
-    },
-    textDone: {
-        textDecorationLine: 'line-through',
-        color: '#94a3b8',
-    },
-    footerColumn: {
-        gap: 2,
-    },
-    badgesRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 4,
-    },
-    assigneeText: {
-        fontSize: 12,
-        color: '#334155',
-        fontWeight: '700',
-    },
-    requesterText: {
-        fontSize: 11,
-        color: '#64748b',
-        marginTop: 2,
-    },
-    statusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 8,
-    },
-    statusBadgeText: {
-        fontSize: 10,
-        fontWeight: '800',
-        textTransform: 'uppercase',
-    },
-    rejectionText: {
-        fontSize: 11,
-        color: '#ef4444',
-        fontStyle: 'italic',
-        marginTop: 6,
-    },
-    operationHint: {
-        fontSize: 12,
-        color: '#64748b',
-        marginTop: 10,
-    },
-    activeOperationBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 8,
-        backgroundColor: '#dbeafe',
-    },
-    activeOperationBadgeText: {
-        fontSize: 10,
-        fontWeight: '800',
-        color: '#1d4ed8',
-    },
-    rightActions: {
-        width: 40,
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-    },
-    actionBtnPrimary: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: '#6366f1',
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#6366f1',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 6,
-        elevation: 3,
-    },
+    taskTitle: { fontSize: 14.5, fontWeight: '700' },
     moreBtn: {
         padding: 4,
-    },
-    doneIcon: {
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     modalOverlay: {
         flex: 1,

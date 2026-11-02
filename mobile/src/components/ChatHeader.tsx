@@ -6,16 +6,12 @@ import {
     getFreshProfileAvatarUrl,
     useProfileAvatarUrl,
 } from '../hooks/useProfileAvatarUrl';
-import { getChatHeaderCapabilities } from '../utils/chatHeaderCapabilities';
 
 interface ChatHeaderProps {
     chatTitle: string;
     avatarUrl?: string;
     profileId?: string;
     isGroup: boolean;
-    isSelf?: boolean;
-    onVoiceCall: () => void;
-    onVideoCall: () => void;
     onPing: () => void;
     onInfo: () => void;
     onMenu: () => void;
@@ -27,9 +23,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     avatarUrl,
     profileId,
     isGroup,
-    isSelf = false,
-    onVoiceCall,
-    onVideoCall,
     onPing,
     onInfo,
     onMenu,
@@ -41,7 +34,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         isGroup ? null : profileId,
         avatarUrl
     );
-    const capabilities = getChatHeaderCapabilities(isSelf);
 
     return (
         <View style={styles.headerContainer}>
@@ -83,12 +75,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 <TouchableOpacity onPress={onMenu} style={[styles.iconBtn, styles.menuBtn]}>
                     <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.white} />
                 </TouchableOpacity>
-                {capabilities.voiceCall && <TouchableOpacity onPress={onVoiceCall} style={styles.iconBtn}>
-                    <Ionicons name="call" size={20} color={theme.colors.white} />
-                </TouchableOpacity>}
-                {capabilities.videoCall && <TouchableOpacity onPress={onVideoCall} style={styles.iconBtn}>
-                    <Ionicons name="videocam" size={22} color={theme.colors.white} />
-                </TouchableOpacity>}
             </View>
         </View>
     );

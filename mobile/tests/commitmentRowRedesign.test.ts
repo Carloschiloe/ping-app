@@ -57,14 +57,15 @@ describe('sección 17: menú de overflow Android usa Modal real (mismo primitivo
     });
 });
 
-describe('sección 15: GroupTaskCard.tsx nunca elipsa Responsable/Propone a 1 línea, ni las comprime contra un badge en la misma fila horizontal', () => {
-    it('assigneeText/requesterText ahora usan numberOfLines={2}, nunca 1', () => {
-        expect(GROUP_TASK_CARD_SRC).toMatch(/styles\.assigneeText,[^\n]*\]\} numberOfLines=\{2\}/);
-        expect(GROUP_TASK_CARD_SRC).toMatch(/styles\.requesterText,[^\n]*\]\} numberOfLines=\{2\}/);
+describe('chat task card is compact: day badge, one-line title and a quiet meta line', () => {
+    it('shows the same day badge as Hoy and fades finished items', () => {
+        expect(GROUP_TASK_CARD_SRC).toContain('const badge = dayBadge(commitment.due_at);');
+        expect(GROUP_TASK_CARD_SRC).toContain('(isFinished || isPast) && styles.cardFinished');
+        expect(GROUP_TASK_CARD_SRC).toMatch(/styles\.metaLine/);
     });
-    it('footerRow (fila horizontal texto+badges) ya no existe -- footerColumn (vertical, badges debajo) lo reemplaza', () => {
-        expect(GROUP_TASK_CARD_SRC).not.toMatch(/styles\.footerRow/);
-        expect(GROUP_TASK_CARD_SRC).toMatch(/styles\.footerColumn/);
+    it('the old tall layout (Responsable / Creada por / status pill) is gone from the card', () => {
+        expect(GROUP_TASK_CARD_SRC).not.toContain('styles.assigneeText');
+        expect(GROUP_TASK_CARD_SRC).not.toContain('styles.footerColumn');
     });
 });
 

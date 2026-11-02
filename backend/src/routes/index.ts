@@ -44,7 +44,6 @@ import * as conversationInvitationSchema from '../schemas/conversationInvitation
 import * as contactDiscoverySchema from '../schemas/contactDiscovery.schema';
 import {
     requireFeature,
-    requirePrivateFileFeature,
 } from '../middleware/featureGate';
 import { createAgentRateLimiter } from '../middleware/agentRateLimit';
 import { getRateLimitStoreStatus } from '../middleware/rateLimitStore';
@@ -65,10 +64,6 @@ const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry',
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
 const callsEnabled = requireFeature('ENABLE_CALLS');
-const privateFileReadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS');
-const privateFileUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS');
-const privateAvatarUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_AVATAR_UPLOADS');
-const privateMessageUploadsEnabled = requirePrivateFileFeature('ENABLE_PRIVATE_MESSAGE_UPLOADS');
 
 // Health
 router.get('/health', async (req, res) => {
@@ -262,61 +257,41 @@ router.get('/contacts/:id', requireAuth, validateRequest(contactSchema.getContac
 // Search
 router.get('/search', requireAuth, searchController.search);
 
-// Private file reads and uploads have independent gates. Authorization on the
-// owning resource is still enforced by the service before issuing any URL.
+// Private file reads and uploads. Authorization on the owning resource is
+// enforced by the service before issuing any URL.
 router.post(
     '/files/read-url',
     requireAuth,
-    privateFileReadsEnabled,
     validateRequest(privateFileSchema.createPrivateFileReadUrlSchema),
     privateFileController.createReadUrl
 );
 router.post(
-    '/files/upload-url',
-    requireAuth,
-    privateFileUploadsEnabled,
-    validateRequest(privateFileSchema.createPrivateFileUploadUrlSchema),
-    privateFileController.createUploadUrl
-);
-router.post(
     '/files/profile-avatar/upload-url',
     requireAuth,
-    privateAvatarUploadsEnabled,
     validateRequest(privateFileSchema.createProfileAvatarUploadUrlSchema),
     privateFileController.createProfileAvatarUploadUrl
 );
 router.post(
     '/files/profile-avatar/complete',
     requireAuth,
-    privateAvatarUploadsEnabled,
     validateRequest(privateFileSchema.completeProfileAvatarSchema),
     privateFileController.completeProfileAvatar
 );
 router.post(
-    '/files/message-attachment/upload-url',
-    requireAuth,
-    privateMessageUploadsEnabled,
-    validateRequest(privateFileSchema.createMessageAttachmentUploadUrlSchema),
-    privateFileController.createMessageAttachmentUploadUrl
-);
-router.post(
     '/attachments/upload-intents',
     requireAuth,
-    privateMessageUploadsEnabled,
     validateRequest(attachmentSchema.createUploadIntentSchema),
     attachmentController.createUploadIntent
 );
 router.post(
     '/attachments/:id/complete',
     requireAuth,
-    privateMessageUploadsEnabled,
     validateRequest(attachmentSchema.attachmentIdSchema),
     attachmentController.completeUpload
 );
 router.post(
     '/attachments/:id/read-url',
     requireAuth,
-    privateFileReadsEnabled,
     validateRequest(attachmentSchema.attachmentIdSchema),
     attachmentController.createReadUrl
 );

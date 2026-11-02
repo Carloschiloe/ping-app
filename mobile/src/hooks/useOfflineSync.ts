@@ -29,6 +29,10 @@ export interface PendingMessage {
     nextAttemptAt?: string | null;
 }
 
+// After this many automatic attempts a message stops retrying on its own and
+// shows "No se envió", so the person decides to retry or discard it.
+const MAX_AUTO_ATTEMPTS = 5;
+
 export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<SyncResult>) => {
     const [isConnected, setIsConnected] = useState<boolean | null>(true);
     const [queue, setQueue] = useState<PendingMessage[]>([]);
@@ -110,12 +114,13 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
                     setQueue((current) => current.map((item) => {
                         if (item.id !== msg.id) return item;
                         const retryCount = item.retryCount + 1;
+                        const gaveUp = result.state === 'result_unknown' && retryCount >= MAX_AUTO_ATTEMPTS;
                         return {
                             ...item,
-                            state: result.state,
+                            state: gaveUp ? 'rejected' : result.state,
                             lastError: result.error,
                             retryCount,
-                            nextAttemptAt: result.state === 'result_unknown'
+                            nextAttemptAt: result.state === 'result_unknown' && !gaveUp
                                 ? new Date(Date.now() + Math.min(30000, 1000 * (2 ** retryCount))).toISOString()
                                 : null,
                         };
@@ -128,7 +133,7 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
                     item.id === msg.id
                         ? {
                             ...item,
-                            state: 'result_unknown',
+                            state: item.retryCount + 1 >= MAX_AUTO_ATTEMPTS ? 'rejected' : 'result_unknown',
                             lastError: 'Resultado desconocido',
                             retryCount: item.retryCount + 1,
                             nextAttemptAt: retryAt(item.retryCount + 1),
@@ -171,10 +176,22 @@ export const useOfflineSync = (onSyncNow?: (msg: PendingMessage) => Promise<Sync
             sanitizePendingQueue([...prev, newMsg]) as PendingMessage[]);
     }, []);
 
+    const retryNow = useCallback((id: string) => {
+        setQueue(prev => prev.map(item => item.id === id
+            ? { ...item, state: 'pending', retryCount: 0, nextAttemptAt: null, lastError: null }
+            : item));
+    }, []);
+
+    const discard = useCallback((id: string) => {
+        setQueue(prev => prev.filter(item => item.id !== id));
+    }, []);
+
     return {
         isConnected,
         queue,
         addToQueue,
-        syncQueue
+        syncQueue,
+        retryNow,
+        discard,
     };
 };

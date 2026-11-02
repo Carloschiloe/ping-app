@@ -320,27 +320,6 @@ describe('M-1G: auditoría estática — coexistencia legacy, sin writes', () =>
     });
 });
 
-// M-1G.1 — bugfixes reales de la certificación física en iPhone (M-1G-S2).
-describe('M-1G.1: back button — long-press ya no deja un "onPress" fantasma que apila PingAI', () => {
-    const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ConversationsScreen.tsx'), 'utf-8');
-
-    it('el botón ✨ suprime el onPress que sigue a un onLongPress exitoso (comportamiento conocido de TouchableOpacity)', () => {
-        expect(screenSource).toContain('suppressPingAIPressRef');
-        // El guard debe vivir DENTRO del onPress real (leer y resetear el flag), no sólo declarado y nunca usado.
-        const onPressBlock = screenSource.slice(screenSource.indexOf('onPress={() => {'), screenSource.indexOf('onLongPress={handleOpenAgentMenu}'));
-        expect(onPressBlock).toMatch(/if \(suppressPingAIPressRef\.current\)/);
-        expect(onPressBlock).toContain('suppressPingAIPressRef.current = false');
-    });
-
-    it('handleOpenAgentMenu marca el flag ANTES de mostrar el ActionSheet/Alert', () => {
-        const fnBody = screenSource.slice(screenSource.indexOf('const handleOpenAgentMenu'), screenSource.indexOf('const handleOpenCreateSheet'));
-        const flagIdx = fnBody.indexOf('suppressPingAIPressRef.current = true');
-        const sheetIdx = fnBody.indexOf('ActionSheetIOS.showActionSheetWithOptions');
-        expect(flagIdx).toBeGreaterThan(-1);
-        expect(flagIdx).toBeLessThan(sheetIdx);
-    });
-});
-
 describe('M-1G.1: citation tap — área táctil real, no sólo el texto pequeño', () => {
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
 
@@ -390,30 +369,19 @@ describe('Ping Core entrypoint: el acceso normal usa Agent Core y legacy queda a
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ConversationsScreen.tsx'), 'utf-8');
     const navigationSource = fs.readFileSync(path.join(__dirname, '../src/navigation/index.tsx'), 'utf-8');
 
-    it('tap normal conserva la ruta PingAI y renderiza Core; ya no existe la pantalla legacy', () => {
-        expect(screenSource).toContain("navigation.navigate('PingAI', { surface: publicPingSurface() })");
-        expect(screenSource).toContain('onLongPress={handleOpenAgentMenu}');
-        expect(screenSource).toContain("{ label: 'Ping', onPress: () => navigation.navigate('PingAI', { surface: publicPingSurface() }) }");
-        expect(screenSource).toContain("{ label: 'Preview interno', onPress: () => navigation.navigate('AgentPreview') }");
-        expect(screenSource).not.toContain('PingAIClassic');
-    });
-
-    it('expone el piloto tablet sólo en desarrollo y reutiliza AgentPreview con surface tablet', () => {
-        expect(screenSource).toContain('if (__DEV__)');
-        expect(screenSource).toContain("label: 'Piloto tablet (voz)'");
-        expect(screenSource).toContain("navigation.navigate('AgentPreview', { surface: 'tablet' })");
-    });
-
-    it('mantiene Preview, tablet y legacy fuera de la entrada pública', () => {
-        expect(screenSource).toContain('if (!__DEV__) return;');
+    it('the Ping button opens the one Ping screen; there is no hidden test menu', () => {
+        expect(screenSource).toContain("onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface() })}");
         expect(screenSource).toContain('accessibilityLabel="Abrir Ping"');
-        expect(screenSource).toContain("{ label: 'Ping', onPress: () => navigation.navigate('PingAI', { surface: publicPingSurface() }) }");
+        expect(screenSource).not.toContain('handleOpenAgentMenu');
+        expect(screenSource).not.toContain("'Preview interno'");
+        expect(screenSource).not.toContain('PingAIClassic');
     });
 
     it('la ruta PingAI principal monta Agent Core y la ruta legacy ya no existe', () => {
         expect(navigationSource).toMatch(/name="PingAI"[\s\S]*component=\{AgentPreviewScreen\}/);
         expect(navigationSource).not.toContain('PingAIClassic');
         expect(navigationSource).not.toContain('PingAIScreen');
+        expect(navigationSource).not.toContain('name="AgentPreview"');
     });
 });
 

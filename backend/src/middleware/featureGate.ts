@@ -1,12 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
 
-type PrivateFileFeature =
-    | 'ENABLE_PRIVATE_FILE_READS'
-    | 'ENABLE_PRIVATE_FILE_UPLOADS'
-    | 'ENABLE_PRIVATE_AVATAR_UPLOADS'
-    | 'ENABLE_PRIVATE_MESSAGE_UPLOADS';
-
 export type LegacySatelliteCapability =
     | 'ENABLE_CALLS'
     | 'ENABLE_OPERATION_MODULE'
@@ -62,9 +56,3 @@ export function requireFeature(envName: string) {
     return createFeatureGate(envName, true);
 }
 
-// Private file reads and uploads are independently controlled. Keeping the
-// accepted names closed prevents this exception from being reused by an
-// unrelated non-MVP capability.
-export function requirePrivateFileFeature(envName: PrivateFileFeature) {
-    return createFeatureGate(envName, false);
-}
