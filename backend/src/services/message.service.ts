@@ -4,17 +4,12 @@ import { isValid } from 'date-fns';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
 import os from 'os';
-import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { downloadTrustedStorageFile, removeTemporaryFile } from '../utils/trustedMedia';
 import {
     assertConversationParticipant,
     assertConversationParticipantReference,
     assertMessageInConversation,
 } from '../utils/authz';
-import {
-    buildDeterministicCommitmentSuggestion,
-    reconcileCommitmentSuggestion,
-} from '../utils/deterministicCommitmentSuggestion';
 import { validatePrivateFileUploadReference } from './privateFile.service';
 import { registerLegacyMessageAttachment } from './attachmentApplication.service';
 import {
@@ -125,18 +120,6 @@ export const processUserMessage = async (
         }
     }
 
-    // Publish a high-confidence local suggestion with the original message.
-    // This makes the "Agendar" action immediate; OpenAI may refine the title
-    // or type later, but never blocks the first useful UI response.
-    const immediateSuggestion = buildDeterministicCommitmentSuggestion(
-        processingText,
-        new Date(),
-        meta.clientTimeZone,
-    );
-    if (immediateSuggestion && !meta.suggestedTask) {
-        meta.suggestedTask = immediateSuggestion;
-    }
-
     if (!conversationId) {
         throw new Error('A canonical message requires a conversation');
     }
@@ -193,36 +176,15 @@ export const analyzeAndSuggestTask = async (
     options: { persist?: boolean; timeZone?: string | null } = {},
 ) => {
     const timestamp = new Date().toISOString();
-    // Smart Triggers: detect natural language indicators for tasks or schedules
-    const taskKeywords = [
-        'agenda', 'tarea', 'hacer', 'reunion', 'reunión', 'recordar', 'mañana', 'lunes', 'martes', 'miercoles',
-        'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo', 'hoy', 'tienes', 'tengo', 'cita',
-        'mantencion', 'mantención', 'llamado', 'llamar', 'enviar', 'pago', 'pagar', 'vence', 'vencimiento',
-        'reunamos', 'vemos', 'juntamos', 'juntémonos'
-    ];
-    const hasKeywords = new RegExp(`\\b(${taskKeywords.join('|')})\\b`, 'i').test(text);
-    const deterministicSuggestion = buildDeterministicCommitmentSuggestion(
-        text,
-        new Date(timestamp),
-        options.timeZone,
-    );
-    const isTriggered = !!mentionedUserId || hasKeywords || !!deterministicSuggestion || (imageUrl && text.trim().length > 0);
-
-    // If text is empty and no image, nothing to do
-    if (!text && !imageUrl) return null;
+    // La IA lee cada mensaje con texto o imagen y decide si hay un
+    // compromiso; no hay lista de palabras que filtre antes.
+    if (!text.trim() && !imageUrl) return null;
 
     try {
-        if (!isTriggered) return null;
-
         const ai = await extractCommitment(text, timestamp, imageUrl, options.timeZone);
 
-        // Una fecha explícita escrita por el usuario es evidencia más fuerte
-        // que una fecha generada por IA. La IA puede mejorar el título o tipo,
-        // pero no reemplazar "próximo miércoles a las 13:00" por otro día.
-        const extractedSuggestion = reconcileCommitmentSuggestion(ai, deterministicSuggestion);
-
-        if (extractedSuggestion?.title && extractedSuggestion.dueAt) {
-            const dueDate = new Date(extractedSuggestion.dueAt);
+        if (ai.hasCommitment && ai.title && ai.dueAt) {
+            const dueDate = new Date(ai.dueAt);
             if (!isValid(dueDate)) return null;
 
             let finalAssigneeId = mentionedUserId || null;
@@ -251,11 +213,11 @@ export const analyzeAndSuggestTask = async (
             }
 
             const suggestedTask = {
-                title: extractedSuggestion.title,
-                dueAt: extractedSuggestion.dueAt,
+                title: ai.title,
+                dueAt: ai.dueAt,
                 assignedToUserId: finalAssigneeId,
                 replyText: 'Agendar',
-                type: extractedSuggestion.type,
+                type: ai.type,
             };
 
             if (options.persist === false) return suggestedTask;
@@ -274,18 +236,6 @@ export const analyzeAndSuggestTask = async (
         console.error('[AI Analysis] Failed:', err);
     }
     return null;
-};
-
-export const getMessages = async (userId: string, limit = 50, offset = 0) => {
-    const { data, error, count } = await supabaseAdmin
-        .from('messages')
-        .select('*, message_receipts(*)', { count: 'exact' })
-        .eq('sender_id', userId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-
-    if (error) throw error;
-    return { messages: toLegacyMessageListShape(data, userId), count };
 };
 
 // V2: mensajes sin remitente humano deben etiquetarse con system_event_type

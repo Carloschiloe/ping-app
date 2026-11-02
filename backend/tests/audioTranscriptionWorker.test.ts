@@ -12,7 +12,15 @@ const transcriptionMocks = vi.hoisted(() => ({
     transcribe: vi.fn(async () => ({ text: 'Recordarme llamar mañana', languageDetected: 'es' })),
 }));
 
+const aiMocks = vi.hoisted(() => ({
+    extractCommitment: vi.fn(async () => ({ hasCommitment: false, title: null, dueAt: null, replyText: null, assignedToName: null, type: 'task' })),
+}));
+
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
+vi.mock('../src/services/ai.service', async (importOriginal) => ({
+    ...await importOriginal<typeof import('../src/services/ai.service')>(),
+    extractCommitment: aiMocks.extractCommitment,
+}));
 vi.mock('../src/services/transcription.service', async (importOriginal) => ({
     ...await importOriginal<typeof import('../src/services/transcription.service')>(),
     isTranscriptionConfigured: transcriptionMocks.isConfigured,
@@ -162,8 +170,22 @@ describe('Audio Transcription worker', () => {
                 'rpc:complete_audio_transcription_analysis': [{ data: analysisJob, error: null }],
             });
             setSupabaseAdminMock(db);
+            aiMocks.extractCommitment.mockResolvedValueOnce({
+                hasCommitment: true,
+                title: 'Juntarnos en el terreno',
+                dueAt: '2026-09-01T20:00:00.000Z',
+                replyText: 'Agendar',
+                assignedToName: null,
+                type: 'meeting',
+            } as any);
 
             await expect(processNextAudioAnalysisJob()).resolves.toBe(true);
+            expect(aiMocks.extractCommitment).toHaveBeenCalledWith(
+                'Necesitamos juntarnos hoy día en el terreno a las 16 horas.',
+                expect.any(String),
+                undefined,
+                'America/Santiago',
+            );
 
             expect(db.getRpcCalls().at(-1)).toEqual({
                 name: 'complete_audio_transcription_analysis',

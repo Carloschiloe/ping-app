@@ -21,12 +21,9 @@ import ChatInfoScreen from '../screens/ChatInfoScreen';
 import SharedContentScreen from '../screens/SharedContentScreen';
 import SharedVisualContentScreen from '../screens/SharedVisualContentScreen';
 import AddParticipantsScreen from '../screens/AddParticipantsScreen';
-import InsightsScreen from '../screens/InsightsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import PingAIScreen from '../screens/PingAIScreen';
 import AgentPreviewScreen from '../screens/AgentPreviewScreen';
-import QuickCaptureScreen from '../screens/QuickCaptureScreen';
-import TaskDashboardScreen from '../screens/TaskDashboardScreen';
+import HoyScreen from '../screens/HoyScreen';
 import CallScreen from '../screens/CallScreen';
 import IncomingCallScreen from '../screens/IncomingCallScreen';
 
@@ -134,19 +131,9 @@ const ConversationsStack = () => {
             options={{ headerShown: false }}
         />
         <ConversationsStackNav.Screen
-            name="PingAIClassic"
-            component={PingAIScreen}
-            options={{ headerShown: false }}
-        />
-        <ConversationsStackNav.Screen
             name="AgentPreview"
             component={AgentPreviewScreen}
             options={{ headerShown: false }}
-        />
-        <ConversationsStackNav.Screen
-            name="QuickCapture"
-            component={QuickCaptureScreen}
-            options={{ headerShown: false, presentation: 'modal' }}
         />
     </ConversationsStackNav.Navigator>
     );
@@ -182,10 +169,8 @@ const MainTabs = () => {
                 let iconName: any;
                 if (route.name === 'Chats') {
                     iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-                } else if (route.name === 'Tablero') {
+                } else if (route.name === 'Hoy') {
                     iconName = focused ? 'today' : 'today-outline';
-                } else if (route.name === 'Insights') {
-                    iconName = focused ? 'checkmark-circle' : 'checkmark-circle-outline';
                 } else if (route.name === 'Perfil') {
                     iconName = focused ? 'person-circle' : 'person-circle-outline';
                 }
@@ -194,8 +179,7 @@ const MainTabs = () => {
         })}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
-        <Tab.Screen name="Tablero" component={TaskDashboardScreen} options={{ title: 'Hoy' }} />
-        <Tab.Screen name="Insights" component={InsightsScreen} options={{ title: 'Compromisos' }} />
+        <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
     );

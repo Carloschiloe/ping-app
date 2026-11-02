@@ -14,16 +14,6 @@ export const useConversationOperationState = (conversationId: string | null) => 
     });
 };
 
-export const useUpdateConversationMode = (conversationId: string) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (mode: 'chat' | 'operation') => apiClient.patch(`/conversations/${conversationId}/mode`, { mode }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversations'] });
-            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-        },
-    });
-};
 
 export const useSetPinnedMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
@@ -95,45 +85,9 @@ export const useSetActiveOperationCommitment = (conversationId: string) => {
     });
 };
 
-export const useSaveOperationChecklist = (conversationId: string) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (data: { checklistId?: string | null; title: string; items: (string | { label: string; responseType?: 'condition' | 'severity' | 'yes_no' | 'text' })[]; categoryLabel?: string | null; responsibleUserId?: string | null; responsibleRoleLabel?: string | null; frequency?: 'manual' | 'daily' | 'shift' }) => apiClient.post(`/conversations/${conversationId}/checklists`, data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-        },
-    });
-};
 
-export const useDuplicateOperationChecklist = (conversationId: string) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (checklistId: string) => apiClient.post(`/conversations/${conversationId}/checklists/${checklistId}/duplicate`, {}),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-        },
-    });
-};
 
-export const useArchiveOperationChecklist = (conversationId: string) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (checklistId: string) => apiClient.patch(`/conversations/${conversationId}/checklists/${checklistId}/archive`, {}),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-        },
-    });
-};
 
-export const useRestoreOperationChecklist = (conversationId: string) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (checklistId: string) => apiClient.patch(`/conversations/${conversationId}/checklists/${checklistId}/restore`, {}),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversation-operation-state', conversationId] });
-        },
-    });
-};
 
 export const useToggleOperationChecklistItem = (conversationId: string) => {
     const queryClient = useQueryClient();

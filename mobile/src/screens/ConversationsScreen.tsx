@@ -345,10 +345,6 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 label: 'Piloto tablet (voz)',
                 onPress: () => navigation.navigate('AgentPreview', { surface: 'tablet' }),
             });
-            items.push({
-                label: 'Ping AI clásico (legacy)',
-                onPress: () => navigation.navigate('PingAIClassic'),
-            });
         }
 
         if (Platform.OS === 'ios') {

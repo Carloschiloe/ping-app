@@ -633,22 +633,6 @@ export const getArchivedCommitments = async (userId: string) => {
     return attachAgreementResponses(data || []);
 };
 
-export const pingCommitment = async (userId: string, id: string) => {
-    await assertCommitmentOwnerOrResponsible(userId, id);
-
-    // Basic push reminder
-    const { data: c } = await supabaseAdmin.from('commitments').select('*, profiles:assigned_to_user_id(expo_push_token, full_name)').eq('id', id).single();
-    if (c?.profiles?.expo_push_token) {
-        await NotificationService.sendPushNotifications({
-            to: c.profiles.expo_push_token,
-            title: '⏰ Recordatorio de compromiso',
-            body: `Hola ${c.profiles.full_name}, tienes pendiente: ${c.title}`,
-            data: { type: 'commitment_reminder', id }
-        });
-    }
-    return { ok: true };
-};
-
 export const checkConflict = async (userId: string, dueAt: string, excludeId?: string) => {
     const checkDate = new Date(dueAt);
     if (isNaN(checkDate.getTime())) {

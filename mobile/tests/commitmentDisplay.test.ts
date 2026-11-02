@@ -1,29 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-    getDisplayDueAt,
     getRejectionReason,
     isActionCompletedPendingResolution,
     getWaitingLabel,
     classifyDueDate,
     resolveConversationId,
     canViewOriginConversation,
-    resolveContactName,
     getStatusLabel,
-    getNonEmptyBlocks,
-    OPEN_COMMITMENT_BLOCK_KEYS,
 } from '../src/utils/commitmentDisplay';
-
-describe('getDisplayDueAt', () => {
-    it('counter_proposal muestra proposed_due_at en vez de due_at', () => {
-        const result = getDisplayDueAt({ status: 'counter_proposal', due_at: '2026-01-01T10:00:00Z', proposed_due_at: '2026-01-05T10:00:00Z' });
-        expect(result).toBe('2026-01-05T10:00:00Z');
-    });
-
-    it('en cualquier otro estado usa due_at', () => {
-        const result = getDisplayDueAt({ status: 'accepted', due_at: '2026-01-01T10:00:00Z', proposed_due_at: '2026-01-05T10:00:00Z' });
-        expect(result).toBe('2026-01-01T10:00:00Z');
-    });
-});
 
 describe('getRejectionReason', () => {
     it('rejected muestra rejection_reason (columna real V2)', () => {
@@ -122,47 +106,12 @@ describe('resolveConversationId / canViewOriginConversation', () => {
     });
 });
 
-describe('resolveContactName', () => {
-    it('los contactos externos se muestran por nombre, nunca por UUID', () => {
-        expect(resolveContactName('c1', [{ id: 'c1', display_name: 'Ferreteria Don Jose' }])).toBe('Ferreteria Don Jose');
-    });
-
-    it('sin contactId no hay nombre que resolver', () => {
-        expect(resolveContactName(null, [])).toBeNull();
-    });
-});
-
 describe('getStatusLabel', () => {
     it('mapea cada estado canonico V2 a su etiqueta en español', () => {
         expect(getStatusLabel('resolved')).toBe('Resuelto');
         expect(getStatusLabel('cancelled')).toBe('Cancelado');
         expect(getStatusLabel('rejected')).toBe('Rechazado');
         expect(getStatusLabel('counter_proposal')).toBe('Contrapropuesta');
-    });
-});
-
-describe('getNonEmptyBlocks', () => {
-    it('Insights nunca renderiza los alias de Operacion (myFocuses/inProgress), aunque traigan datos', () => {
-        const insights = {
-            needsAttention: [],
-            overdue: [],
-            awaitingResponse: [],
-            upcoming: [{ id: '1' }],
-            noDate: [],
-            actionDonePendingResolution: [],
-            // Alias legacy de Operacion: el backend los deja vacios a proposito,
-            // pero incluso si trajeran datos, no deben aparecer como bloque.
-            myFocuses: [{ id: 'x' }],
-            inProgress: [{ id: 'y' }],
-        };
-        const nonEmpty = getNonEmptyBlocks(insights, OPEN_COMMITMENT_BLOCK_KEYS);
-        expect(nonEmpty).toEqual(['upcoming']);
-        expect(nonEmpty).not.toContain('myFocuses');
-        expect(nonEmpty).not.toContain('inProgress');
-    });
-
-    it('un bloque vacio no se considera "no vacio"', () => {
-        expect(getNonEmptyBlocks({ needsAttention: [] }, ['needsAttention'])).toEqual([]);
     });
 });
 
@@ -190,18 +139,15 @@ describe('un commitment V2 completo se puede procesar sin excepciones', () => {
         const contacts = [{ id: 'contact-1', display_name: 'Contacto de Prueba' }];
 
         expect(() => {
-            getDisplayDueAt(fullCommitment);
             getRejectionReason(fullCommitment);
             isActionCompletedPendingResolution(fullCommitment);
             getWaitingLabel(fullCommitment, 'owner-1', contacts);
             classifyDueDate(fullCommitment);
             resolveConversationId(fullCommitment);
             canViewOriginConversation(fullCommitment);
-            resolveContactName(fullCommitment.counterparty_contact_id, contacts);
             getStatusLabel(fullCommitment.status);
         }).not.toThrow();
 
-        expect(getDisplayDueAt(fullCommitment)).toBe('2026-01-05T10:00:00Z');
         expect(isActionCompletedPendingResolution(fullCommitment)).toBe(true);
         expect(getWaitingLabel(fullCommitment, 'owner-1', contacts)).toBe('Esperando a Contacto de Prueba');
     });

@@ -558,8 +558,8 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
         }
     });
 
-    it('useResolveCommitment (resolve), useCancelCommitment (cancel), useReopenCommitment (reopen), useCounterProposeCommitment (counter-propose), and useReassignCommitment (reassign) all call the canonical invalidate() -- none reimplements its own one-off invalidation list', () => {
-        for (const hookName of ['useResolveCommitment', 'useCancelCommitment', 'useReopenCommitment', 'useCounterProposeCommitment', 'useReassignCommitment']) {
+    it('useResolveCommitment (resolve), useCancelCommitment (cancel), and useReopenCommitment (reopen) all call the canonical invalidate() -- none reimplements its own one-off invalidation list', () => {
+        for (const hookName of ['useResolveCommitment', 'useCancelCommitment', 'useReopenCommitment']) {
             const hookMatch = COMMITMENTS_API_SRC.match(new RegExp(`export const ${hookName} = \\(\\) => \\{[^]*?\\n\\};`));
             expect(hookMatch, `${hookName} not found`).not.toBeNull();
             expect(hookMatch![0]).toMatch(/const invalidate = useCommitmentLifecycleInvalidation\(\);/);

@@ -20,7 +20,7 @@ const COMMITMENTS_MODULE_SRC = fs.readFileSync(
     path.join(__dirname, '..', 'src/api/query-modules/commitments.ts'), 'utf-8',
 );
 const INSIGHTS_SCREEN_SRC = fs.readFileSync(
-    path.join(__dirname, '..', 'src/screens/InsightsScreen.tsx'), 'utf-8',
+    path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8',
 );
 
 describe('proposer ve "Retirar propuesta"', () => {

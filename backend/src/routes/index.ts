@@ -8,7 +8,6 @@ import * as conversationController from '../controllers/conversation.controller'
 import * as userController from '../controllers/user.controller';
 import * as groupController from '../controllers/group.controller';
 import * as aiController from '../controllers/ai.controller';
-import * as insightsController from '../controllers/insights.controller';
 import * as calendarController from '../controllers/calendar.controller';
 import * as agoraController from '../controllers/agora.controller';
 import * as operationController from '../controllers/operation.controller';
@@ -217,8 +216,6 @@ router.patch('/groups/:id/participants/:userId/role', requireAuth, validateReque
 router.delete('/groups/:id', requireAuth, validateRequest(groupSchema.deleteGroupSchema), groupController.deleteGroup);
 
 // Legacy self-chat message routes (kept for backward compatibility)
-router.post('/messages', requireAuth, validateRequest(messageSchema.createLegacyMessageSchema), messageController.createMessage);
-router.get('/messages', requireAuth, messageController.getMessages);
 router.patch('/messages/:id/status', requireAuth, messageController.updateMessageStatus);
 router.delete('/messages/:id', requireAuth, messageController.deleteMessage);
 
@@ -248,7 +245,6 @@ router.post('/commitments/:id/cancel', requireAuth, validateRequest(commitmentSc
 router.post('/commitments/:id/reopen', requireAuth, commitmentController.reopenCommitment);
 router.post('/commitments/:id/reassign', requireAuth, validateRequest(commitmentSchema.reassignCommitmentSchema), commitmentController.reassignCommitment);
 router.post('/commitments/:id/follow-up', requireAuth, validateRequest(commitmentSchema.scheduleFollowUpSchema), commitmentController.scheduleFollowUp);
-router.post('/commitments/:id/ping', requireAuth, commitmentController.pingCommitment);
 router.post('/commitments/:id/operation-action', requireAuth, operationEnabled, validateRequest(operationSchema.commitmentOperationActionSchema), operationController.registerCommitmentOperationAction);
 router.patch('/commitments/:id', requireAuth, validateRequest(commitmentSchema.updateCommitmentSchema), commitmentController.updateCommitment);
 router.delete('/commitments/:id', requireAuth, commitmentController.deleteCommitment);
@@ -326,12 +322,7 @@ router.post(
 );
 
 // AI (legacy — coexiste con el asistente de /agent/turn)
-router.get('/ai/health', requireAuth, aiController.getHealth);
-router.post('/ai/ask', requireAuth, aiController.askPing);
-router.get('/ai/history', requireAuth, aiController.getHistory);
-router.delete('/ai/history', requireAuth, aiController.clearHistory);
 router.post('/ai/summarize', requireAuth, aiController.summarize);
-router.post('/ai/analyze-message/:id', requireAuth, aiController.analyzeMessage);
 
 // Ping Agent (M-1F) — read-only orchestrator sobre M-1B/M-1C/M-1D/M-1D.1/M-1E.
 // Rate limit propio (más estricto que el global de app.ts) porque cada
@@ -393,7 +384,6 @@ router.post(
 );
 
 // Insights
-router.get('/insights', requireAuth, insightsController.getInsights);
 
 // Cloud Calendar OAuth & Sync
 router.get('/calendar/auth/outlook/link', requireAuth, calendarEnabled, calendarController.getMsAuthLink);

@@ -137,9 +137,8 @@ describe('C-1 vertical canonical Commitment flow', () => {
         const messageWrite = mock.getRpcCalls().find((call) => call.name === 'persist_message_with_attachment');
         const originalInsert = { content: messageWrite?.args.p_content, metadata: messageWrite?.args.p_metadata };
         expect(originalInsert.content).toBe('Mañana a las 12 enviar el informe');
-        expect(originalInsert.metadata.suggestedTask).toEqual(expect.objectContaining({
-            replyText: 'Agendar',
-        }));
+        // The suggestion arrives later from the AI, never with the insert.
+        expect(originalInsert.metadata.suggestedTask).toBeUndefined();
         expect(messageResult.message.text).toBe('Mañana a las 12 enviar el informe');
 
         const commitment = await core.createConfirmedCommitment(USER, {
@@ -176,7 +175,6 @@ describe('C-1 vertical canonical Commitment flow', () => {
         expect(rpcCalls.map((call) => call.name)).toEqual([
             'create_conversation_with_participants',
             'persist_message_with_attachment',
-            'merge_message_suggested_task',
             'create_commitment_proposal_with_evidence',
             'confirm_commitment_proposal',
             'insert_memory_record_with_evidence_atomic',
@@ -186,18 +184,18 @@ describe('C-1 vertical canonical Commitment flow', () => {
             'apply_commitment_transition_with_evidence',
             'insert_memory_record_with_evidence_atomic',
         ]);
-        expect(rpcCalls[3].args.p_proposal).toEqual(expect.objectContaining({
+        expect(rpcCalls[2].args.p_proposal).toEqual(expect.objectContaining({
             conversation_id: CONVERSATION,
             source_message_id: MESSAGE,
             source_kind: 'ai_suggestion',
         }));
-        expect(rpcCalls[7].args).toEqual(expect.objectContaining({
+        expect(rpcCalls[6].args).toEqual(expect.objectContaining({
             p_event_type: 'follow_up_scheduled',
             p_patch: expect.objectContaining({
                 follow_up_at: '2026-08-30T15:00:00.000Z',
             }),
         }));
-        expect(rpcCalls[9].args).toEqual(expect.objectContaining({
+        expect(rpcCalls[8].args).toEqual(expect.objectContaining({
             p_event_type: 'resolved',
             p_patch: expect.objectContaining({
                 status: 'resolved',

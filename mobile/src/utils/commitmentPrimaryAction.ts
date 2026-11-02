@@ -82,7 +82,10 @@ export function isActorRelevantCommitmentItem(
         return getProposalParticipationState(item, actorUserId).actorRole !== 'none';
     }
     const isAssignedToMe = item.assigned_to_user_id === actorUserId || !item.assigned_to_user_id;
-    const isDelegatedByMe = item.owner_user_id === actorUserId && item.assigned_to_user_id !== actorUserId;
+    // Unassigned is not delegated: the owner of a commitment nobody else
+    // holds still owes it (same rule the server uses for the morning summary).
+    const isDelegatedByMe = item.owner_user_id === actorUserId
+        && !!item.assigned_to_user_id && item.assigned_to_user_id !== actorUserId;
     if (isAssignedToMe && !isDelegatedByMe) return true;
 
     // POST-MATERIALIZATION VISIBILITY (hallazgo real, probado contra

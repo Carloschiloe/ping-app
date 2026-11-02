@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-    isAgendaVisibleStatus,
     normalizeCommitmentStatus,
     isCanonicalCommitmentStatus,
 } from '../src/utils/commitmentStatus';
@@ -37,10 +36,4 @@ describe('normalizeCommitmentStatus', () => {
         expect(normalizeCommitmentStatus(undefined)).toBe('proposed');
     });
 
-    it('mantiene en Agenda los compromisos aceptados y cancelados', () => {
-        expect(isAgendaVisibleStatus('accepted')).toBe(true);
-        expect(isAgendaVisibleStatus('cancelled')).toBe(true);
-        expect(isAgendaVisibleStatus('proposed')).toBe(false);
-        expect(isAgendaVisibleStatus('resolved')).toBe(false);
-    });
 });

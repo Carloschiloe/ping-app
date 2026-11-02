@@ -62,6 +62,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     // asumir un número fijo compartido con otra pantalla.
     const [headerHeight, setHeaderHeight] = useState(0);
     const listRef = useRef<FlatList>(null);
+    const inputRef = useRef<TextInput>(null);
     const isMountedRef = useRef(true);
     const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const sendInFlightRef = useRef(false);
@@ -126,6 +127,17 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         onTranscriptReady: handleTranscriptReady,
         onFailure: handleVoiceFailure,
     });
+
+    // draftAt changes on every request, so tapping "+" again refills the
+    // composer even when the screen is still mounted.
+    const draftParam = route.params?.draft;
+    const draftAt = route.params?.draftAt;
+    useEffect(() => {
+        if (!draftParam) return;
+        setInputText(draftParam);
+        const timer = setTimeout(() => inputRef.current?.focus(), 300);
+        return () => clearTimeout(timer);
+    }, [draftParam, draftAt]);
 
     useEffect(() => {
         isMountedRef.current = true;
@@ -494,6 +506,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 ) : (
                     <View style={styles.inputContainer}>
                         <TextInput
+                            ref={inputRef}
                             style={styles.input}
                             placeholder="Escribe tu pregunta…"
                             placeholderTextColor={theme.colors.text.muted}

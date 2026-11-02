@@ -223,16 +223,6 @@ export const useConversationMessages = (conversationId: string, scrollToMessageI
     });
 };
 
-export const useConversationMedia = (conversationId: string) => {
-    return useQuery({
-        queryKey: ['conversation-media', conversationId],
-        queryFn: async () => {
-            const res = await apiClient.get(`/conversations/${conversationId}/media`);
-            return res.messages || [];
-        },
-        enabled: !!conversationId,
-    });
-};
 
 export const useSharedContentSummary = (conversationId: string) => useQuery({
     queryKey: ['shared-content', conversationId, 'summary'],
@@ -395,11 +385,6 @@ export const useMarkConversationAsUnread = () => {
     });
 };
 
-export const usePingConversation = () => {
-    return useMutation({
-        mutationFn: async (id: string) => apiClient.post(`/conversations/${id}/ping`, {}),
-    });
-};
 
 export const useToggleArchive = () => {
     const queryClient = useQueryClient();

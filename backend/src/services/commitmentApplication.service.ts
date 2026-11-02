@@ -37,7 +37,6 @@ export const getArchivedCommitments = commitmentLifecycle.getArchivedCommitments
 export const postponeCommitment = commitmentLifecycle.counterProposeCommitment;
 
 export const getCommitments = commitmentLifecycle.getCommitments;
-export const pingCommitment = commitmentLifecycle.pingCommitment;
 export const checkConflict = commitmentLifecycle.checkConflict;
 
 const EDIT_FIELDS = [

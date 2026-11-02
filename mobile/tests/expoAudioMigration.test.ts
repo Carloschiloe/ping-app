@@ -143,17 +143,10 @@ describe('AudioPlayer replay behavior', () => {
     });
 });
 
-describe('SDK57 hotfix: permisos de micrófono migrados en CallScreen y PingAIScreen', () => {
+describe('SDK57 hotfix: permisos de micrófono migrados en CallScreen', () => {
     it('CallScreen ya no importa Audio de expo-av', () => {
         const src = readSrc('src/screens/CallScreen.tsx');
         expect(src).not.toMatch(/from ['"]expo-av['"]/);
-        expect(src).toContain('requestRecordingPermissionsAsync');
-    });
-
-    it('PingAIScreen ya no importa Audio de expo-av y usa el hook de expo-audio', () => {
-        const src = readSrc('src/screens/PingAIScreen.tsx');
-        expect(src).not.toMatch(/from ['"]expo-av['"]/);
-        expect(src).toContain('useAudioRecorder(RecordingPresets.HIGH_QUALITY)');
         expect(src).toContain('requestRecordingPermissionsAsync');
     });
 });

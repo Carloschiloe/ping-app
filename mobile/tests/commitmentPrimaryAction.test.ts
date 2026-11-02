@@ -138,24 +138,25 @@ describe('M-1H v5: CommitmentDetailSheet — nunca ofrece Completar/Archivar/Rep
     });
 
     it('InsightsScreen.tsx conecta onConfirmRequest={handleRequestConfirm} (mismo modal, nunca un flujo nuevo)', () => {
-        const screenSrc = fs.readFileSync(path.join(__dirname, '..', 'src/screens/InsightsScreen.tsx'), 'utf-8');
+        const screenSrc = fs.readFileSync(path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8');
         expect(screenSrc).toMatch(/onConfirmRequest=\{handleRequestConfirm\}/);
     });
 });
 
-describe('M-1H v5: InsightsScreen "Por confirmar" — proposals nunca se clasifican junto a Vencidos/Hoy/etc. (sección 8/27 del ticket)', async () => {
+describe('M-1H v5: Hoy "Por confirmar" — proposals nunca se clasifican junto a Vencidos/Hoy/etc. (sección 8/27 del ticket)', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/InsightsScreen.tsx'), 'utf-8');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8');
 
-    it('separa "porConfirmar" (proposals no rechazadas) de "regularCommitments" ANTES de clasificar por fecha', () => {
-        expect(src).toMatch(/const porConfirmar = list\.filter\(\(c: any\) => c\._isAgreementProposal === true/);
-        expect(src).toMatch(/const regularCommitments = list\.filter/);
-        expect(src).toMatch(/regularCommitments\.forEach/);
+    it('separa las proposals ANTES de clasificar por fecha', () => {
+        const proposalIdx = src.search(/c\._isAgreementProposal === true\) \{\s*porConfirmar\.push\(c\);\s*return;/);
+        const overdueIdx = src.indexOf('overdue.push(c)');
+        expect(proposalIdx).toBeGreaterThan(-1);
+        expect(proposalIdx).toBeLessThan(overdueIdx);
     });
 
-    it('agrega la sección "📝 Por confirmar" como parte de las secciones reales de Mis Compromisos', () => {
-        expect(src).toMatch(/title: '📝 Por confirmar', data: porConfirmarOrdenado/);
+    it('agrega la sección "Por confirmar" como parte de las secciones reales de Yo debo', () => {
+        expect(src).toMatch(/title: 'Por confirmar', data: porConfirmar/);
     });
 
     it('dentro de "Por confirmar", lo accionable (Pendiente de tu respuesta) se ordena antes que lo que sólo espera a otra persona', () => {
@@ -210,6 +211,11 @@ describe('PARTICIPANT VISIBILITY: isActorRelevantCommitmentItem (canonical cross
         expect(isActorRelevantCommitmentItem(everyone, ALEJANDRA)).toBe(true);
     });
 
+    it('un commitment propio sin nadie asignado sigue siendo "mío" (no está delegado)', () => {
+        const own = { _isAgreementProposal: false, owner_user_id: CARLOS, assigned_to_user_id: null };
+        expect(isActorRelevantCommitmentItem(own, CARLOS)).toBe(true);
+    });
+
     it('REGRESIÓN: un commitment plano delegado por mí a otra persona nunca es "mío" (isDelegatedByMe)', () => {
         const delegated = { _isAgreementProposal: false, owner_user_id: CARLOS, assigned_to_user_id: ALEJANDRA };
         expect(isActorRelevantCommitmentItem(delegated, CARLOS)).toBe(false);
@@ -220,24 +226,20 @@ describe('PARTICIPANT VISIBILITY: wiring real en las pantallas (sección 7/8/9 d
     const fs = await import('node:fs');
     const path = await import('node:path');
 
-    it('InsightsScreen.tsx "Pendientes" usa isActorRelevantCommitmentItem (nunca un filter() ad hoc de asignación única para proposals)', () => {
-        const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/InsightsScreen.tsx'), 'utf-8');
-        expect(src).toMatch(/return isActorRelevantCommitmentItem\(c, user\?\.id\)/);
+    it('HoyScreen.tsx "Yo debo" usa isActorRelevantCommitmentItem (nunca un filter() ad hoc de asignación única para proposals)', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8');
+        expect(src).toMatch(/if \(!isActorRelevantCommitmentItem\(c, user\?\.id\)\) return;/);
     });
 
     it('TaskDashboardScreen.tsx "Hoy" (myItems) usa isActorRelevantCommitmentItem -- mismo cálculo que Compromisos, nunca dos universos incompatibles', () => {
-        const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/TaskDashboardScreen.tsx'), 'utf-8');
+        const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8');
         expect(src).toMatch(/isActorRelevantCommitmentItem\(c, user\?\.id\)/);
     });
 
-    it('TaskDashboardScreen.tsx: el header count ("N para hoy") y el chequeo de agenda vacía se derivan del MISMO dataset que se renderiza (myItems+delegatedItems), nunca de todayItems pre-división -- cierra la contradicción "1 para hoy" con agenda vacía', () => {
-        const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/TaskDashboardScreen.tsx'), 'utf-8');
-        expect(src).toMatch(/const visibleTodayCount = myItems\.length \+ delegatedItems\.length/);
-        expect(src).toMatch(/totalToday=\{visibleTodayCount\}/);
-        expect(src).toMatch(/\{visibleTodayCount === 0 \? \(/);
-        // nunca vuelve a usar todayItems.length directamente para el conteo/empty-check
-        expect(src).not.toMatch(/totalToday=\{todayItems\.length\}/);
-        expect(src).not.toMatch(/\{todayItems\.length === 0 \? \(/);
+    it('HoyScreen.tsx: el conteo de "Yo debo" y el día libre salen de las MISMAS listas que se muestran', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8');
+        expect(src).toMatch(/const pendingCount = porConfirmar\.length \+ overdue\.length \+ hoy\.length \+ manana\.length \+ semana\.length \+ adelante\.length \+ sinFecha\.length/);
+        expect(src).toMatch(/dayIsFree: porConfirmar\.length \+ overdue\.length \+ hoy\.length === 0/);
     });
 });
 

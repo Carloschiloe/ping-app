@@ -10,9 +10,6 @@ import path from 'node:path';
 const COMMITMENT_ROW_SRC = fs.readFileSync(
     path.join(__dirname, '..', 'src/components/compromisos/CommitmentRow.tsx'), 'utf-8',
 );
-const TODAY_ITEM_ROW_SRC = fs.readFileSync(
-    path.join(__dirname, '..', 'src/components/hoy/TodayItemRow.tsx'), 'utf-8',
-);
 const GROUP_TASK_CARD_SRC = fs.readFileSync(
     path.join(__dirname, '..', 'src/components/GroupTaskCard.tsx'), 'utf-8',
 );
@@ -22,17 +19,10 @@ describe('sección 19: ambas filas usan el MISMO helper canónico, nunca un role
         expect(COMMITMENT_ROW_SRC).toMatch(/import \{ getActorPresentation \} from '\.\.\/\.\.\/utils\/actorPresentation'/);
         expect(COMMITMENT_ROW_SRC).toMatch(/const presentation = getActorPresentation\(/);
     });
-    it('TodayItemRow.tsx importa y usa getActorPresentation', () => {
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/import \{ getActorPresentation \} from '\.\.\/\.\.\/utils\/actorPresentation'/);
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/const presentation = getActorPresentation\(c, currentUserId\);/);
-    });
     it('el "← Carlos"/"→ Alejandra" arrow-glyph hardcodeado ya NO existe en CommitmentRow.tsx (sección 13: ambigüedad real reportada)', () => {
         expect(COMMITMENT_ROW_SRC).not.toMatch(/const roleLabel = \(\)/);
         expect(COMMITMENT_ROW_SRC).not.toContain('`← ${');
         expect(COMMITMENT_ROW_SRC).not.toContain('`→ ${');
-    });
-    it('el rowLabel() genérico ("Mía"/"Encargada") ya NO existe en TodayItemRow.tsx', () => {
-        expect(TODAY_ITEM_ROW_SRC).not.toMatch(/const rowLabel = /);
     });
     it('GroupTaskCard.tsx reutiliza getProposalActorPresentation para el copy de la card de chat, nunca una redacción propia de "Te corresponde responder"', () => {
         expect(GROUP_TASK_CARD_SRC).toMatch(/import \{ getProposalActorPresentation \} from '\.\.\/utils\/actorPresentation'/);
@@ -45,21 +35,14 @@ describe('sección 9: título nunca comparte línea con un person-chip ni con el
     it('CommitmentRow.tsx: titleRow sólo contiene el título y el botón "..." -- el labelChip/badge de rol ya no existe como estilo ni como uso real (sólo puede quedar mencionado en un comentario explicativo)', () => {
         expect(COMMITMENT_ROW_SRC).not.toMatch(/styles\.labelChip|labelChip:\s*\{/);
     });
-    it('TodayItemRow.tsx: mismo patrón -- labelChip eliminado como estilo/uso real', () => {
-        expect(TODAY_ITEM_ROW_SRC).not.toMatch(/styles\.labelChip|labelChip:\s*\{/);
-    });
     it('ambas filas tienen una metaLine y una statusLine propias, fuera de titleRow', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/styles\.metaLine/);
         expect(COMMITMENT_ROW_SRC).toMatch(/styles\.statusLine/);
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/styles\.metaLine/);
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/styles\.statusLine/);
     });
     it('el botón/badge primario ya no vive en la misma fila horizontal que el título -- actionsRow es un bloque aparte, debajo', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/styles\.actionsRow/);
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/styles\.actionsRow/);
         // El viejo "actions" (título + botón en la misma fila horizontal) ya no existe como contenedor de renderPrimaryAction junto al título.
         expect(COMMITMENT_ROW_SRC).not.toMatch(/<View style=\{styles\.actions\}>/);
-        expect(TODAY_ITEM_ROW_SRC).not.toMatch(/<View style=\{styles\.actions\}>/);
     });
 });
 
@@ -68,17 +51,7 @@ describe('sección 17: menú de overflow Android usa Modal real (mismo primitivo
         expect(COMMITMENT_ROW_SRC).toMatch(/<Modal visible=\{Platform\.OS !== 'ios' && menuVisible\}/);
         expect(COMMITMENT_ROW_SRC).not.toMatch(/position: 'absolute',\s*right: 16,\s*top: 36/);
     });
-    it('TodayItemRow.tsx usa <Modal visible={menuVisible}>', () => {
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/<Modal visible=\{menuVisible\}/);
-        expect(TODAY_ITEM_ROW_SRC).not.toMatch(/position: 'absolute',\s*right: 0,\s*top: 32/);
-    });
-    it('TodayItemRow.tsx navega al chat anidado mediante el tab Chats', () => {
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/navigation\.navigate\('Chats',\s*\{\s*screen:\s*'Chat'/s);
-        expect(TODAY_ITEM_ROW_SRC).not.toMatch(/navigation\.navigate\('Chat'\s+as\s+any/);
-    });
-    it('ambos menús preservan exactamente las mismas acciones (sección 17: "Do NOT redesign navigation")', () => {
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/Ver conversación/);
-        expect(TODAY_ITEM_ROW_SRC).toMatch(/Ver en Compromisos/);
+    it('el menú preserva las mismas acciones (sección 17: "Do NOT redesign navigation")', () => {
         expect(COMMITMENT_ROW_SRC).toMatch(/Ver detalle/);
         expect(COMMITMENT_ROW_SRC).toMatch(/Ver conversación/);
     });
@@ -97,7 +70,7 @@ describe('sección 15: GroupTaskCard.tsx nunca elipsa Responsable/Propone a 1 l�
 
 describe('sección 18: exactamente cuatro tabs, nunca modificado (Chats | Hoy | Compromisos | Perfil)', () => {
     it('ninguno de los archivos tocados en este ticket declara una nueva screen/tab', () => {
-        for (const src of [COMMITMENT_ROW_SRC, TODAY_ITEM_ROW_SRC, GROUP_TASK_CARD_SRC]) {
+        for (const src of [COMMITMENT_ROW_SRC, GROUP_TASK_CARD_SRC]) {
             expect(src).not.toMatch(/createBottomTabNavigator|Tab\.Screen/);
         }
     });

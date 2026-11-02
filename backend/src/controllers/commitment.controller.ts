@@ -379,19 +379,6 @@ export const getArchivedCommitments = async (req: Request, res: Response): Promi
     }
 };
 
-export const pingCommitment = async (req: Request, res: Response): Promise<void> => {
-    try {
-        if (!req.user || !req.user.id) {
-            res.status(401).json({ error: 'Unauthorized' });
-            return;
-        }
-        const data = await commitmentService.pingCommitment(req.user.id, req.params.id as string);
-        res.status(200).json(data);
-    } catch (error: any) {
-        handleError(res, 'pingCommitment', error);
-    }
-};
-
 export const checkConflict = async (req: Request, res: Response): Promise<void> => {
     try {
         if (!req.user || !req.user.id) {

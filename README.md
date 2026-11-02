@@ -29,7 +29,7 @@ Ping is a personal assistant built around real messaging, commitments, people an
 
 - `backend/src/` — Express API, Core services, assistant, authorization, workers.
 - `backend/tests/` — Vitest suites; `backend/scripts/` — PostgreSQL integration runners (`npm run test:*:postgres`).
-- `mobile/src/` — Expo / React Native screens, API modules, hooks. Tabs: Chats, Tablero, Insights, Perfil.
+- `mobile/src/` — Expo / React Native screens, API modules, hooks. Tabs: Chats, Hoy (the day and every commitment: what I owe and what others owe me), Perfil.
 - `mobile/tests/` — mobile contract and state tests.
 - `supabase/migrations/` — the database's source of truth.
 - `docs/` — vision, current designs and production runbooks ([`docs/runbooks/PRUEBAS-EN-PRODUCCION.md`](docs/runbooks/PRUEBAS-EN-PRODUCCION.md)).

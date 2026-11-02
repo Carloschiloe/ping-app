@@ -136,8 +136,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
 
     if (!suggestionData) return null;
 
-    const isMeetingRaw = suggestionData.type === 'meeting';
-    const isMeeting = isMeetingRaw || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(suggestionData.title || '');
+    const isMeeting = suggestionData.type === 'meeting';
     const typeLabel = isMeeting ? 'REUNIÓN' : 'TAREA';
 
     const currentAssignee = groupParticipants.find(p => p.id === suggestionData.assignedToUserId);
