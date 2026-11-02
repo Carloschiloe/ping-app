@@ -157,14 +157,14 @@ describe('M-1H v2: paridad con GroupTaskCard.tsx (proposals compartidas siguen u
 // función real, ver describe "M-1H v4: performCommitmentConfirm" más abajo).
 describe('M-1H v4: InsightsScreen.tsx / TaskDashboardScreen.tsx usan performCommitmentConfirm (único punto de ejecución), no un branch inline reinventado', () => {
     it('InsightsScreen.tsx importa y usa performCommitmentConfirm + useConfirmCommitmentProposal', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/performCommitmentConfirm/);
         expect(src).toMatch(/useConfirmCommitmentProposal/);
         expect(src).toMatch(/\{ acceptCommitment, respondToProposal, confirmProposal \}/);
     });
 
     it('TaskDashboardScreen.tsx importa y usa performCommitmentConfirm + useConfirmCommitmentProposal', () => {
-        const src = readSrc('src/screens/TaskDashboardScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/performCommitmentConfirm/);
         expect(src).toMatch(/useConfirmCommitmentProposal/);
         expect(src).toMatch(/\{ acceptCommitment, respondToProposal, confirmProposal \}/);
@@ -180,7 +180,7 @@ describe('M-1H v2: CommitmentRow.tsx / TodayItemRow.tsx — onConfirm sigue reci
     });
 
     it('TodayItemRow: onConfirm tipa el commitment completo y despacha con el objeto, nunca sólo el id', () => {
-        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
         expect(src).toMatch(/onConfirm:\s*\(commitment:\s*any\)\s*=>\s*void/);
         expect(src).toMatch(/onPress=\{\(\)\s*=>\s*onConfirm\(c\)\}/);
         expect(src).not.toMatch(/onConfirm\(c\.id\)/);
@@ -257,7 +257,7 @@ describe('M-1H v4: performCommitmentConfirm — única ejecución real, inyectan
 
 describe('M-1H v4: tap primario de la fila NUNCA ejecuta la escritura -- sólo abre el modal (sección 4 del ticket)', () => {
     it('InsightsScreen.tsx: onConfirm apunta a handleRequestConfirm (abre modal), no a una ejecución directa', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/onConfirm=\{handleRequestConfirm\}/);
         expect(src).not.toMatch(/onConfirm=\{handleConfirm\}/);
         // handleRequestConfirm sólo debe fijar estado, nunca llamar a performCommitmentConfirm directamente.
@@ -267,7 +267,7 @@ describe('M-1H v4: tap primario de la fila NUNCA ejecuta la escritura -- sólo a
     });
 
     it('TaskDashboardScreen.tsx: onConfirm apunta a handleRequestConfirm (abre modal), no a una ejecución directa', () => {
-        const src = readSrc('src/screens/TaskDashboardScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/onConfirm=\{handleRequestConfirm\}/);
         expect(src).not.toMatch(/onConfirm=\{handleConfirm\}/);
         const handleRequestConfirmBody = src.match(/const handleRequestConfirm = useCallback\(\(commitment: any\) => \{([\s\S]*?)\}, \[\]\);/);
@@ -276,7 +276,7 @@ describe('M-1H v4: tap primario de la fila NUNCA ejecuta la escritura -- sólo a
     });
 
     it('ambas pantallas llaman performCommitmentConfirm ÚNICAMENTE dentro de handleConfirmSubmit (invocado por el modal, nunca por el tap primario)', () => {
-        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+        for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
             const occurrences = src.match(/performCommitmentConfirm\(/g) || [];
             // Una vez en el import (comentario/nombre no cuenta), una vez en la llamada real dentro de handleConfirmSubmit.
@@ -293,7 +293,7 @@ describe('M-1H v4: semántica de producto -- Confirmar (proposal->accepted) y Li
     });
 
     it('InsightsScreen/TaskDashboardScreen: handleMarkDone usa useResolveCommitment, un hook y endpoint totalmente distinto de performCommitmentConfirm', () => {
-        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+        for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
             expect(src).toMatch(/const handleMarkDone = useCallback\(\(id: string\) => \{\s*resolveCommitment\(/);
         }
@@ -331,21 +331,21 @@ describe('M-1H v4: ConfirmCommitmentModal — modal obligatorio, loading state, 
 
 describe('M-1H v4: feedback de éxito/error siempre visible (secciones 6-7 del ticket)', () => {
     it('ambas pantallas muestran un Alert de éxito visible tras confirmar, nunca un cierre silencioso', () => {
-        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+        for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
             expect(src).toMatch(/Alert\.alert\('Compromiso confirmado'/);
         }
     });
 
     it('ambas pantallas muestran un Alert de error claro si la confirmación falla, nunca un catch vacío', () => {
-        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+        for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
             expect(src).toMatch(/Alert\.alert\('No se pudo confirmar el compromiso'/);
         }
     });
 
     it('el modal permanece abierto en caso de error (setConfirmItem(null) sólo ocurre en el camino de éxito) -- permite reintentar sin re-tocar Confirmar en la fila', () => {
-        for (const relPath of ['src/screens/InsightsScreen.tsx', 'src/screens/TaskDashboardScreen.tsx']) {
+        for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
             const submitBody = src.match(/const handleConfirmSubmit = useCallback\(async \(\) => \{([\s\S]*?)\n    \}, \[/);
             expect(submitBody).not.toBeNull();
@@ -372,14 +372,14 @@ describe('M-1H v5: CommitmentRow.tsx / TodayItemRow.tsx usan getCommitmentPrimar
     });
 
     it('TodayItemRow.tsx importa y usa getCommitmentPrimaryAction, no una comparación de status inline para decidir Confirmar/Listo', () => {
-        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
         expect(src).toMatch(/getCommitmentPrimaryAction/);
         expect(src).not.toMatch(/if \(status === 'proposed'\)/);
         expect(src).not.toMatch(/if \(status === 'accepted'\)/);
     });
 
     it('ambos muestran una etiqueta "Esperando" (nunca Confirmar/Completar) cuando primaryAction==="waiting" -- ahora vía getActorPresentation (COMMITMENT UX + ACTOR-AWARE SUGGESTIONS, sección 19), que internamente reutiliza getProposalWaitingLabel', () => {
-        for (const relPath of ['src/components/compromisos/CommitmentRow.tsx', 'src/components/hoy/TodayItemRow.tsx']) {
+        for (const relPath of ['src/components/compromisos/CommitmentRow.tsx', 'src/components/compromisos/CommitmentRow.tsx']) {
             const src = readSrc(relPath);
             expect(src).toMatch(/primaryAction === 'waiting'/);
             expect(src).toMatch(/getActorPresentation/);
@@ -476,12 +476,6 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
         expect(src).toMatch(/onCancel && !isFinished && !isProposal/);
     });
 
-    it('TodayItemRow.tsx: mismo patrón (canRespondToProposal), mismas 2 opciones condicionadas', () => {
-        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
-        expect(src).toMatch(/canRespondToProposal = c\._isAgreementProposal === true && primaryAction === 'accept'/);
-        expect(src).toMatch(/canRespondToProposal && onOpenReschedule \? 'Proponer otra fecha' : null/);
-        expect(src).toMatch(/canRespondToProposal && onReject \? 'Rechazar propuesta' : null/);
-    });
 
     // PING — ACTIONSHEET DISMISS SEMANTICS FIX: mismo criterio que
     // CommitmentRow.tsx -- el dismiss de índice 0 de este menú (compartido
@@ -490,7 +484,7 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
     // "cancelar compromiso" en otras superficies de este mismo menú
     // conceptual, incluso si esta fila en particular no la ofrece.
     it('TodayItemRow.tsx: el dismiss de índice 0 dice "Cerrar" (iOS ActionSheet y Modal Android), nunca "Cancelar"', () => {
-        const src = readSrc('src/components/hoy/TodayItemRow.tsx');
+        const src = readSrc('src/components/compromisos/CommitmentRow.tsx');
         const optionsBlockMatch = src.match(/const options = \[([\s\S]*?)\]\.filter\(Boolean\)/);
         expect(optionsBlockMatch).not.toBeNull();
         const firstEntry = optionsBlockMatch![1].trim().split('\n')[0].trim();
@@ -499,20 +493,20 @@ describe('M-1H v6: UI wiring — "Proponer otra fecha"/"Rechazar propuesta" reut
     });
 
     it('InsightsScreen.tsx: handleSaveDate distingue proposal (counter_propose) de commitment canónico (updateCommitment) -- nunca PATCH /commitments/:id con un proposal_id', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/if \(rescheduleItem\?\.\_isAgreementProposal\)/);
         expect(src).toMatch(/decision: 'counter_propose', proposedDueAt: newDateIso/);
         expect(src).toMatch(/await updateCommitment\(\{ id, data: \{ due_at: newDateIso \} \}\)/);
     });
 
     it('InsightsScreen.tsx: handleRejectProposal pide confirmación nativa "¿Rechazar propuesta?" antes de ejecutar el write', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/'¿Rechazar propuesta\?'/);
         expect(src).toMatch(/decision: 'reject'/);
     });
 
     it('TaskDashboardScreen.tsx (Hoy): mismo patrón -- RescheduleModal + handleSaveDate + handleRejectProposal, mismo flujo real', () => {
-        const src = readSrc('src/screens/TaskDashboardScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/<RescheduleModal/);
         expect(src).toMatch(/if \(rescheduleItem\?\.\_isAgreementProposal\)/);
         expect(src).toMatch(/'¿Rechazar propuesta\?'/);
@@ -641,7 +635,7 @@ describe('M-1H v6: paridad UI-Agent — Conversation card (GroupTaskCard.tsx, me
 // exact screen the physical certification showed with no archive option).
 describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires the real useArchiveCommitment hook to both CommitmentRow.tsx and CommitmentDetailSheet.tsx', () => {
     it('InsightsScreen.tsx imports useArchiveCommitment (never the stale useDeleteCommitment name) and defines handleArchive calling it with the plain id', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/useArchiveCommitment/);
         expect(src).not.toMatch(/useDeleteCommitment/);
         expect(src).toMatch(/const \{ mutateAsync: archiveCommitment \} = useArchiveCommitment\(\);/);
@@ -652,7 +646,7 @@ describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires t
     });
 
     it('InsightsScreen.tsx passes onArchive={handleArchive} to CommitmentRow (the row menu) AND to CommitmentDetailSheet (the detail footer) -- both surfaces the physical certification showed with no archive option', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         const commitmentRowBlock = src.slice(src.indexOf('<CommitmentRow'), src.indexOf('<CommitmentRow') + 900);
         expect(commitmentRowBlock).toMatch(/onArchive=\{handleArchive\}/);
         const detailSheetBlock = src.slice(src.indexOf('<CommitmentDetailSheet'), src.indexOf('<CommitmentDetailSheet') + 700);
@@ -660,7 +654,7 @@ describe('PING — ARCHIVE UX AUDIT + IMPLEMENTATION: InsightsScreen.tsx wires t
     });
 
     it('handleArchive is a distinct callback from handleCancel -- two separate useCallback hooks, never the same function reused for both props', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/const handleCancel = useCallback\(async \(id: string\) => \{\s*try \{\s*await cancelCommitment\(\{ id \}\);/);
         expect(src).toMatch(/const handleArchive = useCallback\(async \(id: string\) => \{\s*try \{\s*await archiveCommitment\(id\);/);
     });
@@ -725,7 +719,7 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
     });
 
     it('InsightsScreen.tsx imports useArchivedCommitments/useRestoreCommitment, defines handleRestore calling restoreCommitment(id), distinct from handleArchive', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).toMatch(/useArchivedCommitments, useRestoreCommitment/);
         expect(src).toMatch(/const \{ mutateAsync: restoreCommitment \} = useRestoreCommitment\(\);/);
         // PING — RESTORE PHYSICAL FAILURE FIX: async + try/catch, see the
@@ -734,39 +728,34 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
     });
 
     it('InsightsScreen.tsx passes onRestore={handleRestore} to CommitmentRow AND CommitmentDetailSheet (both surfaces get the same symmetric restore path as archive)', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         const commitmentRowBlock = src.slice(src.indexOf('<CommitmentRow'), src.indexOf('<CommitmentRow') + 1000);
         expect(commitmentRowBlock).toMatch(/onRestore=\{handleRestore\}/);
         const detailSheetBlock = src.slice(src.indexOf('<CommitmentDetailSheet'), src.indexOf('<CommitmentDetailSheet') + 800);
         expect(detailSheetBlock).toMatch(/onRestore=\{handleRestore\}/);
     });
 
-    it('InsightsScreen.tsx MainSegment type includes "archivados" and the segment/currentSegmentData wiring reads it -- no fifth main tab is introduced, this reuses the same SectionList/segment state machine', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
-        expect(src).toMatch(/type MainSegment = 'pendientes' \| 'encargados' \| 'historial' \| 'archivados';/);
-        expect(src).toMatch(/if \(segment === 'archivados'\) return archivadosData;/);
+    it('Hoy keeps Historial and Archivados as views of the same list -- never a new tab', () => {
+        const src = readSrc('src/screens/HoyScreen.tsx');
+        expect(src).toMatch(/type HoyView = 'mine' \| 'theirs' \| 'historial' \| 'archivados';/);
+        expect(src).toMatch(/: archivadosData\.sections;/);
     });
 
-    it('the Archivados entry point lives inside the existing filter drawer (setFilterDrawerVisible), never as a fifth visible segment button next to Pendientes/Encargados/Historial', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
-        // Exactly 3 segment buttons remain wired to setSegment with a
-        // literal segment name inside the segmented control section --
-        // "archivados" must not be one of the visible segment buttons.
-        const segmentControlBlock = src.slice(src.indexOf('Segmented Control'), src.indexOf('SECTION LIST DATA'));
-        expect(segmentControlBlock).not.toMatch(/setSegment\('archivados'\)/);
-        expect(src).toMatch(/onPress=\{\(\) => \{\s*setSegment\('archivados'\);\s*setFilterDrawerVisible\(false\);\s*\}\}/);
+    it('the Archivados entry point lives inside the filter sheet, never as a visible segment button', () => {
+        const src = readSrc('src/screens/HoyScreen.tsx');
+        const segmentBlock = src.slice(src.indexOf("['mine', 'Yo debo'"), src.indexOf('<SectionList'));
+        expect(segmentBlock).not.toContain('archivados');
+        expect(src).toMatch(/onPress=\{\(\) => \{ setView\('archivados'\); setFilterDrawerVisible\(false\);/);
     });
 
-    it('archivadosData groups by REAL canonical status (Activos/Resueltos/Cancelados/Rechazados), never presenting "archivado" itself as a lifecycle status', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
-        const archivadosBlock = src.slice(src.indexOf('const archivadosData'), src.indexOf('const currentSegmentData'));
-        expect(archivadosBlock).toMatch(/title: '📌 Activos'/);
-        expect(archivadosBlock).toMatch(/title: '✅ Resueltos'/);
-        expect(archivadosBlock).toMatch(/title: '🚫 Cancelados'/);
-        expect(archivadosBlock).toMatch(/title: '❌ Rechazados'/);
-        // The grouping predicate reads normalizeCommitmentStatus(c.status),
-        // the real canonical status -- never a synthetic "archived" bucket.
-        expect(archivadosBlock).toMatch(/const status = normalizeCommitmentStatus\(c\.status\);/);
+    it('archivadosData groups by REAL canonical status, never presenting "archivado" itself as a lifecycle status', () => {
+        const src = readSrc('src/screens/HoyScreen.tsx');
+        const archivadosBlock = src.slice(src.indexOf('const archivadosData'), src.indexOf('const currentSections'));
+        expect(archivadosBlock).toMatch(/title: 'Activos'/);
+        expect(archivadosBlock).toMatch(/title: 'Hechos'/);
+        expect(archivadosBlock).toMatch(/title: 'Cancelados'/);
+        expect(archivadosBlock).toMatch(/title: 'Rechazados'/);
+        expect(archivadosBlock).toMatch(/normalizeCommitmentStatus\(c\.status\)/);
     });
 });
 
@@ -794,7 +783,7 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
 // error-handling system invented.
 describe('PING — RESTORE PHYSICAL FAILURE: handleRestore/handleArchive/handleCancel never leave a rejected mutateAsync promise unhandled', () => {
     it('handleRestore wraps restoreCommitment(id) in try/catch and shows a controlled Alert on failure, never a bare unhandled call', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         const handleRestoreBlock = src.slice(src.indexOf('const handleRestore = useCallback'), src.indexOf('const handleReopen = useCallback'));
         expect(handleRestoreBlock).toMatch(/async \(id: string\) => \{/);
         expect(handleRestoreBlock).toMatch(/try \{\s*await restoreCommitment\(id\);\s*\} catch \{/);
@@ -802,7 +791,7 @@ describe('PING — RESTORE PHYSICAL FAILURE: handleRestore/handleArchive/handleC
     });
 
     it('handleArchive wraps archiveCommitment(id) in try/catch and shows a controlled Alert on failure, never a bare unhandled call', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         const handleArchiveBlock = src.slice(src.indexOf('const handleArchive = useCallback'), src.indexOf('const handleRestore = useCallback'));
         expect(handleArchiveBlock).toMatch(/async \(id: string\) => \{/);
         expect(handleArchiveBlock).toMatch(/try \{\s*await archiveCommitment\(id\);\s*\} catch \{/);
@@ -810,7 +799,7 @@ describe('PING — RESTORE PHYSICAL FAILURE: handleRestore/handleArchive/handleC
     });
 
     it('handleCancel wraps cancelCommitment({ id }) in try/catch and shows a controlled Alert on failure, never a bare unhandled call', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         const handleCancelBlock = src.slice(src.indexOf('const handleCancel = useCallback'), src.indexOf('const handleArchive = useCallback'));
         expect(handleCancelBlock).toMatch(/async \(id: string\) => \{/);
         expect(handleCancelBlock).toMatch(/try \{\s*await cancelCommitment\(\{ id \}\);\s*\} catch \{/);
@@ -818,7 +807,7 @@ describe('PING — RESTORE PHYSICAL FAILURE: handleRestore/handleArchive/handleC
     });
 
     it('none of the three handlers call mutateAsync bare (fire-and-forget) -- every call site is preceded by "await" inside a try block', () => {
-        const src = readSrc('src/screens/InsightsScreen.tsx');
+        const src = readSrc('src/screens/HoyScreen.tsx');
         expect(src).not.toMatch(/^\s*restoreCommitment\(id\);\s*$/m);
         expect(src).not.toMatch(/^\s*archiveCommitment\(id\);\s*$/m);
         expect(src).not.toMatch(/^\s*cancelCommitment\(\{ id \}\);\s*$/m);

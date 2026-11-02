@@ -4,7 +4,6 @@ import { createSupabaseAdminMock, setSupabaseAdminMock, supabaseAdminMockModule 
 vi.mock('../src/lib/supabaseAdmin', () => supabaseAdminMockModule());
 vi.mock('../src/services/message.service', () => ({
     processUserMessage: vi.fn(),
-    getMessages: vi.fn(),
 }));
 
 function responseMock() {

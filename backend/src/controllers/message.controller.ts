@@ -1,61 +1,7 @@
 import { Request, Response } from 'express';
-import * as messageService from '../services/message.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
-import { getOrCreateSelfConversationId } from '../services/conversation.service';
 import { markReceipt, tombstoneMessage } from '../services/messagingApplication.service';
-
-// Adapter legacy: /messages representa el self-chat y delega en el mismo
-// envio canonico que /conversations/:id/messages.
-export const createMessage = async (req: Request, res: Response): Promise<void> => {
-    try {
-        if (!req.user?.id) {
-            res.status(401).json({ error: 'Unauthorized' });
-            return;
-        }
-        const { text, reply_to_id } = req.body;
-        if (!text) {
-            res.status(400).json({ error: 'Message text is required' });
-            return;
-        }
-
-        const conversationId = await getOrCreateSelfConversationId(req.user.id);
-        const result = await messageService.processUserMessage(
-            req.user.id,
-            text,
-            conversationId,
-            reply_to_id,
-        );
-        res.status(201).json(result);
-    } catch (error: any) {
-        console.error('[createMessage Controller Error]', error);
-        const statusCode = error instanceof AppError ? error.statusCode : 500;
-        res.status(statusCode).json({
-            error: statusCode === 500 ? 'Unable to create message' : error.message,
-        });
-    }
-};
-
-export const getMessages = async (req: Request, res: Response): Promise<void> => {
-    try {
-        if (!req.user?.id) {
-            res.status(401).json({ error: 'Unauthorized' });
-            return;
-        }
-        const requestedLimit = Number.parseInt(req.query.limit as string, 10);
-        const requestedOffset = Number.parseInt(req.query.offset as string, 10);
-        const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
-        const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
-        const result = await messageService.getMessages(req.user.id, limit, offset);
-        res.status(200).json(result);
-    } catch (error: any) {
-        console.error('[getMessages Controller Error]', error);
-        const statusCode = error instanceof AppError ? error.statusCode : 500;
-        res.status(statusCode).json({
-            error: statusCode === 500 ? 'Unable to load messages' : error.message,
-        });
-    }
-};
 
 // Adapter legacy: el status solicitado avanza unicamente el receipt del
 // actor. Nunca modifica directamente messages.status.

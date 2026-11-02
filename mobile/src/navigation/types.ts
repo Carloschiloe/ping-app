@@ -49,25 +49,24 @@ export type ConversationsStackParamList = {
     };
     /** Main Ping entrypoint: unified Agent Core. */
     PingAI: AgentCoreRouteParams | undefined;
-    /** Compatibility route for the previous /ai/ask screen. */
-    PingAIClassic: undefined;
     // M-1G — preview interna del nuevo Agent read-only. `conversationId`
     // opcional: ausente = Agent global (sin scope), presente = Agent
     // scoped a esa conversación (sección 8 del ticket).
     AgentPreview: AgentCoreRouteParams | undefined;
-    QuickCapture: undefined;
 };
 
 type AgentCoreRouteParams = {
     conversationId?: string;
     currentCommitmentId?: string;
     surface?: 'mobile_text' | 'tablet';
+    /** Text to start the composer with, e.g. from the Hoy "+" button. */
+    draft?: string;
+    draftAt?: number;
 };
 
 export type MainTabParamList = {
     Chats: NavigatorScreenParams<ConversationsStackParamList> | undefined;
-    Tablero: undefined;
-    Insights: undefined;
+    Hoy: undefined;
     Perfil: undefined;
 };
 

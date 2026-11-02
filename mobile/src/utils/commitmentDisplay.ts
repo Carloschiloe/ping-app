@@ -149,24 +149,10 @@ export function isProposalDatePassed(dueAt: string | null | undefined, now: Date
     return new Date(dueAt) < now;
 }
 
-// Contrapropuesta: la fecha a resaltar es proposed_due_at, no due_at (que
-// todavia guarda la ultima fecha confirmada).
-export function getDisplayDueAt(commitment: { status?: string | null; due_at?: string | null; proposed_due_at?: string | null }): string | null {
-    if (commitment.status === 'counter_proposal' && commitment.proposed_due_at) {
-        return commitment.proposed_due_at;
-    }
-    return commitment.due_at ?? null;
-}
-
 // rejection_reason ya es columna real V2 de primera clase; meta.rejection_reason
 // se conserva solo como fallback de compatibilidad con datos legacy.
 export function getRejectionReason(commitment: { rejection_reason?: string | null; meta?: { rejection_reason?: string | null } | null }): string | null {
     return commitment.rejection_reason ?? commitment.meta?.rejection_reason ?? null;
-}
-
-export function resolveContactName(contactId: string | null | undefined, contacts: MinimalContact[] = []): string | null {
-    if (!contactId) return null;
-    return contacts.find((c) => c.id === contactId)?.display_name || 'Contacto externo';
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -180,19 +166,4 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function getStatusLabel(status: string): string {
     return STATUS_LABELS[status] || STATUS_LABELS.proposed;
-}
-
-// Los 6 bloques abiertos reales que devuelve GET /insights. Los alias de
-// Operación (myFocuses/inProgress/groupsSummary/teamStatusByGroup) quedan
-// deliberadamente fuera: nunca deben considerarse "bloques" a renderizar,
-// tengan o no contenido.
-export const OPEN_COMMITMENT_BLOCK_KEYS = [
-    'actionDonePendingResolution', 'needsAttention', 'overdue', 'awaitingResponse', 'upcoming', 'noDate',
-] as const;
-
-export function getNonEmptyBlocks<T extends Record<string, any[] | undefined>>(
-    insights: T,
-    keys: readonly (keyof T)[] = OPEN_COMMITMENT_BLOCK_KEYS as unknown as readonly (keyof T)[]
-): (keyof T)[] {
-    return keys.filter((key) => (insights[key] || []).length > 0);
 }

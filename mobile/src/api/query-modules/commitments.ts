@@ -45,69 +45,6 @@ export const useReactToMessage = (conversationId: string) => {
     });
 };
 
-export const useCommitments = (status?: string) => {
-    const queryClient = useQueryClient();
-    const { user } = useAuth();
-    const invalidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    useEffect(() => {
-        if (!user?.id) return;
-        const scheduleInvalidation = () => {
-            if (invalidationTimerRef.current) return;
-            invalidationTimerRef.current = setTimeout(() => {
-                invalidationTimerRef.current = null;
-                invalidateCommitmentViews(queryClient, {
-                    includeConversationMessages: false,
-                    includeGroupTasks: false,
-                    includeConversationGroupTasks: false,
-                    includeAgreementProposals: true,
-                });
-            }, 120);
-        };
-        const channel = supabase
-            .channel(`commitments-live-${user.id}-${status || 'all'}`)
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'commitments',
-            }, scheduleInvalidation)
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'commitment_proposals',
-            }, scheduleInvalidation)
-            .subscribe();
-
-        return () => {
-            if (invalidationTimerRef.current) {
-                clearTimeout(invalidationTimerRef.current);
-                invalidationTimerRef.current = null;
-            }
-            supabase.removeChannel(channel);
-        };
-    }, [queryClient, status, user?.id]);
-
-    return useQuery({
-        queryKey: ['commitments', status],
-        queryFn: async () => {
-            const endpoint = status ? `/commitments?status=${status}` : '/commitments';
-            const [commitments, proposals] = await Promise.all([
-                apiClient.get(endpoint),
-                status && status !== 'proposed'
-                    ? Promise.resolve([])
-                    : apiClient.get('/commitment-proposals'),
-            ]);
-            return [...(commitments || []), ...(proposals || [])];
-        },
-        staleTime: 5_000,
-        refetchOnMount: true,
-        refetchOnReconnect: 'always',
-        // Realtime da inmediatez; este intervalo sólo reconcilia eventos
-        // perdidos sin generar una petición cada cinco segundos en reposo.
-        refetchInterval: 30_000,
-        refetchIntervalInBackground: false,
-    });
-};
 
 export const useCreateCommitment = () => {
     const queryClient = useQueryClient();
@@ -207,27 +144,7 @@ export const useRejectCommitment = () => {
     });
 };
 
-export const usePostponeCommitment = () => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async ({ id, newDate }: { id: string, newDate: string }) =>
-            apiClient.post(`/commitments/${id}/postpone`, { newDate }),
-        onSuccess: () => {
-            invalidateCommitmentViews(queryClient, { includeConversationMessages: false });
-        },
-    });
-};
 
-export const useUpdateCommitmentStatus = () => {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async ({ id, status }: { id: string, status: string }) =>
-            apiClient.patch(`/commitments/${id}`, { status }),
-        onSuccess: () => {
-            invalidateCommitmentViews(queryClient);
-        },
-    });
-};
 
 export const useUpdateCommitment = () => {
     const queryClient = useQueryClient();
@@ -240,16 +157,6 @@ export const useUpdateCommitment = () => {
     });
 };
 
-// Alias de compatibilidad: el backend traduce status:'completed' a la
-// transicion real 'resolve' (ver backend/src/services/commitment.service.ts
-// mapRequestedStatusToAction). Preferir useResolveCommitment en UI nueva.
-export const useMarkCommitmentDone = () => {
-    const { mutate, isPending } = useResolveCommitment();
-    return {
-        mutate: ({ id, result }: { id: string; result: string }) => mutate({ id, result }),
-        isPending
-    };
-};
 
 // PING — LIFECYCLE INVALIDATION OWNER: agreement-proposals was missing here
 // while useAgentTurn (mobile/src/api/query-modules/agent.ts) already
@@ -343,32 +250,8 @@ export const useMarkActionCompleted = () => {
     });
 };
 
-export const useCounterProposeCommitment = () => {
-    const invalidate = useCommitmentLifecycleInvalidation();
-    return useMutation({
-        mutationFn: async ({ id, proposedDueAt }: { id: string, proposedDueAt: string }) =>
-            apiClient.post(`/commitments/${id}/counter-propose`, { proposedDueAt }),
-        onSuccess: invalidate,
-    });
-};
 
-export const useReassignCommitment = () => {
-    const invalidate = useCommitmentLifecycleInvalidation();
-    return useMutation({
-        mutationFn: async ({ id, assigned_to_user_id, counterparty_contact_id }: { id: string, assigned_to_user_id?: string | null, counterparty_contact_id?: string | null }) =>
-            apiClient.post(`/commitments/${id}/reassign`, { assigned_to_user_id, counterparty_contact_id }),
-        onSuccess: invalidate,
-    });
-};
 
-export const useScheduleFollowUp = () => {
-    const invalidate = useCommitmentLifecycleInvalidation();
-    return useMutation({
-        mutationFn: async ({ id, followUpAt, nextAction, waitingOnUserId, waitingOnContactId }: { id: string, followUpAt: string, nextAction?: string | null, waitingOnUserId?: string | null, waitingOnContactId?: string | null }) =>
-            apiClient.post(`/commitments/${id}/follow-up`, { followUpAt, nextAction, waitingOnUserId, waitingOnContactId }),
-        onSuccess: invalidate,
-    });
-};
 
 // Contactos externos (contraparte de un commitment sin cuenta en Ping).
 export const useContacts = () => {
@@ -454,14 +337,6 @@ export const useRestoreCommitment = () => {
     });
 };
 
-export const useGroupTasks = () => {
-    return useQuery({
-        queryKey: ['group-tasks'],
-        queryFn: async () => {
-            return apiClient.get('/commitments?is_group_task=true');
-        },
-    });
-};
 
 export const useConversationGroupTasks = (conversationId: string | null) => {
     const { user } = useAuth();

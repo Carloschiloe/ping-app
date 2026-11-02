@@ -390,12 +390,12 @@ describe('Ping Core entrypoint: el acceso normal usa Agent Core y legacy queda a
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/ConversationsScreen.tsx'), 'utf-8');
     const navigationSource = fs.readFileSync(path.join(__dirname, '../src/navigation/index.tsx'), 'utf-8');
 
-    it('tap normal conserva la ruta PingAI pero ahora renderiza Core; legacy queda en ruta explícita', () => {
+    it('tap normal conserva la ruta PingAI y renderiza Core; ya no existe la pantalla legacy', () => {
         expect(screenSource).toContain("navigation.navigate('PingAI', { surface: publicPingSurface() })");
         expect(screenSource).toContain('onLongPress={handleOpenAgentMenu}');
         expect(screenSource).toContain("{ label: 'Ping', onPress: () => navigation.navigate('PingAI', { surface: publicPingSurface() }) }");
         expect(screenSource).toContain("{ label: 'Preview interno', onPress: () => navigation.navigate('AgentPreview') }");
-        expect(screenSource).toContain("navigation.navigate('PingAIClassic')");
+        expect(screenSource).not.toContain('PingAIClassic');
     });
 
     it('expone el piloto tablet sólo en desarrollo y reutiliza AgentPreview con surface tablet', () => {
@@ -410,9 +410,10 @@ describe('Ping Core entrypoint: el acceso normal usa Agent Core y legacy queda a
         expect(screenSource).toContain("{ label: 'Ping', onPress: () => navigation.navigate('PingAI', { surface: publicPingSurface() }) }");
     });
 
-    it('la ruta PingAI principal monta Agent Core y conserva PingAIClassic como compatibilidad', () => {
+    it('la ruta PingAI principal monta Agent Core y la ruta legacy ya no existe', () => {
         expect(navigationSource).toMatch(/name="PingAI"[\s\S]*component=\{AgentPreviewScreen\}/);
-        expect(navigationSource).toMatch(/name="PingAIClassic"[\s\S]*component=\{PingAIScreen\}/);
+        expect(navigationSource).not.toContain('PingAIClassic');
+        expect(navigationSource).not.toContain('PingAIScreen');
     });
 });
 
@@ -472,8 +473,8 @@ describe('PING — RESCHEDULE WRITE / VERIFICATION / UI CONSISTENCY FIX: useAgen
     // so a single invalidation of this one key is provably sufficient for
     // both surfaces to become coherent after refetch.
     it('TaskDashboardScreen.tsx (Hoy) and InsightsScreen.tsx (Compromisos) both use queryKey ["all-commitments-dashboard"] -- one shared cache source, not two independent ones', () => {
-        const hoySource = fs.readFileSync(path.join(__dirname, '../src/screens/TaskDashboardScreen.tsx'), 'utf-8');
-        const compromisosSource = fs.readFileSync(path.join(__dirname, '../src/screens/InsightsScreen.tsx'), 'utf-8');
+        const hoySource = fs.readFileSync(path.join(__dirname, '../src/screens/HoyScreen.tsx'), 'utf-8');
+        const compromisosSource = fs.readFileSync(path.join(__dirname, '../src/screens/HoyScreen.tsx'), 'utf-8');
         expect(hoySource).toMatch(/queryKey: \['all-commitments-dashboard'\]/);
         expect(compromisosSource).toMatch(/queryKey: \['all-commitments-dashboard'\]/);
     });

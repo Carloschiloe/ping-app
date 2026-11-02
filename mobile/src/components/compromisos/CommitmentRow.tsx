@@ -53,6 +53,11 @@ interface CommitmentRowProps {
     // status canónico ya existente decide qué acciones vuelven a estar
     // disponibles una vez restaurado.
     onRestore?: (id: string) => void;
+    // "Me deben": a commitment I handed to someone else gets "Recordarle"
+    // (a drafted note the user decides to send) and "Ya me lo dio" (close
+    // it) instead of the actions meant for the person who owes it.
+    onNudge?: (commitment: any) => void;
+    onReceived?: (id: string) => void;
 }
 
 export function formatWhen(iso?: string | null): string {
@@ -88,13 +93,15 @@ export function CommitmentRow({
     onWithdraw,
     onArchive,
     onRestore,
+    onNudge,
+    onReceived,
 }: CommitmentRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [menuVisible, setMenuVisible] = useState(false);
 
     const status = normalizeCommitmentStatus(c.status);
-    const isMeeting = c.type === 'meeting' || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(c.title || '');
+    const isMeeting = c.type === 'meeting';
     const hasConversation = canViewOriginConversation(c);
     const conversationId = resolveConversationId(c);
     // M-1H v5: isCommitmentOverdue ya excluye toda commitment_proposal
@@ -188,6 +195,34 @@ export function CommitmentRow({
         // overflow menu. An active (non-finished) commitment CAN be
         // archived, so isFinished alone is not enough here.
         if (isFinished || isArchived) return null;
+
+        const isOwedToMe = !isProposal && c.owner_user_id === currentUserId
+            && !!c.assigned_to_user_id && c.assigned_to_user_id !== currentUserId;
+        if (onNudge && isOwedToMe) {
+            return (
+                <>
+                    <TouchableOpacity
+                        style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                        onPress={() => onNudge(c)}
+                    >
+                        <Ionicons name="notifications-outline" size={13} color={theme.colors.accent} />
+                        <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Recordarle</Text>
+                    </TouchableOpacity>
+                    {onReceived && primaryAction === 'complete' && (
+                        <TouchableOpacity
+                            style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                            onPress={() => onReceived(c.id)}
+                        >
+                            <Ionicons name="checkmark" size={13} color={theme.colors.accent} />
+                            <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Ya me lo dio</Text>
+                        </TouchableOpacity>
+                    )}
+                </>
+            );
+        }
+
+        // A meeting is attended, not ticked off: no "Listo" button for it.
+        if (isMeeting && primaryAction === 'complete') return null;
 
         // Sección 9/11/12: "waiting" ya no renderiza su propio badge aquí --
         // el statusLabel actor-aware/lifecycle-aware se muestra como línea
@@ -386,12 +421,15 @@ export function CommitmentRow({
                     </TouchableOpacity>
                 </View>
 
-                <Text
-                    style={[styles.metaLine, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]}
-                    numberOfLines={2}
-                >
-                    {presentation.relationLabel} · {formatWhen(c.due_at)}
-                </Text>
+                <View style={styles.metaRow}>
+                    {isMeeting && <Ionicons name="time-outline" size={13} color={theme.colors.text.secondary} />}
+                    <Text
+                        style={[styles.metaLine, styles.metaText, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]}
+                        numberOfLines={2}
+                    >
+                        {presentation.relationLabel} · {formatWhen(c.due_at)}
+                    </Text>
+                </View>
 
                 {!!presentation.statusLabel && (
                     <Text style={[styles.statusLine, { color: theme.colors.text.secondary }]} numberOfLines={2}>
@@ -557,6 +595,14 @@ const styles = StyleSheet.create({
     metaLine: {
         fontSize: 12,
         fontWeight: '500',
+    },
+    metaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    metaText: {
+        flexShrink: 1,
     },
     // Sección 10/11: "Necesita tu respuesta" / "Esperando a Alejandra" --
     // línea propia, con el ancho COMPLETO de la fila disponible (nunca los

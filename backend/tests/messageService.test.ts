@@ -70,60 +70,27 @@ describe('processUserMessage (mensaje humano)', () => {
         expect(result.message.text).toBe('hola');
     });
 
-    it('persiste de inmediato una sugerencia determinista sin esperar a OpenAI', async () => {
+    it('guarda el mensaje sin adelantar una sugerencia: la IA la agrega después', async () => {
         const mock = createSupabaseAdminMock({
             conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
-            messages: [{
-                    data: {
-                        id: 'm-fast',
-                        conversation_id: 'c1',
-                        content: 'Mañana a las 12:00 llamar a Alejandra',
-                        sender_id: 'u1',
-                    },
-                    error: null,
-                }],
-            'rpc:persist_message_with_attachment': [{ data: [{ message_id: 'm-fast', idempotent_replay: false }], error: null }],
+            messages: [{ data: { id: 'm-zone', conversation_id: 'c1', sender_id: 'u1', content: 'Hola' }, error: null }],
+            'rpc:persist_message_with_attachment': [{ data: [{ message_id: 'm-zone', idempotent_replay: false }], error: null }],
         });
         setSupabaseAdminMock(mock);
 
         const { processUserMessage } = await import('../src/services/message.service');
-        await processUserMessage('u1', 'Mañana a las 12:00 llamar a Alejandra', 'c1');
+        await processUserMessage(
+            'u1',
+            'Necesitamos juntarnos hoy día en el terreno a las 16 horas.',
+            'c1',
+            undefined,
+            undefined,
+            { clientTimeZone: 'America/Santiago' },
+        );
 
-        const rpcMetadata = mock.getRpcCalls()[0].args.p_metadata;
-        expect(rpcMetadata.suggestedTask).toEqual(expect.objectContaining({
-            replyText: 'Agendar',
-            type: 'meeting',
-        }));
-        expect(rpcMetadata.suggestedTask.dueAt).toBeTruthy();
-    });
-
-    it('persiste la hora explícita usando la zona IANA enviada por mobile', async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date('2026-09-01T18:33:53.000Z'));
-        try {
-            const mock = createSupabaseAdminMock({
-                conversation_participants: [{ data: { conversation_id: 'c1', role: 'member' }, error: null }],
-                messages: [{ data: { id: 'm-zone', conversation_id: 'c1', sender_id: 'u1', content: 'Audio' }, error: null }],
-                'rpc:persist_message_with_attachment': [{ data: [{ message_id: 'm-zone', idempotent_replay: false }], error: null }],
-            });
-            setSupabaseAdminMock(mock);
-
-            const { processUserMessage } = await import('../src/services/message.service');
-            await processUserMessage(
-                'u1',
-                'Necesitamos juntarnos hoy día en el terreno a las 16 horas.',
-                'c1',
-                undefined,
-                undefined,
-                { clientTimeZone: 'America/Santiago' },
-            );
-
-            const metadata = mock.getRpcCalls()[0].args.p_metadata;
-            expect(metadata.clientTimeZone).toBe('America/Santiago');
-            expect(metadata.suggestedTask.dueAt).toBe('2026-09-01T20:00:00.000Z');
-        } finally {
-            vi.useRealTimers();
-        }
+        const metadata = mock.getRpcCalls()[0].args.p_metadata;
+        expect(metadata.clientTimeZone).toBe('America/Santiago');
+        expect(metadata.suggestedTask).toBeUndefined();
     });
 
     it('rechaza una respuesta cuyo mensaje origen no pertenece a la conversación', async () => {
@@ -257,27 +224,59 @@ describe('processUserMessage (mensaje humano)', () => {
     });
 });
 
-describe('audio-derived suggestion parity', () => {
-    it('usa el mismo analizador de texto y no crea compromiso ni persiste fuera del merge atomico', async () => {
-        const mock = createSupabaseAdminMock({});
-        setSupabaseAdminMock(mock);
+describe('chat commitment detection', () => {
+    const aiCommitment = {
+        hasCommitment: true,
+        title: 'Pasar a dejar las llaves',
+        dueAt: '2026-09-03T13:00:00.000Z',
+        replyText: 'Agendar',
+        assignedToName: null,
+        type: 'task' as const,
+    };
+
+    it('la IA lee cualquier mensaje, aunque no use palabras típicas de una tarea', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({}));
+        aiMocks.extractCommitment.mockClear();
+        aiMocks.extractCommitment.mockResolvedValueOnce(aiCommitment as any);
 
         const { analyzeAndSuggestTask } = await import('../src/services/message.service');
         const suggestion = await analyzeAndSuggestTask(
-            'm-audio',
-            'Mañana llamar a Juan',
-            undefined,
-            undefined,
-            'c1',
-            { persist: false },
+            'm1', '¿Te tinca el jueves pasar a dejar las llaves?', undefined, undefined, 'c1', { persist: false },
         );
 
-        expect(suggestion).toEqual(expect.objectContaining({
-            title: expect.any(String),
-            dueAt: expect.any(String),
+        expect(aiMocks.extractCommitment).toHaveBeenCalledTimes(1);
+        expect(suggestion).toEqual({
+            title: 'Pasar a dejar las llaves',
+            dueAt: '2026-09-03T13:00:00.000Z',
+            assignedToUserId: null,
             replyText: 'Agendar',
-        }));
-        expect(mock.getRpcCalls()).toHaveLength(0);
+            type: 'task',
+        });
+    });
+
+    it('no sugiere nada cuando la IA dice que no hay compromiso', async () => {
+        setSupabaseAdminMock(createSupabaseAdminMock({}));
+        const { analyzeAndSuggestTask } = await import('../src/services/message.service');
+        await expect(analyzeAndSuggestTask('m2', 'Mañana llamar a Juan', undefined, undefined, 'c1', { persist: false }))
+            .resolves.toBeNull();
+    });
+
+    it('un mensaje vacío sin imagen no se envía a la IA', async () => {
+        aiMocks.extractCommitment.mockClear();
+        const { analyzeAndSuggestTask } = await import('../src/services/message.service');
+        await expect(analyzeAndSuggestTask('m3', '   ')).resolves.toBeNull();
+        expect(aiMocks.extractCommitment).not.toHaveBeenCalled();
+    });
+
+    it('guarda la sugerencia sólo mediante el merge atómico del mensaje', async () => {
+        const mock = createSupabaseAdminMock({ 'rpc:merge_message_suggested_task': [{ data: null, error: null }] });
+        setSupabaseAdminMock(mock);
+        aiMocks.extractCommitment.mockResolvedValueOnce(aiCommitment as any);
+
+        const { analyzeAndSuggestTask } = await import('../src/services/message.service');
+        await analyzeAndSuggestTask('m4', 'El jueves paso a dejar las llaves', undefined, undefined, 'c1');
+
+        expect(mock.getRpcCalls()).toEqual([expect.objectContaining({ name: 'merge_message_suggested_task' })]);
         expect(mock.getInsertCalls('commitments')).toHaveLength(0);
     });
 });

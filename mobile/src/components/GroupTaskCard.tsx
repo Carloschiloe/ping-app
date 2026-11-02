@@ -127,8 +127,7 @@ export default function GroupTaskCard({
         ? format(new Date(commitment.due_at), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '')
         : null;
 
-    const isMeetingRaw = commitment.type === 'meeting';
-    const isMeeting = isMeetingRaw || /reuni[oó]n|llamada|junta|meet|zoom|call|cita/i.test(commitment.title || '');
+    const isMeeting = commitment.type === 'meeting';
     const typeLabel = isMeeting ? 'Reunión' : 'Tarea';
     const isOperationMode = conversationMode === 'operation';
     const isActiveOperation = !!activeCommitmentId && activeCommitmentId === commitment.id;
