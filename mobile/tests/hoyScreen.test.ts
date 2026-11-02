@@ -21,11 +21,46 @@ describe('Hoy — one tab for the day and every commitment', () => {
         expect(hoy).toContain("['theirs', 'Me deben', theirsData.pendingCount]");
     });
 
-    it('keeps later days and recent done items folded, and opens them while searching', () => {
-        for (const key of ['manana', 'semana', 'adelante', 'sinfecha', 'hechos']) {
-            expect(hoy).toMatch(new RegExp(`key: '${key}'[^}]*collapsible: true`));
-        }
-        expect(hoy).toContain('isOpen: !s.collapsible || !!query');
+    it('groups the list into Atrasado, Hoy, Próximos and Sin fecha, all starting closed', () => {
+        expect(hoy).toMatch(/key: 'atrasado', title: 'Atrasado'[^}]*tone: 'danger'/);
+        expect(hoy).toMatch(/key: 'hoy', title: 'Hoy'[^}]*tone: 'accent'/);
+        expect(hoy).toMatch(/key: 'proximos', title: 'Próximos'/);
+        expect(hoy).toMatch(/key: 'sinfecha', title: 'Sin fecha'/);
+        expect(hoy).toContain('const isOpen = !!query || (choice ?? !!s.startsOpen);');
+    });
+
+    it('the calendar stays hidden until its button is tapped, and a picked day opens right away', () => {
+        expect(hoy).toContain('const [calendarVisible, setCalendarVisible] = useState(false);');
+        expect(hoy).toContain('const strip = calendarVisible && (');
+        expect(hoy).toContain("accessibilityLabel={calendarVisible ? 'Ocultar calendario' : 'Ver calendario'}");
+        expect(hoy).toMatch(/key: 'dia',[\s\S]*?startsOpen: true/);
+    });
+
+    it('tapping any section title opens or closes the whole section', () => {
+        expect(hoy).toContain('onPress={() => toggleSection(s.key, s.isOpen)}');
+        expect(hoy).toContain("data: isOpen ? s.data : []");
+        expect(hoy).not.toContain('Ver ${s.hiddenCount} más');
+        // While searching nothing stays closed.
+        expect(hoy).toContain('const isOpen = !!query ||');
+    });
+
+    it('section titles are small colored labels, and each section sits on its own card', () => {
+        expect(hoy).toContain('styles.countPill');
+        expect(hoy).toContain('styles.cardRowFirst');
+        expect(hoy).toContain('styles.cardRowLast');
+    });
+
+    it('every row shows when it is due on a badge at its left', () => {
+        expect(row).toContain('const badge = dayBadge(c.due_at);');
+        expect(row).not.toContain('indicatorBar');
+    });
+
+    it('finished and cancelled items are one tap away, and a cancel can be undone', () => {
+        expect(hoy).toContain('Terminados y cancelados');
+        expect(hoy).toContain('onReopen={view === \'historial\' ? handleReopen : undefined}');
+        expect(row).toContain('>Reactivar<');
+        expect(hoy).toContain('Cancelado. Lo verás en Terminados y cancelados.');
+        expect(hoy).toContain('reopenCommitment(undoToast.id);');
     });
 
     it('a meeting from a past day leaves the list instead of turning overdue', () => {
@@ -53,5 +88,18 @@ describe('Hoy — one tab for the day and every commitment', () => {
     it('an empty day says so and shows what comes next', () => {
         expect(hoy).toContain('Hoy estás libre');
         expect(hoy).toContain('Lo próximo:');
+    });
+});
+
+describe('dayBadge', () => {
+    it('names the day in plain words', async () => {
+        const { dayBadge } = await import('../src/components/compromisos/dayBadge');
+        const now = new Date();
+        const at = (days: number, h = 10) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(h, 0, 0, 0); return d.toISOString(); };
+        expect(dayBadge(null)).toEqual({ day: 'sin', detail: 'fecha' });
+        expect(dayBadge(at(0), now)).toEqual({ day: 'hoy', detail: '10:00' });
+        expect(dayBadge(at(-1), now)).toEqual({ day: 'ayer', detail: '10:00' });
+        expect(dayBadge(at(1), now)).toEqual({ day: 'mañana', detail: '10:00' });
+        expect(dayBadge(at(-400), now).detail).toMatch(/^\d{4}$/);
     });
 });

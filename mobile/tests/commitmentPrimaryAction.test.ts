@@ -238,7 +238,7 @@ describe('PARTICIPANT VISIBILITY: wiring real en las pantallas (sección 7/8/9 d
 
     it('HoyScreen.tsx: el conteo de "Yo debo" y el día libre salen de las MISMAS listas que se muestran', () => {
         const src = fs.readFileSync(path.join(__dirname, '..', 'src/screens/HoyScreen.tsx'), 'utf-8');
-        expect(src).toMatch(/const pendingCount = porConfirmar\.length \+ overdue\.length \+ hoy\.length \+ manana\.length \+ semana\.length \+ adelante\.length \+ sinFecha\.length/);
+        expect(src).toMatch(/const pendingCount = porConfirmar\.length \+ overdue\.length \+ hoy\.length \+ proximos\.length \+ sinFecha\.length/);
         expect(src).toMatch(/dayIsFree: porConfirmar\.length \+ overdue\.length \+ hoy\.length === 0/);
     });
 });

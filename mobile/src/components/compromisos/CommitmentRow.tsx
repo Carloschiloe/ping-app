@@ -10,6 +10,7 @@ import { resolveConversationId, canViewOriginConversation, isCommitmentOverdue }
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
 import { getProposalParticipationState } from '../../utils/agreement';
 import { getActorPresentation } from '../../utils/actorPresentation';
+import { dayBadge } from './dayBadge';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
 
 interface CommitmentRowProps {
@@ -58,6 +59,8 @@ interface CommitmentRowProps {
     // it) instead of the actions meant for the person who owes it.
     onNudge?: (commitment: any) => void;
     onReceived?: (id: string) => void;
+    // "Terminados y cancelados": a cancelled commitment can be brought back.
+    onReopen?: (id: string) => void;
 }
 
 export function formatWhen(iso?: string | null): string {
@@ -95,6 +98,7 @@ export function CommitmentRow({
     onRestore,
     onNudge,
     onReceived,
+    onReopen,
 }: CommitmentRowProps) {
     const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
@@ -194,6 +198,17 @@ export function CommitmentRow({
         // never offer its primary mutation button either -- not only the
         // overflow menu. An active (non-finished) commitment CAN be
         // archived, so isFinished alone is not enough here.
+        if (onReopen && status === 'cancelled' && !isArchived) {
+            return (
+                <TouchableOpacity
+                    style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                    onPress={() => onReopen(c.id)}
+                >
+                    <Ionicons name="arrow-undo-outline" size={13} color={theme.colors.accent} />
+                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Reactivar</Text>
+                </TouchableOpacity>
+            );
+        }
         if (isFinished || isArchived) return null;
 
         const isOwedToMe = !isProposal && c.owner_user_id === currentUserId
@@ -372,38 +387,39 @@ export function CommitmentRow({
         }
     };
 
+    const badge = dayBadge(c.due_at);
+    // "Tuyo" says nothing new in "Yo debo": only another person is worth a line.
+    const relation = presentation.relationLabel === 'Tuyo' ? null : presentation.relationLabel;
+    const metaParts = [isMeeting ? 'Reunión' : null, relation].filter(Boolean) as string[];
+    const statusColor = status === 'resolved'
+        ? theme.colors.success
+        : status === 'cancelled' || status === 'rejected'
+            ? theme.colors.danger
+            : theme.colors.text.secondary;
+
     return (
         <TouchableOpacity
-            style={[
-                styles.row,
-                { borderBottomColor: theme.colors.border },
-                isFinished && { opacity: 0.6 },
-            ]}
+            style={styles.row}
             onPress={() => onOpenDetail(c)}
             activeOpacity={0.7}
         >
-            {/* Status / Urgency Bar */}
             <View
                 style={[
-                    styles.indicatorBar,
-                    {
-                        backgroundColor: isOverdueItem
-                            ? theme.colors.danger
-                            : isMeeting
-                            ? theme.colors.secondary
-                            : isFinished
-                            ? theme.colors.border
-                            : theme.colors.accent,
-                    },
+                    styles.dayBadge,
+                    { backgroundColor: isOverdueItem ? `${theme.colors.danger}26` : theme.colors.surfaceMuted },
                 ]}
-            />
+            >
+                <Text style={[styles.dayBadgeDay, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.primary }]} numberOfLines={1}>
+                    {badge.day}
+                </Text>
+                {!!badge.detail && (
+                    <Text style={[styles.dayBadgeDetail, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]} numberOfLines={1}>
+                        {badge.detail}
+                    </Text>
+                )}
+            </View>
 
-            {/* Content — jerarquía vertical (sección 9 del ticket): TITLE
-                propio (nunca comparte línea con nada que le quite ancho) ->
-                metaLine (relación · cuándo) -> statusLine (actor-aware,
-                sección 10/11/12) -> actionsRow (con ancho completo
-                disponible, nunca comprimida contra el título). */}
-            <View style={styles.content}>
+            <View style={[styles.content, isFinished && { opacity: 0.75 }]}>
                 <View style={styles.titleRow}>
                     <Text
                         style={[
@@ -421,18 +437,17 @@ export function CommitmentRow({
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.metaRow}>
-                    {isMeeting && <Ionicons name="time-outline" size={13} color={theme.colors.text.secondary} />}
-                    <Text
-                        style={[styles.metaLine, styles.metaText, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]}
-                        numberOfLines={2}
-                    >
-                        {presentation.relationLabel} · {formatWhen(c.due_at)}
-                    </Text>
-                </View>
+                {metaParts.length > 0 && (
+                    <View style={styles.metaRow}>
+                        {isMeeting && <Ionicons name="people-outline" size={13} color={theme.colors.text.secondary} />}
+                        <Text style={[styles.metaLine, styles.metaText, { color: theme.colors.text.secondary }]} numberOfLines={1}>
+                            {metaParts.join(' · ')}
+                        </Text>
+                    </View>
+                )}
 
                 {!!presentation.statusLabel && (
-                    <Text style={[styles.statusLine, { color: theme.colors.text.secondary }]} numberOfLines={2}>
+                    <Text style={[styles.statusLine, { color: statusColor }]} numberOfLines={2}>
                         {presentation.statusLabel}{presentation.proposalDatePassed ? ' · Fecha propuesta ya pasó' : ''}
                     </Text>
                 )}
@@ -541,27 +556,27 @@ export function CommitmentRow({
 const styles = StyleSheet.create({
     row: {
         flexDirection: 'row',
-        // Sección 9/14: el contenido ahora es una pila vertical (título ->
-        // metaLine -> statusLine -> acciones) que puede crecer más alto que
-        // el bar/moreBtn -- alinear al inicio evita que el indicatorBar
-        // quede centrado a media altura de un bloque de 3-4 líneas.
+        // The content is a vertical stack (title, meta, status, actions);
+        // aligning to the top keeps the day badge beside the title.
         alignItems: 'flex-start',
         paddingVertical: 12,
-        paddingHorizontal: 16,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        gap: 10,
+        paddingHorizontal: 12,
+        gap: 12,
     },
-    indicatorBar: {
-        width: 3,
-        // Altura fija reemplazada por 'stretch' vía alignSelf implícito
-        // (View sin height explícita, alineada dentro de un row
-        // flex-start) no es viable en RN sin flex:1 en el padre -- se deja
-        // una altura mínima razonable para una fila de 1 línea; filas más
-        // altas (proposals con metaLine+statusLine+acciones) simplemente
-        // dejan la barra más corta que el contenido, nunca al revés.
-        minHeight: 38,
-        borderRadius: 2,
+    dayBadge: {
+        width: 56,
         flexShrink: 0,
+        borderRadius: 10,
+        paddingVertical: 6,
+        alignItems: 'center',
+    },
+    dayBadgeDay: {
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    dayBadgeDetail: {
+        fontSize: 12,
+        fontWeight: '500',
         marginTop: 1,
     },
     content: {
