@@ -140,7 +140,7 @@ export function getCommitmentActorPresentation(
         relationLabel = `Encargado a ${assigneeName}`;
     } else if (isAssignee && !isOwner) {
         relationLabel = `Asignado por ${ownerName}`;
-    } else if (isOwner && isAssignee) {
+    } else if (isOwner && (isAssignee || !commitment.assigned_to_user_id)) {
         relationLabel = 'Tuyo';
     } else {
         // Sección 12: ex-participante de la proposal original, ahora sólo

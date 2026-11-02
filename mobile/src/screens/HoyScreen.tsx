@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, StatusBar, TextInput,
     ScrollView, SectionList, Modal, RefreshControl, Alert, Share,
@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { format, isTomorrow, isSameWeek, startOfDay, isSameDay, subDays } from 'date-fns';
+import { format, startOfDay, isSameDay, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
@@ -30,17 +30,27 @@ import { CommitmentRow, formatWhen } from '../components/compromisos/CommitmentR
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
 import { RescheduleModal } from '../components/compromisos/RescheduleModal';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
+import { WeekStrip } from '../components/hoy/WeekStrip';
+import { buildDayMarks } from '../utils/calendarDays';
 
 // One tab for the day and every commitment: a single list ordered by when
-// things are due, split between what I owe and what others owe me. History
-// and archived items stay one step away, behind the filter sheet.
-type HoyView = 'mine' | 'theirs' | 'historial' | 'archivados';
+// things are due, split between what I owe and what others owe me. Finished,
+// cancelled and archived items live one tap away, in "Terminados y cancelados".
+type HoyView = 'mine' | 'theirs' | 'historial';
+type HistoryFilter = 'all' | 'resolved' | 'cancelled' | 'archived';
 type TypeFilter = 'all' | 'tasks' | 'meetings';
 type OriginFilter = 'all' | 'chat' | 'direct';
 
-type HoySection = { key: string; title: string; data: any[]; collapsible?: boolean; danger?: boolean };
+type SectionTone = 'danger' | 'accent' | 'muted';
+// Every section starts closed and opens from its title, so the screen first
+// shows only how many things are in each group. startsOpen is for the one
+// section that answers a question the user just asked (a picked day).
+type HoySection = {
+    key: string; title: string; data: any[]; tone: SectionTone;
+    icon: keyof typeof Ionicons.glyphMap; startsOpen?: boolean;
+};
 
-const RECENT_DONE_DAYS = 7;
+const UNDO_TOAST_MS = 6000;
 export function classifyMeeting(c: any) {
     return c.type === 'meeting';
 }
@@ -73,7 +83,26 @@ export default function HoyScreen() {
     const navigation = useNavigation<ChatsTabNavigationProp>();
 
     const [view, setView] = useState<HoyView>('mine');
+    const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+    const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+    // The calendar is there when asked for, not always in the way. Closing it
+    // also drops the picked day, so the full list comes back.
+    const [calendarVisible, setCalendarVisible] = useState(false);
+    const toggleCalendar = useCallback(() => {
+        setCalendarVisible((visible) => {
+            if (visible) setSelectedDay(null);
+            return !visible;
+        });
+    }, []);
+    const [undoToast, setUndoToast] = useState<{ id: string } | null>(null);
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+
+    const openHistory = useCallback((filter: HistoryFilter = 'all') => {
+        setHistoryFilter(filter);
+        setView('historial');
+    }, []);
 
     const [searchVisible, setSearchVisible] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -144,10 +173,11 @@ export default function HoyScreen() {
         isRefetching: isRefetchingArchived,
     } = useArchivedCommitments();
 
+    const showingArchived = view === 'historial' && historyFilter === 'archived';
     useFocusEffect(useCallback(() => {
         refetch();
-        if (view === 'archivados') refetchArchived();
-    }, [refetch, refetchArchived, view]));
+        if (showingArchived) refetchArchived();
+    }, [refetch, refetchArchived, showingArchived]));
 
     const { mutateAsync: acceptCommitment } = useAcceptCommitment();
     const { mutate: resolveCommitment } = useResolveCommitment();
@@ -198,13 +228,25 @@ export default function HoyScreen() {
         }
     }, [confirmItem, acceptCommitment, respondToProposal, confirmProposal]);
 
+    // After cancelling, a short notice says where it went and offers to undo.
     const handleCancel = useCallback(async (id: string) => {
         try {
             await cancelCommitment({ id });
         } catch {
             Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
+            return;
         }
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setUndoToast({ id });
+        toastTimer.current = setTimeout(() => setUndoToast(null), UNDO_TOAST_MS);
     }, [cancelCommitment]);
+
+    const handleUndoCancel = useCallback(() => {
+        if (!undoToast) return;
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        reopenCommitment(undoToast.id);
+        setUndoToast(null);
+    }, [undoToast, reopenCommitment]);
 
     const handleArchive = useCallback(async (id: string) => {
         try {
@@ -341,25 +383,16 @@ export default function HoyScreen() {
     const mineData = useMemo(() => {
         const now = new Date();
         const today = startOfDay(now);
-        const doneSince = subDays(today, RECENT_DONE_DAYS);
 
         const porConfirmar: any[] = [];
         const overdue: any[] = [];
         const hoy: any[] = [];
-        const manana: any[] = [];
-        const semana: any[] = [];
-        const adelante: any[] = [];
+        const proximos: any[] = [];
         const sinFecha: any[] = [];
-        const hechos: any[] = [];
 
         filteredCommitments.forEach((c: any) => {
             if (!isActorRelevantCommitmentItem(c, user?.id)) return;
             const status = normalizeCommitmentStatus(c.status);
-            if (status === 'resolved') {
-                const doneAt = new Date(c.resolved_at || c.updated_at || c.due_at || 0);
-                if (doneAt >= doneSince) hechos.push(c);
-                return;
-            }
             if (isFinishedStatus(status)) return;
             // A pending proposal is never mixed with active commitments,
             // whatever its date.
@@ -376,30 +409,24 @@ export default function HoyScreen() {
             if (classifyMeeting(c) && date < today) return;
             if (isCommitmentOverdue(c, now)) overdue.push(c);
             else if (isSameDay(date, today)) hoy.push(c);
-            else if (isTomorrow(date)) manana.push(c);
-            else if (isSameWeek(date, now, { weekStartsOn: 1 })) semana.push(c);
-            else adelante.push(c);
+            else proximos.push(c);
         });
 
         overdue.sort((a, b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
-        [hoy, manana, semana, adelante].forEach((arr) => arr.sort(byDueAsc));
-        hechos.sort((a, b) => new Date(b.resolved_at || b.updated_at || 0).getTime() - new Date(a.resolved_at || a.updated_at || 0).getTime());
+        [hoy, proximos].forEach((arr) => arr.sort(byDueAsc));
         // What the user can answer comes before what waits on someone else.
         porConfirmar.sort((a, b) => (getCommitmentPrimaryAction(a, user?.id) === 'accept' ? 0 : 1) - (getCommitmentPrimaryAction(b, user?.id) === 'accept' ? 0 : 1));
 
-        const sections: HoySection[] = [
-            { key: 'confirmar', title: 'Por confirmar', data: porConfirmar },
-            { key: 'atrasado', title: 'Atrasado', data: overdue, danger: true },
-            { key: 'hoy', title: 'Hoy', data: hoy },
-            { key: 'manana', title: 'Mañana', data: manana, collapsible: true },
-            { key: 'semana', title: 'Esta semana', data: semana, collapsible: true },
-            { key: 'adelante', title: 'Más adelante', data: adelante, collapsible: true },
-            { key: 'sinfecha', title: 'Sin fecha', data: sinFecha, collapsible: true },
-            { key: 'hechos', title: 'Hechos recientes', data: hechos, collapsible: true },
-        ].filter((s) => s.data.length > 0);
+        const sections: HoySection[] = ([
+            { key: 'confirmar', title: 'Por confirmar', data: porConfirmar, tone: 'accent', icon: 'help-circle-outline' },
+            { key: 'atrasado', title: 'Atrasado', data: overdue, tone: 'danger', icon: 'alert-circle-outline' },
+            { key: 'hoy', title: 'Hoy', data: hoy, tone: 'accent', icon: 'sunny-outline' },
+            { key: 'proximos', title: 'Próximos', data: proximos, tone: 'muted', icon: 'calendar-outline' },
+            { key: 'sinfecha', title: 'Sin fecha', data: sinFecha, tone: 'muted', icon: 'calendar-clear-outline' },
+        ] as HoySection[]).filter((s) => s.data.length > 0);
 
-        const next = manana[0] ?? semana[0] ?? adelante[0] ?? null;
-        const pendingCount = porConfirmar.length + overdue.length + hoy.length + manana.length + semana.length + adelante.length + sinFecha.length;
+        const next = proximos[0] ?? null;
+        const pendingCount = porConfirmar.length + overdue.length + hoy.length + proximos.length + sinFecha.length;
         return { sections, overdue, hoy, next, pendingCount, dayIsFree: porConfirmar.length + overdue.length + hoy.length === 0 };
     }, [filteredCommitments, user?.id]);
 
@@ -423,64 +450,95 @@ export default function HoyScreen() {
         });
         enCurso.sort((a, b) => (a.due_at ? new Date(a.due_at).getTime() : Infinity) - (b.due_at ? new Date(b.due_at).getTime() : Infinity));
 
-        const sections: HoySection[] = [
-            { key: 'revisar', title: 'Dicen que ya está', data: revisar },
-            { key: 'atrasado', title: 'Atrasado', data: overdue, danger: true },
-            { key: 'curso', title: 'En curso', data: enCurso },
-            { key: 'aceptar', title: 'Aún no lo aceptan', data: porAceptar },
-        ].filter((s) => s.data.length > 0);
+        const sections: HoySection[] = ([
+            { key: 'revisar', title: 'Dicen que ya está', data: revisar, tone: 'accent', icon: 'checkmark-circle-outline' },
+            { key: 'atrasado', title: 'Atrasado', data: overdue, tone: 'danger', icon: 'alert-circle-outline' },
+            { key: 'curso', title: 'En curso', data: enCurso, tone: 'muted', icon: 'calendar-outline' },
+            { key: 'aceptar', title: 'Aún no lo aceptan', data: porAceptar, tone: 'muted', icon: 'hourglass-outline' },
+        ] as HoySection[]).filter((s) => s.data.length > 0);
 
         return { sections, pendingCount: porAceptar.length + revisar.length + overdue.length + enCurso.length };
     }, [filteredCommitments, user?.id]);
 
-    // ─── Historial y archivados ──────────────────────────────────────────────
+    // ─── Terminados y cancelados ─────────────────────────────────────────────
+    // One place for everything closed: done, cancelled, rejected and
+    // archived, grouped by when it closed. The chips narrow it to one kind.
     const historialData = useMemo(() => {
-        const finished = filteredCommitments.filter((c: any) => isFinishedStatus(normalizeCommitmentStatus(c.status)));
-        const sortDesc = (arr: any[]) => arr.sort((a, b) =>
-            new Date(b.resolved_at || b.due_at || b.created_at).getTime() - new Date(a.resolved_at || a.due_at || a.created_at).getTime());
-        const pick = (status: string) => sortDesc(finished.filter((c: any) => normalizeCommitmentStatus(c.status) === status));
-        const sections: HoySection[] = [
-            { key: 'resueltos', title: 'Hechos', data: pick('resolved') },
-            { key: 'cancelados', title: 'Cancelados', data: pick('cancelled') },
-            { key: 'rechazados', title: 'Rechazados', data: pick('rejected') },
-        ].filter((s) => s.data.length > 0);
-        return { sections };
-    }, [filteredCommitments]);
+        const list = historyFilter === 'archived'
+            ? archivedCommitments.filter(matchesFilters)
+            : filteredCommitments.filter((c: any) => {
+                const status = normalizeCommitmentStatus(c.status);
+                if (historyFilter === 'resolved') return status === 'resolved';
+                if (historyFilter === 'cancelled') return status === 'cancelled' || status === 'rejected';
+                return isFinishedStatus(status);
+            });
+        const closedAt = (c: any) => new Date(c.archived_at && historyFilter === 'archived'
+            ? c.archived_at
+            : c.resolved_at || c.updated_at || c.due_at || c.created_at);
+        const sorted = [...list].sort((a, b) => closedAt(b).getTime() - closedAt(a).getTime());
 
-    const archivadosData = useMemo(() => {
-        const list = archivedCommitments.filter(matchesFilters);
-        const sortDesc = (arr: any[]) => arr.sort((a, b) =>
-            new Date(b.archived_at || b.created_at).getTime() - new Date(a.archived_at || a.created_at).getTime());
-        const byStatus = (pred: (s: string) => boolean) => sortDesc(list.filter((c: any) => pred(normalizeCommitmentStatus(c.status))));
-        const sections: HoySection[] = [
-            { key: 'activos', title: 'Activos', data: byStatus((s) => !isFinishedStatus(s)) },
-            { key: 'resueltos', title: 'Hechos', data: byStatus((s) => s === 'resolved') },
-            { key: 'cancelados', title: 'Cancelados', data: byStatus((s) => s === 'cancelled') },
-            { key: 'rechazados', title: 'Rechazados', data: byStatus((s) => s === 'rejected') },
-        ].filter((s) => s.data.length > 0);
-        return { sections, count: list.length };
-    }, [archivedCommitments, matchesFilters]);
+        const now = new Date();
+        const weekAgo = subDays(startOfDay(now), 7);
+        const monthAgo = subDays(startOfDay(now), 30);
+        const sections: HoySection[] = ([
+            { key: 'semana', title: 'Esta semana', data: sorted.filter((c) => closedAt(c) >= weekAgo), tone: 'muted', icon: 'time-outline' },
+            { key: 'mes', title: 'Este mes', data: sorted.filter((c) => closedAt(c) < weekAgo && closedAt(c) >= monthAgo), tone: 'muted', icon: 'time-outline' },
+            { key: 'antes', title: 'Antes', data: sorted.filter((c) => closedAt(c) < monthAgo), tone: 'muted', icon: 'time-outline' },
+        ] as HoySection[]).filter((s) => s.data.length > 0);
+        return { sections };
+    }, [filteredCommitments, archivedCommitments, matchesFilters, historyFilter]);
+
+    // Everything pending in "Yo debo" or "Me deben": what the calendar marks
+    // and what a picked day is drawn from.
+    const pendingItems = useMemo(() => {
+        if (view === 'historial') return [];
+        return (view === 'mine' ? mineData.sections : theirsData.sections).flatMap((s) => s.data);
+    }, [view, mineData, theirsData]);
+    const dayMarks = useMemo(() => buildDayMarks(pendingItems, (c) => isCommitmentOverdue(c)), [pendingItems]);
 
     const currentSections = useMemo(() => {
-        const sections = view === 'mine' ? mineData.sections
-            : view === 'theirs' ? theirsData.sections
-                : view === 'historial' ? historialData.sections
-                    : archivadosData.sections;
+        const daySection: HoySection | null = selectedDay && view !== 'historial' ? {
+            key: 'dia',
+            title: capitalize(format(selectedDay, "EEEE d 'de' MMMM", { locale: es })),
+            data: pendingItems.filter((c: any) => c.due_at && isSameDay(new Date(c.due_at), selectedDay)).sort(byDueAsc),
+            tone: 'accent',
+            icon: 'calendar-outline',
+            startsOpen: true,
+        } : null;
+        const sections = daySection ? (daySection.data.length > 0 ? [daySection] : [])
+            : view === 'mine' ? mineData.sections
+                : view === 'theirs' ? theirsData.sections
+                    : historialData.sections;
         // While searching every section is open, so nothing found is hidden.
-        return sections.map((s) => ({
-            ...s,
-            isOpen: !s.collapsible || !!query || !!expanded[`${view}:${s.key}`],
-            count: s.data.length,
-            data: !s.collapsible || query || expanded[`${view}:${s.key}`] ? s.data : [],
-        }));
-    }, [view, mineData, theirsData, historialData, archivadosData, expanded, query]);
+        return sections.map((s) => {
+            const choice = expanded[`${view}:${s.key}`];
+            const isOpen = !!query || (choice ?? !!s.startsOpen);
+            return { ...s, isOpen, count: s.data.length, data: isOpen ? s.data : [] };
+        });
+    }, [view, mineData, theirsData, historialData, expanded, query, selectedDay, pendingItems]);
+
+    const toggleSection = useCallback((key: string, isOpen: boolean) => {
+        setExpanded((e) => ({ ...e, [`${view}:${key}`]: !isOpen }));
+    }, [view]);
+
+    const toneColor = (tone: SectionTone) => tone === 'danger' ? theme.colors.danger
+        : tone === 'accent' ? theme.colors.accent
+            : theme.colors.text.secondary;
 
     const suggestion = view === 'mine' && !query && !hasFiltersActive ? pingSuggestion(mineData.overdue, mineData.hoy) : null;
     const todayLabel = capitalize(format(new Date(), "EEEE d 'de' MMMM", { locale: es }));
 
     const renderListHeader = () => {
-        if (view !== 'mine' || query || hasFiltersActive || !mineData.dayIsFree) return null;
+        if (view === 'historial') return null;
+        const strip = calendarVisible && (
+            <View style={styles.weekStrip}>
+                <WeekStrip marks={dayMarks} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
+            </View>
+        );
+        if (view !== 'mine' || query || hasFiltersActive || selectedDay || !mineData.dayIsFree) return strip || null;
         return (
+            <>
+            {strip}
             <View style={styles.freeDay}>
                 <Ionicons name="sunny-outline" size={28} color={theme.colors.accent} />
                 <Text style={[styles.freeDayTitle, { color: theme.colors.text.primary }]}>Hoy estás libre</Text>
@@ -488,15 +546,21 @@ export default function HoyScreen() {
                     {mineData.next ? `Lo próximo: «${mineData.next.title}» · ${formatWhen(mineData.next.due_at)}` : 'No tienes nada pendiente.'}
                 </Text>
             </View>
+            </>
         );
     };
 
     const renderEmpty = () => {
-        if (view === 'mine' && !query && !hasFiltersActive) return null;
+        if (view === 'mine' && !query && !hasFiltersActive && !selectedDay) return null;
         let copy = 'Nadie te debe nada por ahora.';
         if (view === 'mine') copy = 'No tienes compromisos pendientes.';
-        if (view === 'historial') copy = 'Aún no tienes compromisos cerrados.';
-        if (view === 'archivados') copy = 'No tienes compromisos archivados.';
+        if (view === 'historial') {
+            copy = historyFilter === 'archived' ? 'No tienes compromisos archivados.'
+                : historyFilter === 'cancelled' ? 'No tienes compromisos cancelados.'
+                    : historyFilter === 'resolved' ? 'Aún no terminas ningún compromiso.'
+                        : 'Aún no tienes compromisos terminados ni cancelados.';
+        }
+        if (selectedDay) copy = 'No tienes nada para ese día.';
         if (hasFiltersActive || query) copy = 'No encontré compromisos con esa búsqueda.';
         return (
             <View style={styles.emptyContainer}>
@@ -517,7 +581,22 @@ export default function HoyScreen() {
         </TouchableOpacity>
     );
 
-    const isSideView = view === 'historial' || view === 'archivados';
+    const isSideView = view === 'historial';
+
+    const renderListFooter = () => {
+        if (isSideView) return null;
+        return (
+            <TouchableOpacity
+                style={[styles.card, styles.historyLink, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                onPress={() => openHistory('all')}
+                accessibilityRole="button"
+            >
+                <Ionicons name="time-outline" size={18} color={theme.colors.text.secondary} />
+                <Text style={[styles.historyLinkText, { color: theme.colors.text.primary }]}>Terminados y cancelados</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.text.muted} />
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -556,14 +635,9 @@ export default function HoyScreen() {
                         )}
 
                         <View style={[styles.sheetLinks, { borderTopColor: theme.colors.border }]}>
-                            <TouchableOpacity style={styles.sheetLink} onPress={() => { setView('historial'); setFilterDrawerVisible(false); }}>
+                            <TouchableOpacity style={styles.sheetLink} onPress={() => { openHistory('all'); setFilterDrawerVisible(false); }}>
                                 <Ionicons name="time-outline" size={18} color={theme.colors.text.secondary} />
-                                <Text style={[styles.sheetLinkText, { color: theme.colors.text.primary }]}>Historial</Text>
-                                <Ionicons name="chevron-forward" size={16} color={theme.colors.text.muted} />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.sheetLink} onPress={() => { setView('archivados'); setFilterDrawerVisible(false); refetchArchived(); }}>
-                                <Ionicons name="archive-outline" size={18} color={theme.colors.text.secondary} />
-                                <Text style={[styles.sheetLinkText, { color: theme.colors.text.primary }]}>Archivados ({archivadosData.count})</Text>
+                                <Text style={[styles.sheetLinkText, { color: theme.colors.text.primary }]}>Terminados y cancelados</Text>
                                 <Ionicons name="chevron-forward" size={16} color={theme.colors.text.muted} />
                             </TouchableOpacity>
                         </View>
@@ -606,11 +680,30 @@ export default function HoyScreen() {
             />
 
             <View style={styles.header}>
+                {isSideView && (
+                    <TouchableOpacity onPress={() => setView('mine')} style={styles.backRow} accessibilityRole="button">
+                        <Ionicons name="chevron-back" size={16} color={theme.colors.accent} />
+                        <Text style={[styles.backText, { color: theme.colors.accent }]}>Volver a Hoy</Text>
+                    </TouchableOpacity>
+                )}
                 <View style={styles.headerTop}>
                     <View style={{ flex: 1 }}>
-                        <Text style={[styles.headerTitle, { color: theme.colors.text.primary }]}>Hoy</Text>
-                        <Text style={[styles.headerDate, { color: theme.colors.text.secondary }]}>{todayLabel}</Text>
+                        <Text style={[isSideView ? styles.sideTitle : styles.headerTitle, { color: theme.colors.text.primary }]}>
+                            {isSideView ? 'Terminados y cancelados' : 'Hoy'}
+                        </Text>
+                        {!isSideView && <Text style={[styles.headerDate, { color: theme.colors.text.secondary }]}>{todayLabel}</Text>}
                     </View>
+                    {!isSideView && (
+                        <TouchableOpacity
+                            onPress={toggleCalendar}
+                            style={[styles.iconBtn, calendarVisible && { backgroundColor: theme.colors.accentSoft }]}
+                            accessibilityLabel={calendarVisible ? 'Ocultar calendario' : 'Ver calendario'}
+                            accessibilityState={{ expanded: calendarVisible }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons name="calendar-outline" size={21} color={calendarVisible ? theme.colors.accent : theme.colors.text.secondary} />
+                        </TouchableOpacity>
+                    )}
                     <TouchableOpacity onPress={toggleSearch} style={styles.iconBtn} accessibilityLabel="Buscar" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <Ionicons name={searchVisible ? 'close' : 'search'} size={21} color={theme.colors.text.secondary} />
                     </TouchableOpacity>
@@ -646,12 +739,16 @@ export default function HoyScreen() {
                 )}
 
                 {isSideView ? (
-                    <TouchableOpacity onPress={() => setView('mine')} style={styles.backRow}>
-                        <Ionicons name="chevron-back" size={16} color={theme.colors.accent} />
-                        <Text style={[styles.backText, { color: theme.colors.accent }]}>
-                            {view === 'historial' ? 'Historial' : 'Archivados'} · volver
-                        </Text>
-                    </TouchableOpacity>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyChips}>
+                        {([['all', 'Todos'], ['resolved', 'Hechos'], ['cancelled', 'Cancelados'], ['archived', 'Archivados']] as const).map(([v, l]) => (
+                            <FilterChip
+                                key={v}
+                                label={l}
+                                active={historyFilter === v}
+                                onPress={() => { setHistoryFilter(v); if (v === 'archived') refetchArchived(); }}
+                            />
+                        ))}
+                    </ScrollView>
                 ) : (
                     <View style={[styles.segmentContainer, { backgroundColor: theme.colors.surfaceMuted }]}>
                         {([['mine', 'Yo debo', mineData.pendingCount], ['theirs', 'Me deben', theirsData.pendingCount]] as const).map(([v, label, count]) => (
@@ -666,7 +763,22 @@ export default function HoyScreen() {
             <SectionList
                 sections={currentSections}
                 keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
+                renderItem={({ item, index, section }) => {
+                    const s = section as typeof currentSections[number];
+                    // Each section's rows sit together on one card, so where a
+                    // group starts and ends is never in doubt.
+                    const isFirst = index === 0;
+                    const isLast = index === s.data.length - 1;
+                    return (
+                        <View
+                            style={[
+                                styles.cardRow,
+                                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                                isFirst && styles.cardRowFirst,
+                                !isFirst && { borderTopColor: theme.colors.border, borderTopWidth: StyleSheet.hairlineWidth },
+                                isLast && styles.cardRowLast,
+                            ]}
+                        >
                     <CommitmentRow
                         commitment={item}
                         currentUserId={user?.id}
@@ -682,42 +794,65 @@ export default function HoyScreen() {
                         onRestore={handleRestore}
                         onNudge={view === 'theirs' ? handleNudge : undefined}
                         onReceived={view === 'theirs' ? handleReceived : undefined}
+                        onReopen={view === 'historial' ? handleReopen : undefined}
                     />
-                )}
+                        </View>
+                    );
+                }}
                 renderSectionHeader={({ section }) => {
-                    const s = section as HoySection & { isOpen: boolean; count: number };
-                    const color = s.danger ? theme.colors.danger : theme.colors.text.secondary;
-                    if (!s.collapsible) {
-                        return (
-                            <View style={[styles.sectionHeader, { backgroundColor: theme.colors.background }]}>
-                                <Text style={[styles.sectionTitle, { color }]}>{s.title}</Text>
+                    const s = section as typeof currentSections[number];
+                    const color = toneColor(s.tone);
+                    // A section title is a small colored label, never the
+                    // same size and weight as the commitments below it.
+                    const label = (
+                        <View style={styles.sectionLabel}>
+                            <Ionicons name={s.icon} size={15} color={color} />
+                            <Text style={[styles.sectionTitle, { color }]}>{s.title}</Text>
+                            <View style={[styles.countPill, { backgroundColor: s.tone === 'muted' ? theme.colors.surfaceMuted : `${color}26` }]}>
+                                <Text style={[styles.countPillText, { color }]}>{s.count}</Text>
                             </View>
-                        );
-                    }
+                        </View>
+                    );
                     return (
                         <TouchableOpacity
-                            style={[styles.foldHeader, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}
-                            onPress={() => setExpanded((e) => ({ ...e, [`${view}:${s.key}`]: !e[`${view}:${s.key}`] }))}
+                            style={styles.sectionHeader}
+                            onPress={() => toggleSection(s.key, s.isOpen)}
+                            accessibilityRole="button"
+                            accessibilityState={{ expanded: s.isOpen }}
                         >
-                            <Text style={[styles.foldTitle, { color: theme.colors.text.primary }]}>{s.title}</Text>
-                            <Text style={[styles.foldCount, { color: theme.colors.text.secondary }]}>{s.count}</Text>
-                            <Ionicons name={s.isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.text.muted} />
+                            {label}
+                            <Ionicons name={s.isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
                         </TouchableOpacity>
                     );
                 }}
-                ListHeaderComponent={renderListHeader}
+                // Passed as an element, not a component: a component made
+                // anew on every render would remount the calendar and send
+                // the month view back to the week each time a day is picked.
+                ListHeaderComponent={renderListHeader()}
                 ListEmptyComponent={renderEmpty}
+                ListFooterComponent={renderListFooter}
                 contentContainerStyle={styles.listContent}
                 stickySectionHeadersEnabled={false}
                 refreshControl={
                     <RefreshControl
-                        refreshing={view === 'archivados' ? isRefetchingArchived : isRefetching}
-                        onRefresh={view === 'archivados' ? refetchArchived : refetch}
+                        refreshing={showingArchived ? isRefetchingArchived : isRefetching}
+                        onRefresh={showingArchived ? refetchArchived : refetch}
                         tintColor={theme.colors.accent}
                     />
                 }
                 showsVerticalScrollIndicator={false}
             />
+
+            {!!undoToast && (
+                <View style={[styles.toast, { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border }]}>
+                    <Text style={[styles.toastText, { color: theme.colors.text.primary }]} numberOfLines={2}>
+                        Cancelado. Lo verás en Terminados y cancelados.
+                    </Text>
+                    <TouchableOpacity onPress={handleUndoCancel} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button">
+                        <Text style={[styles.toastAction, { color: theme.colors.accent }]}>Deshacer</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {!isSideView && (
                 <TouchableOpacity
@@ -757,15 +892,29 @@ const createStyles = (theme: any) => StyleSheet.create({
     segmentTextActive: { color: theme.colors.text.primary, fontWeight: '700' },
     backRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
     backText: { fontSize: 14, fontWeight: '600' },
-    listContent: { paddingBottom: 110 },
-    sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
-    sectionTitle: { fontSize: 13, fontWeight: '700' },
-    foldHeader: {
-        flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 13,
-        borderBottomWidth: StyleSheet.hairlineWidth,
+    weekStrip: { paddingHorizontal: 12, paddingTop: 4 },
+    sideTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+    // Bottom room so the + button never covers the last row.
+    listContent: { paddingBottom: 120 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 18, paddingBottom: 8 },
+    sectionLabel: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    sectionTitle: { fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
+    countPill: { minWidth: 22, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 10, alignItems: 'center' },
+    countPillText: { fontSize: 12, fontWeight: '700' },
+    card: { marginHorizontal: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+    cardRow: { marginHorizontal: 12, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth },
+    cardRowFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+    cardRowLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
+    historyChips: { flexDirection: 'row', gap: 8 },
+    historyLink: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24, paddingHorizontal: 14, paddingVertical: 14 },
+    historyLinkText: { flex: 1, fontSize: 15, fontWeight: '500' },
+    toast: {
+        position: 'absolute', left: 16, right: 16, bottom: 90, flexDirection: 'row', alignItems: 'center', gap: 12,
+        paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
     },
-    foldTitle: { flex: 1, fontSize: 15, fontWeight: '500' },
-    foldCount: { fontSize: 14 },
+    toastText: { flex: 1, fontSize: 13, lineHeight: 18 },
+    toastAction: { fontSize: 14, fontWeight: '700' },
     freeDay: { alignItems: 'center', paddingVertical: 28, paddingHorizontal: 32, gap: 6 },
     freeDayTitle: { fontSize: 17, fontWeight: '700' },
     freeDayText: { fontSize: 14, textAlign: 'center', lineHeight: 20 },

@@ -735,29 +735,30 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
         expect(detailSheetBlock).toMatch(/onRestore=\{handleRestore\}/);
     });
 
-    it('Hoy keeps Historial and Archivados as views of the same list -- never a new tab', () => {
+    it('Hoy keeps finished, cancelled and archived items in one view -- never a new tab', () => {
         const src = readSrc('src/screens/HoyScreen.tsx');
-        expect(src).toMatch(/type HoyView = 'mine' \| 'theirs' \| 'historial' \| 'archivados';/);
-        expect(src).toMatch(/: archivadosData\.sections;/);
+        expect(src).toMatch(/type HoyView = 'mine' \| 'theirs' \| 'historial';/);
+        expect(src).toMatch(/type HistoryFilter = 'all' \| 'resolved' \| 'cancelled' \| 'archived';/);
+        expect(src).toContain("? archivedCommitments.filter(matchesFilters)");
     });
 
-    it('the Archivados entry point lives inside the filter sheet, never as a visible segment button', () => {
+    it('"Terminados y cancelados" is reachable from the end of the list and from the filter sheet, never as a segment button', () => {
         const src = readSrc('src/screens/HoyScreen.tsx');
         const segmentBlock = src.slice(src.indexOf("['mine', 'Yo debo'"), src.indexOf('<SectionList'));
-        expect(segmentBlock).not.toContain('archivados');
-        expect(src).toMatch(/onPress=\{\(\) => \{ setView\('archivados'\); setFilterDrawerVisible\(false\);/);
+        expect(segmentBlock).not.toContain('historial');
+        expect(src).toContain("ListFooterComponent={renderListFooter}");
+        expect(src).toMatch(/onPress=\{\(\) => \{ openHistory\('all'\); setFilterDrawerVisible\(false\);/);
+        expect(src).toContain("[['all', 'Todos'], ['resolved', 'Hechos'], ['cancelled', 'Cancelados'], ['archived', 'Archivados']]");
     });
 
-    it('archivadosData groups by REAL canonical status, never presenting "archivado" itself as a lifecycle status', () => {
+    it('the history filters use the REAL canonical status, never "archivado" as a lifecycle status', () => {
         const src = readSrc('src/screens/HoyScreen.tsx');
-        const archivadosBlock = src.slice(src.indexOf('const archivadosData'), src.indexOf('const currentSections'));
-        expect(archivadosBlock).toMatch(/title: 'Activos'/);
-        expect(archivadosBlock).toMatch(/title: 'Hechos'/);
-        expect(archivadosBlock).toMatch(/title: 'Cancelados'/);
-        expect(archivadosBlock).toMatch(/title: 'Rechazados'/);
-        expect(archivadosBlock).toMatch(/normalizeCommitmentStatus\(c\.status\)/);
+        const block = src.slice(src.indexOf('const historialData'), src.indexOf('const currentSections'));
+        expect(block).toMatch(/const status = normalizeCommitmentStatus\(c\.status\);/);
+        expect(block).toContain("if (historyFilter === 'cancelled') return status === 'cancelled' || status === 'rejected';");
     });
 });
+
 
 // PING — RESTORE PHYSICAL FAILURE: physical iPhone test found tapping
 // Restaurar produced "ApiError: Unable to process commitment request" AND
