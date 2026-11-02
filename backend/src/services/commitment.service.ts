@@ -1,8 +1,6 @@
 import OpenAI from 'openai';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { assertCommitmentConversationParticipant, assertCommitmentOwner, assertCommitmentOwnerOrResponsible, assertConversationParticipant, assertOwnContact } from '../utils/authz';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { AppError } from '../utils/AppError';
@@ -19,7 +17,6 @@ import {
     buildCommitmentVisibilityFilter,
     getParticipantProposalIds,
 } from '../utils/commitmentVisibility';
-import { persistSystemMessage } from './messagingApplication.service';
 import { resolveTimeZone } from './date-parser.service';
 import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.service';
 
@@ -124,26 +121,6 @@ export const extractCommitment = async (
 // commitment.service.createCommitment. It no longer owns a direct INSERT:
 // every callable path persists a Proposal and then confirms it explicitly.
 export const createCommitment = createConfirmedCommitment;
-async function insertSystemMessage(userId: string, conversationId: string | null, text: string) {
-    if (!conversationId) {
-        console.warn(`[Commitment Service] insertSystemMessage: No conversationId provided for user ${userId}`);
-        return;
-    }
-    try {
-        console.info(`[Commitment Service] Inserting a system message into conversation ${conversationId}`);
-        // V2: messages usa content/metadata + system_event_type (no text/meta/user_id).
-        await persistSystemMessage({
-            conversationId,
-            senderUserId: userId,
-            content: text,
-            metadata: { isSystem: true },
-            systemEventType: 'commitment_notice',
-        });
-    } catch (err) {
-        console.error('[Commitment Service] insertSystemMessage exception:', err);
-    }
-}
-
 async function getUserName(userId: string) {
     const { data } = await supabaseAdmin.from('profiles').select('full_name').eq('id', userId).single();
     return data?.full_name || 'Alguien';
@@ -271,7 +248,6 @@ export const acceptCommitment = async (userId: string, id: string) => {
 
     console.log(`[Commitment Service] Commitment updated to accepted: ${data.id}`);
     const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `✅ ${userName} aceptó la propuesta: "${data.title}"`);
     if (data.owner_user_id && data.owner_user_id !== userId) {
         await notifyUser(
             data.owner_user_id,
@@ -288,7 +264,6 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
     const data = await applyCommitmentTransition(userId, id, 'reject', { reason: reason ?? null });
 
     const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `❌ ${userName} rechazó la propuesta: "${data.title}"${reason ? ` (Motivo: ${reason})` : ''}`);
     if (data.owner_user_id && data.owner_user_id !== userId) {
         await notifyUser(
             data.owner_user_id,
@@ -307,9 +282,6 @@ export const rejectCommitment = async (userId: string, id: string, reason?: stri
 export const counterProposeCommitment = async (userId: string, id: string, proposedDueAt: string) => {
     const data = await applyCommitmentTransition(userId, id, 'counter_propose', { newProposedDueAt: proposedDueAt });
 
-    const userName = await getUserName(userId);
-    const newDateStr = format(new Date(proposedDueAt), "eeee d 'de' MMMM 'a las' HH:mm", { locale: es });
-    await insertSystemMessage(userId, data.conversation_id, `🕒 ${userName} propuso una nueva fecha para "${data.title}": ${newDateStr}`);
 
     return data;
 };
@@ -323,15 +295,11 @@ export const postponeCommitment = async (userId: string, id: string, newDate: st
 
 export const markActionCompleted = async (userId: string, id: string) => {
     const data = await applyCommitmentTransition(userId, id, 'action_complete');
-    const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `☑️ ${userName} marcó la acción como realizada: "${data.title}"`);
     return data;
 };
 
 export const resolveCommitment = async (userId: string, id: string, resolutionResult: string) => {
     const data = await applyCommitmentTransition(userId, id, 'resolve', { resolutionResult });
-    const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `✅ ${userName} marcó como resuelto: "${data.title}"`);
     return data;
 };
 
@@ -339,11 +307,6 @@ export const cancelCommitment = async (userId: string, id: string, reason?: stri
     const normalizedReason = reason?.trim() || null;
     const data = await applyCommitmentTransition(userId, id, 'cancel', { reason: normalizedReason });
     const userName = await getUserName(userId);
-    await insertSystemMessage(
-        userId,
-        data.conversation_id,
-        `🚫 ${userName} canceló: "${data.title}"${normalizedReason ? `. Motivo: ${normalizedReason}` : ''}`
-    );
     if (data.assigned_to_user_id && data.assigned_to_user_id !== userId) {
         await notifyUser(
             data.assigned_to_user_id,
@@ -357,8 +320,6 @@ export const cancelCommitment = async (userId: string, id: string, reason?: stri
 
 export const reopenCommitment = async (userId: string, id: string) => {
     const data = await applyCommitmentTransition(userId, id, 'reopen');
-    const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `🔄 ${userName} reabrió: "${data.title}"`);
     return data;
 };
 
@@ -367,8 +328,6 @@ export const reassignCommitment = async (userId: string, id: string, newAssigned
         newAssignedToUserId: newAssignedToUserId ?? null,
         newCounterpartyContactId: newCounterpartyContactId ?? null,
     });
-    const userName = await getUserName(userId);
-    await insertSystemMessage(userId, data.conversation_id, `👤 ${userName} reasignó: "${data.title}"`);
     return data;
 };
 
@@ -426,44 +385,12 @@ export const editCommitment = async (
         throw new AppError('Commitment edit cannot be empty', 400);
     }
 
-    const { data: before, error: beforeError } = await supabaseAdmin
-        .from('commitments')
-        .select('id, title, due_at, conversation_id')
-        .eq('id', id)
-        .single();
-    if (beforeError) throw beforeError;
-
     const { data, error } = await supabaseAdmin.rpc('edit_commitment_with_evidence', {
         p_commitment_id: id,
         p_actor_user_id: userId,
         p_patch: patch,
     });
     if (error) throw error;
-
-    const notices: string[] = [];
-    if (patch.title !== undefined && data.title !== before.title) {
-        notices.push(`Título actualizado: ${data.title}`);
-    }
-    if (patch.due_at !== undefined && data.due_at !== before.due_at) {
-        const dateStr = data.due_at
-            ? new Date(data.due_at).toLocaleString('es-CL', {
-                timeZone: 'America/Santiago',
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false,
-            })
-            : 'sin fecha';
-        notices.push(`Nuevo horario: ${dateStr}`);
-    }
-    if (notices.length > 0) {
-        await insertSystemMessage(
-            userId,
-            data.conversation_id || before.conversation_id,
-            `✏️ ${notices.join(' · ')}`
-        );
-    }
 
     return data;
 };

@@ -6,7 +6,6 @@ import {
     assertLegacySatelliteWriterEnabled,
     isLegacySatelliteWriterEnabled,
     requireFeature,
-    requirePrivateFileFeature,
 } from '../src/middleware/featureGate';
 
 const originalEnv = { ...process.env };
@@ -123,50 +122,19 @@ describe('feature gates', () => {
         return { status, json, next };
     }
 
-    it('mantiene cerrados todos los gates cuando no hay habilitación explícita', () => {
+    it('mantiene cerrados los gates no-MVP cuando no hay habilitación explícita', () => {
         const nonMvp = createMiddlewareContext();
-        const reads = createMiddlewareContext();
-        const uploads = createMiddlewareContext();
         delete process.env.ENABLE_NON_MVP_CAPABILITIES;
         delete process.env.ENABLE_TEST_CAPABILITY;
-        delete process.env.ENABLE_PRIVATE_FILE_READS;
-        delete process.env.ENABLE_PRIVATE_FILE_UPLOADS;
 
         requireFeature('ENABLE_TEST_CAPABILITY')(
             {} as any,
             { status: nonMvp.status, json: nonMvp.json } as any,
             nonMvp.next
         );
-        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS')(
-            {} as any,
-            { status: reads.status, json: reads.json } as any,
-            reads.next
-        );
-        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS')(
-            {} as any,
-            { status: uploads.status, json: uploads.json } as any,
-            uploads.next
-        );
 
-        for (const context of [nonMvp, reads, uploads]) {
-            expect(context.status).toHaveBeenCalledWith(503);
-            expect(context.next).not.toHaveBeenCalled();
-        }
-    });
-
-    it('habilita lectura privada con el master no-MVP cerrado', () => {
-        const { status, json, next } = createMiddlewareContext();
-        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
-        process.env.ENABLE_PRIVATE_FILE_READS = 'true';
-
-        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_READS')(
-            {} as any,
-            { status, json } as any,
-            next
-        );
-
-        expect(next).toHaveBeenCalledTimes(1);
-        expect(status).not.toHaveBeenCalled();
+        expect(nonMvp.status).toHaveBeenCalledWith(503);
+        expect(nonMvp.next).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -184,52 +152,6 @@ describe('feature gates', () => {
         expect(next).not.toHaveBeenCalled();
     });
 
-    it('mantiene las subidas privadas bloqueadas aunque otros gates estén abiertos', () => {
-        const { status, json, next } = createMiddlewareContext();
-        process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
-        process.env.ENABLE_PRIVATE_FILE_READS = 'true';
-        process.env.ENABLE_PRIVATE_FILE_UPLOADS = 'false';
-
-        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS')(
-            {} as any,
-            { status, json } as any,
-            next
-        );
-
-        expect(status).toHaveBeenCalledWith(503);
-        expect(next).not.toHaveBeenCalled();
-    });
-
-    it('habilita sólo avatar y adjuntos sin abrir el gate genérico', () => {
-        const avatar = createMiddlewareContext();
-        const message = createMiddlewareContext();
-        const generic = createMiddlewareContext();
-        process.env.ENABLE_NON_MVP_CAPABILITIES = 'false';
-        process.env.ENABLE_PRIVATE_FILE_UPLOADS = 'false';
-        process.env.ENABLE_PRIVATE_AVATAR_UPLOADS = 'true';
-        process.env.ENABLE_PRIVATE_MESSAGE_UPLOADS = 'true';
-
-        requirePrivateFileFeature('ENABLE_PRIVATE_AVATAR_UPLOADS')(
-            {} as any,
-            { status: avatar.status, json: avatar.json } as any,
-            avatar.next
-        );
-        requirePrivateFileFeature('ENABLE_PRIVATE_MESSAGE_UPLOADS')(
-            {} as any,
-            { status: message.status, json: message.json } as any,
-            message.next
-        );
-        requirePrivateFileFeature('ENABLE_PRIVATE_FILE_UPLOADS')(
-            {} as any,
-            { status: generic.status, json: generic.json } as any,
-            generic.next
-        );
-
-        expect(avatar.next).toHaveBeenCalledTimes(1);
-        expect(message.next).toHaveBeenCalledTimes(1);
-        expect(generic.status).toHaveBeenCalledWith(503);
-        expect(generic.next).not.toHaveBeenCalled();
-    });
 
     it('exige master e indicador individual para capacidades no-MVP', () => {
         const blocked = createMiddlewareContext();

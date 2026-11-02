@@ -321,48 +321,6 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         );
     }, [typingUsers, user?.id, navigation, styles, renderLeftActions, renderRightActions, theme]);
 
-    // M-1G.1 fix — TouchableOpacity's legacy Touchable mixin fires `onPress`
-    // AGAIN on release right after a successful `onLongPress` (well-known RN
-    // behavior, not a bug in this component). Without this guard, a
-    // long-press pushed BOTH 'PingAI' (ghost onPress) and 'AgentPreview'
-    // (menu choice) onto the stack, so the preview's back button landed on
-    // legacy Ping AI instead of Chats. This ref suppresses that one ghost
-    // press without touching Touchable semantics anywhere else.
-    const suppressPingAIPressRef = React.useRef(false);
-
-    // Public product entry is always Ping/Core. Preview, tablet and legacy
-    // remain available only in development so the user never has to choose a
-    // brain or modality in the shipped app.
-    const handleOpenAgentMenu = React.useCallback(() => {
-        if (!__DEV__) return;
-        suppressPingAIPressRef.current = true;
-        const items: { label: string; onPress: () => void }[] = [
-            { label: 'Ping', onPress: () => navigation.navigate('PingAI', { surface: publicPingSurface() }) },
-            { label: 'Preview interno', onPress: () => navigation.navigate('AgentPreview') },
-        ];
-        if (__DEV__) {
-            items.push({
-                label: 'Piloto tablet (voz)',
-                onPress: () => navigation.navigate('AgentPreview', { surface: 'tablet' }),
-            });
-        }
-
-        if (Platform.OS === 'ios') {
-            ActionSheetIOS.showActionSheetWithOptions(
-                { options: ['Cancelar', ...items.map(i => i.label)], cancelButtonIndex: 0 },
-                (index) => {
-                    if (index === 0) return;
-                    items[index - 1]?.onPress();
-                }
-            );
-        } else {
-            Alert.alert('Asistente', undefined, [
-                ...items.map(i => ({ text: i.label, onPress: i.onPress })),
-                { text: 'Cancelar', style: 'cancel' as const },
-            ]);
-        }
-    }, [navigation]);
-
     const handleOpenCreateSheet = React.useCallback(() => {
         // "Para mí" is a first-class pinned row now, not a hidden option here —
         // this sheet only ever offers Nuevo chat / Nuevo grupo.
@@ -432,14 +390,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.headerIconBtn}
-                                onPress={() => {
-                                    if (suppressPingAIPressRef.current) {
-                                        suppressPingAIPressRef.current = false;
-                                        return;
-                                    }
-                                    navigation.navigate('PingAI', { surface: publicPingSurface() });
-                                }}
-                                onLongPress={handleOpenAgentMenu}
+                                onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface() })}
                                 accessibilityRole="button"
                                 accessibilityLabel="Abrir Ping"
                             >
@@ -520,9 +471,6 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         contentContainerStyle={[styles.listContent, { paddingBottom: listPaddingBottom }]}
                         ListHeaderComponent={() => (
                             <View style={styles.listHeader}>
-                                <View style={styles.sectionHintRow}>
-                                    <Text style={styles.sectionHintText}>{filteredConversations.length} hilos visibles</Text>
-                                </View>
                                 <ScrollView
                                     horizontal
                                     showsHorizontalScrollIndicator={false}
@@ -682,8 +630,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.headerCard, borderRadius: 16, paddingHorizontal: 14, height: 44, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
     searchInput: { flex: 1, marginLeft: 10, color: theme.colors.white, fontSize: 15, fontWeight: '500' },
     listHeader: { backgroundColor: theme.colors.screen, paddingTop: 12 },
-    sectionHintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 10 },
-    sectionHintText: { fontSize: 11, color: theme.colors.text.muted, fontWeight: '700', letterSpacing: 0.3 },
     filterBarContainer: { marginBottom: 4 },
     filterBar: { flexDirection: 'row', paddingHorizontal: 20, gap: 6 },
     filterChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, borderWidth: 1, borderColor: theme.colors.separator },

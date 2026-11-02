@@ -148,7 +148,12 @@ export const list = async (req: Request, res: Response): Promise<void> => {
 
         if (cachedLastMessagesError) throw cachedLastMessagesError;
 
-        const loadedLastMessageIds = new Set((cachedLastMessages || []).map((message) => message.id));
+        // The preview shows the last message a person wrote. When the snapshot
+        // points at a system notice (or is missing on older rows), look up the
+        // latest human message of just that conversation.
+        const isHumanMessage = (message: any) => !message.metadata?.isSystem;
+        const humanSnapshots = (cachedLastMessages || []).filter(isHumanMessage);
+        const loadedLastMessageIds = new Set(humanSnapshots.map((message) => message.id));
         const conversationsWithoutSnapshot = (conversationsData || [])
             .filter((conversation) => {
                 const snapshotId = conversation.last_message_id;
@@ -158,19 +163,18 @@ export const list = async (req: Request, res: Response): Promise<void> => {
             })
             .map((conversation) => conversation.id);
 
-        // Older production rows may predate the last_message snapshot trigger.
-        // Preserve their preview while keeping the compatibility query limited
-        // to only those conversations.
-        const { data: fallbackLastMessages, error: fallbackLastMessagesError } = conversationsWithoutSnapshot.length > 0
-            ? await supabaseAdmin
+        const fallbackLastMessages = await Promise.all(conversationsWithoutSnapshot.map(async (conversationId) => {
+            const { data, error } = await supabaseAdmin
                 .from('messages')
                 .select('id, conversation_id, content, created_at, metadata, status, sender_id, deleted_at, message_receipts(*)')
-                .in('conversation_id', conversationsWithoutSnapshot)
+                .eq('conversation_id', conversationId)
+                .is('system_event_type', null)
                 .order('created_at', { ascending: false })
-            : { data: [], error: null };
-
-        if (fallbackLastMessagesError) throw fallbackLastMessagesError;
-        const lastMessages = [...(cachedLastMessages || []), ...(fallbackLastMessages || [])];
+                .limit(20);
+            if (error) throw error;
+            return (data || []).find(isHumanMessage) || null;
+        }));
+        const lastMessages = [...humanSnapshots, ...fallbackLastMessages.filter((message): message is NonNullable<typeof message> => message !== null)];
 
         // Unread es una propiedad del receipt del actor, no del status global.
         const { data: unreadCountsData, error: unreadErr } = await supabaseAdmin

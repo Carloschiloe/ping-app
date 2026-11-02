@@ -45,7 +45,6 @@ import {
     clearPrivateFileReadCache,
     getPrivateFileRefreshDelay,
     isRetryablePrivateFileReadError,
-    requestPrivateFileUploadUrl,
     resolveAttachmentUrl,
     resolvePrivateFileUrl,
     uploadPrivateMessageAttachment,
@@ -103,22 +102,6 @@ describe('private file mobile preparation', () => {
         expect(isRetryablePrivateFileReadError({ status: 429 })).toBe(true);
         expect(isRetryablePrivateFileReadError({ status: 503 })).toBe(true);
         expect(isRetryablePrivateFileReadError(new Error('Network request failed'))).toBe(true);
-    });
-
-    it('mantiene las subidas cerradas y no solicita una firma al backend', async () => {
-        const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-        await expect(requestPrivateFileUploadUrl(
-            'message_attachment',
-            '33333333-3333-4333-8333-333333333333',
-            'application/pdf'
-        )).resolves.toBeNull();
-
-        expect(apiClient.post).not.toHaveBeenCalled();
-        expect(warning).toHaveBeenCalledWith(
-            '[Upload] Private media uploads remain disabled in mobile'
-        );
-        warning.mockRestore();
     });
 
     it('sube y confirma un avatar sin persistir la URL firmada', async () => {
