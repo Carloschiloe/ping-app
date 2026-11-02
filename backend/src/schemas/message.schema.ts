@@ -22,3 +22,13 @@ export const sendMessageSchema = z.object({
         path: ['attachmentId'],
     })
 });
+
+export const toggleReactionSchema = z.object({
+    params: z.object({
+        id: z.string().uuid(),
+        messageId: z.string().uuid(),
+    }),
+    body: z.object({
+        reaction: z.string().trim().min(1).max(16),
+    }),
+});

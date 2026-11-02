@@ -18,6 +18,8 @@ import {
     getParticipantProposalIds,
 } from '../utils/commitmentVisibility';
 import { resolveTimeZone } from './date-parser.service';
+import { formatLocal, localDateTimeToIso } from './assistant/assistantTime';
+import { timeZoneOffsetMs } from '../utils/timezone';
 import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.service';
 
 // Lazy: evita instanciar el cliente (y que reviente por falta de API key) en
@@ -40,31 +42,41 @@ export interface CommitmentExtraction {
     type: 'task' | 'meeting';      // Differentiation
 }
 
-const SYSTEM_PROMPT = `Eres un asistente de productividad personal en español (Chile). Analizas mensajes de chat e identificas si el mensaje contiene un compromiso, tarea, recordatorio o evento con fecha/hora.
+const SYSTEM_PROMPT = `Eres un asistente de productividad en español (Chile). Lees un mensaje de chat y decides si contiene un compromiso, tarea, recordatorio o reunión con fecha u hora.
 
-Extrae la siguiente información en JSON:
-- hasCommitment (boolean): true si hay un compromiso, tarea o evento con fecha/hora implícita o explícita
-- title (string | null): título corto y claro del compromiso (máx 60 caracteres)
-- dueAt (string | null): fecha y hora en formato ISO 8601 con offset, calculada desde la fecha y zona horaria indicadas.
-- replyText (string | null): Texto para el botón de acción UI. Cuando exista una fecha, devuelve siempre "Agendar".
-- assignedToName (string | null): nombre o mención de la persona responsable. PRIORIZA menciones que empiecen con @ (ej: "@Carlos", devolver "Carlos"). Si no hay @mención, busca nombres en el texto. Si es para el emisor o no hay claridad, devuelve null.
-- type (string): "meeting" si es una reunión, call, junta o evento con hora fija. "task" si es una acción a realizar, un favor o un pendiente.
+Devuelve JSON con:
+- hasCommitment (boolean): true si hay un compromiso, tarea o evento con fecha/hora implícita o explícita.
+- title (string | null): el asunto en pocas palabras, como lo anotaría una persona en su agenda (máx 60 caracteres). Nunca repitas la fecha ni la hora en el título. Ejemplos: "Mañana a las 3 llamo al banco por el crédito" → "Llamar al banco por el crédito"; "El viernes junta con el equipo, tema presupuesto" → "Reunión de presupuesto con el equipo".
+- dueLocal (string | null): fecha y hora LOCAL del usuario en formato "YYYY-MM-DDTHH:mm". Elige el día mirando el calendario que viene en el mensaje; no calcules días de la semana por tu cuenta.
+- assignedToName (string | null): nombre de la persona responsable. Prioriza menciones con @ (ej: "@Carlos" → "Carlos"). Si es para quien escribe o no está claro, null.
+- type (string): "meeting" si es una reunión, llamada, junta o evento con hora fija; "task" si es una acción a realizar.
 
 Reglas:
-- TIMEZONE: Usa la zona horaria IANA indicada en el mensaje y respeta automáticamente su horario estacional. Nunca asumas un offset UTC fijo.
-- HORA EXPLÍCITA: Si el usuario dice 16:00, conserva 16:00 en su zona horaria. No la muevas aunque ya haya pasado.
-- DÍAS EXPLÍCITOS: "próximo miércoles" debe caer en miércoles; nunca cambies el día de la semana indicado por el usuario.
-- REUNIÓN (meeting): Se refiere a encontrarse con alguien, hablar por teléfono o Zoom, o un evento social/laboral. Si el mensaje dice "reunión" explícitamente, usa "meeting".
-- TAREA (task): Se refiere a ejecutar una acción técnica, enviar un documento, comprar algo, etc.
-- Si el mensaje es solo una imagen sin texto ni @mención clara, devuelve hasCommitment: false a menos que la imagen sea EXPLÍCITAMENTE una tarea (ej: una lista de pendientes escrita en papel).
-- Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos
-- "mañana" = día siguiente al enviado.
-- Si no hay hora, usa 09:00:00-03:00.
-- El replyText debe ser SOLO "Agendar", sin "Entendido", tipo de compromiso ni saludos.
-- Interpreta lenguaje natural chileno.
-- Usa el contexto completo del mensaje para entender compromisos implícitos
+- Un día de la semana ("el jueves", "este jueves") es su próxima fecha en el calendario; si ese día es hoy, es dentro de una semana, salvo que diga "hoy".
+- "mañana" es el día siguiente a hoy.
+- Una hora sin am/pm es la más sensata del día (reuniones y trámites, normalmente entre 08:00 y 21:59).
+- Si hay día pero no hora, usa 09:00.
+- Si el mensaje es solo una imagen sin texto, devuelve hasCommitment: false salvo que la imagen sea claramente una tarea (por ejemplo, una lista de pendientes).
+- Si no hay compromiso claro, devuelve hasCommitment: false y null en los demás campos.
+- Entiende el lenguaje natural chileno y usa todo el contexto del mensaje.
 
 Responde SOLO con JSON válido.`;
+
+const WEEKDAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+// The next two weeks as the user sees them ("jueves 2026-11-05"), so the
+// model reads the date off a calendar instead of doing weekday arithmetic.
+export function buildLocalCalendar(now: Date, timeZone: string, days = 14): string {
+    const local = new Date(now.getTime() + timeZoneOffsetMs(now, timeZone));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const lines: string[] = [];
+    for (let i = 0; i < days; i++) {
+        const day = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + i));
+        const label = i === 0 ? ' (hoy)' : i === 1 ? ' (mañana)' : '';
+        lines.push(`${WEEKDAY_NAMES[day.getUTCDay()]} ${day.getUTCFullYear()}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}${label}`);
+    }
+    return lines.join('\n');
+}
 
 export const extractCommitment = async (
     text: string,
@@ -78,9 +90,11 @@ export const extractCommitment = async (
 
     try {
         const timeZone = resolveTimeZone(requestedTimeZone);
+        const parsedNow = new Date(nowIso);
+        const now = Number.isNaN(parsedNow.getTime()) ? new Date() : parsedNow;
         const userContent: any[] = [{
             type: 'text',
-            text: `Fecha y hora actual: ${nowIso}\nZona horaria del usuario: ${timeZone}\n\nMensaje: "${text}"`,
+            text: `Ahora: ${formatLocal(now.toISOString(), timeZone)} (${timeZone})\n\nCalendario:\n${buildLocalCalendar(now, timeZone)}\n\nMensaje: "${text}"`,
         }];
 
         if (imageUrl) {
@@ -106,8 +120,8 @@ export const extractCommitment = async (
         return {
             hasCommitment: !!parsed.hasCommitment,
             title: parsed.title || null,
-            dueAt: parsed.dueAt || null,
-            replyText: parsed.replyText || null,
+            dueAt: typeof parsed.dueLocal === 'string' ? localDateTimeToIso(parsed.dueLocal, timeZone) : null,
+            replyText: 'Agendar',
             assignedToName: parsed.assignedToName || null,
             type: parsed.type === 'meeting' ? 'meeting' : 'task',
         };

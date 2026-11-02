@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { markReceipt, tombstoneMessage } from '../services/messagingApplication.service';
+import { toggleMessageReaction } from '../services/messageReaction.service';
 
 // Adapter legacy: el status solicitado avanza unicamente el receipt del
 // actor. Nunca modifica directamente messages.status.
@@ -52,5 +53,20 @@ export const deleteMessage = async (req: Request, res: Response): Promise<void> 
         res.status(statusCode).json({
             error: statusCode === 500 ? 'Unable to delete message' : error.message,
         });
+    }
+};
+
+export const toggleReaction = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const result = await toggleMessageReaction(
+            req.user!.id,
+            String(req.params.id),
+            String(req.params.messageId),
+            req.body.reaction,
+        );
+        res.json(result);
+    } catch (error: any) {
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to save reaction' : error.message });
     }
 };

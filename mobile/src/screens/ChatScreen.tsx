@@ -795,10 +795,17 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onUpdateData={setSuggestionData}
                     onConfirm={async () => {
                         try {
+                            // The server only accepts its own field names and
+                            // silently drops the rest, so the suggestion's
+                            // camelCase date and assignee are mapped here.
                             const payload = {
-                                ...suggestionData,
+                                title: suggestionData.title,
+                                type: suggestionData.type === 'meeting' ? 'meeting' : 'task',
+                                due_at: suggestionData.dueAt || null,
+                                assigned_to_user_id: suggestionData.assignedToUserId || null,
                                 conversation_id: conversationId,
                                 message_id: suggestionData.messageId,
+                                source_kind: 'ai_suggestion',
                             };
                             if (isSelf) {
                                 await createCommitment(payload);
