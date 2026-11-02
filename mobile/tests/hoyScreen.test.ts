@@ -103,3 +103,38 @@ describe('dayBadge', () => {
         expect(dayBadge(at(-400), now).detail).toMatch(/^\d{4}$/);
     });
 });
+
+describe('Chat: Agendar from a suggestion keeps its date and assignee', () => {
+    const chat = read('screens/ChatScreen.tsx');
+    it('maps the camelCase suggestion to the field names the server accepts', () => {
+        expect(chat).toContain('due_at: suggestionData.dueAt || null,');
+        expect(chat).toContain('assigned_to_user_id: suggestionData.assignedToUserId || null,');
+        expect(chat).not.toContain('...suggestionData,\n                                conversation_id');
+    });
+});
+
+describe('Chat bubbles', () => {
+    const item = read('components/MessageItem.tsx');
+    it('photos and videos fill the bubble and carry time and ticks on top', () => {
+        expect(item).toContain('(isImage || isVideo) ? styles.bubbleVisual');
+        expect(item).toContain('metaOnMedia ? styles.metaOverlay');
+    });
+    it('ticks are large and reactions sit on the bubble edge', () => {
+        expect(item).toContain('const TICK_SIZE = 17;');
+        expect(item).toMatch(/reactionsContainer: \{[^}]*marginTop: -8/);
+    });
+});
+
+describe('Reactions and ticks', () => {
+    const queries = read('api/query-modules/commitments.ts');
+    const item = read('components/MessageItem.tsx');
+    it('reactions are saved through the server and shown at once', () => {
+        expect(queries).toContain('/messages/${messageId}/reactions`, { reaction: emoji })');
+        expect(queries).toContain('onMutate: async ({ messageId, emoji }) => {');
+        expect(queries).not.toContain(".from('message_reactions')");
+    });
+    it('delivery ticks use the drawn DeliveryTicks component', () => {
+        expect(item).toContain('<DeliveryTicks');
+        expect(item).not.toContain('name="checkmark-done"');
+    });
+});

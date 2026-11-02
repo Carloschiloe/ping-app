@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { apiClient } from '../client';
 import { invalidateCommitmentViews } from '../query-invalidation';
@@ -11,37 +12,50 @@ import {
 
 export { acceptCommitmentRequest, respondToCommitmentProposalRequest, confirmCommitmentProposalRequest, withdrawCommitmentProposalRequest };
 
+// Reactions go through the server, which checks the person is in the chat.
+// The emoji shows up at once (optimistic) and is taken back if saving fails.
 export const useReactToMessage = (conversationId: string) => {
     const queryClient = useQueryClient();
     const { user } = useAuth();
+    const queryKey = ['conversation-messages', conversationId];
+
+    const toggleInCache = (messageId: string, emoji: string) => {
+        queryClient.setQueriesData({ queryKey }, (data: any) => {
+            if (!data?.pages || !user) return data;
+            return {
+                ...data,
+                pages: data.pages.map((page: any) => ({
+                    ...page,
+                    messages: (page.messages || []).map((message: any) => {
+                        if (message.id !== messageId) return message;
+                        const reactions: any[] = message.message_reactions || [];
+                        const mine = reactions.find((r) => r.user_id === user.id && (r.reaction ?? r.emoji) === emoji);
+                        return {
+                            ...message,
+                            message_reactions: mine
+                                ? reactions.filter((r) => r !== mine)
+                                : [...reactions, { id: `local-${emoji}`, message_id: messageId, user_id: user.id, reaction: emoji }],
+                        };
+                    }),
+                })),
+            };
+        });
+    };
 
     return useMutation({
-        // V2: la columna real de message_reactions es `reaction` (antes
-        // `emoji`). El parametro del hook se mantiene como `emoji` para no
-        // tocar los componentes que lo llaman (ReactionsModal, MessageItem).
-        mutationFn: async ({ messageId, emoji }: { messageId: string, emoji: string }) => {
-            if (!user) return;
-            const { data: existing } = await supabase
-                .from('message_reactions')
-                .select('id')
-                .eq('message_id', messageId)
-                .eq('user_id', user.id)
-                .eq('reaction', emoji)
-                .maybeSingle();
-
-            if (existing) {
-                await supabase.from('message_reactions').delete().eq('id', existing.id);
-            } else {
-                await supabase.from('message_reactions').insert({
-                    message_id: messageId,
-                    user_id: user.id,
-                    reaction: emoji,
-                });
-            }
+        mutationFn: async ({ messageId, emoji }: { messageId: string, emoji: string }) =>
+            apiClient.post(`/conversations/${conversationId}/messages/${messageId}/reactions`, { reaction: emoji }),
+        onMutate: async ({ messageId, emoji }) => {
+            await queryClient.cancelQueries({ queryKey });
+            toggleInCache(messageId, emoji);
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
-        }
+        onError: (_error, { messageId, emoji }) => {
+            toggleInCache(messageId, emoji);
+            Alert.alert('No se guardó la reacción', 'Revisa tu conexión e inténtalo de nuevo.');
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey });
+        },
     });
 };
 

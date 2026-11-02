@@ -9,6 +9,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
+import { DeliveryTicks } from './chat/DeliveryTicks';
 import { useAppTheme } from '../theme/ThemeContext';
 import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveMessageAttachmentPresentation, resolveReactionEmoji } from '../utils/messageCompat';
 import {
@@ -80,6 +81,9 @@ function InlineLinkText({
         </Text>
     );
 }
+
+// Delivery ticks are sized to be read at a glance.
+const TICK_SIZE = 17;
 
 interface MessageItemProps {
     item: any;
@@ -318,6 +322,9 @@ const MessageItemComponent = ({
         isImage = false;
         isVideo = true;
     }
+    // A photo or video without caption carries its time and ticks on top of
+    // the picture, so the picture can fill the whole bubble.
+    const metaOnMedia = (isImage || isVideo) && (!!mediaUrl || !!pendingAttachmentState) && !description;
 
     const closeSwipeable = () => {
         if (item.id && swipeableRowRefs.current.has(item.id)) {
@@ -357,7 +364,7 @@ const MessageItemComponent = ({
             }}
         >
             <View>
-                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: (item.message_reactions?.length > 0) ? 6 : 2 }]}>
+                <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: 2 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
@@ -421,7 +428,7 @@ const MessageItemComponent = ({
                             styles.bubble,
                             isMe ? styles.bubbleMe : styles.bubbleThem,
                             isOperationMode && (isMe ? styles.bubbleOperationMe : styles.bubbleOperationThem),
-                            (isImage || isVideo || isAudio) && styles.bubbleMedia,
+                            (isImage || isVideo) ? styles.bubbleVisual : isAudio && styles.bubbleMedia,
                             isSelected && styles.bubbleSelected,
                             item.id === highlightedMsgId && styles.bubbleHighlighted,
                             { overflow: 'hidden' }
@@ -628,32 +635,21 @@ const MessageItemComponent = ({
                                 linkColor={isMe ? 'rgba(255,255,255,0.9)' : '#2563eb'}
                             />
                         )}
-                        <View style={styles.metaRow}>
+                        <View style={[styles.metaRow, metaOnMedia ? styles.metaOverlay : (isImage || isVideo) && styles.metaInline]}>
                             {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : theme.colors.text.muted, marginRight: 4 }}>R</Text>}
-                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem]}>{time}</Text>
+                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, metaOnMedia && { color: 'white' }]}>{time}</Text>
                             {isMe && (
                                 <View style={{ marginLeft: 4 }}>
                             {(item.status === 'sending' || item.status === 'pending_local' || item.status === 'pending_offline') ? (
-                                <Ionicons
-                                    name="time-outline"
-                                    size={14}
-                                    color="rgba(255,255,255,0.6)"
-                                />
+                                <Ionicons name="time-outline" size={TICK_SIZE} color={metaOnMedia ? 'white' : theme.colors.text.muted} />
                             ) : item.status === 'result_unknown' ? (
-                                <Ionicons name="help-circle-outline" size={14} color="#f59e0b" />
+                                <Ionicons name="help-circle-outline" size={TICK_SIZE} color="#f59e0b" />
                             ) : item.status === 'rejected_offline' ? (
-                                <Ionicons name="alert-circle-outline" size={14} color="#ef4444" />
-                            ) : (item.status === 'delivered' || item.status === 'received' || item.status === 'read') ? (
-                                <Ionicons
-                                    name="checkmark-done"
-                                    size={14}
-                                    color={item.status === 'read' ? '#34b7f1' : ((item.status === 'delivered' || item.status === 'received') ? theme.colors.text.muted : 'rgba(0,0,0,0.4)')}
-                                />
+                                <Ionicons name="alert-circle-outline" size={TICK_SIZE} color="#ef4444" />
                             ) : (
-                                <Ionicons
-                                    name="checkmark"
-                                    size={14}
-                                    color="rgba(0,0,0,0.4)"
+                                <DeliveryTicks
+                                    state={item.status === 'read' ? 'read' : (item.status === 'delivered' || item.status === 'received') ? 'delivered' : 'sent'}
+                                    onMedia={metaOnMedia}
                                 />
                             )}
                                 </View>
@@ -784,6 +780,13 @@ const createStyles = (theme: any) => StyleSheet.create({
     senderAvatar: { width: 32, height: 32, borderRadius: 16 },
     senderAvatarText: { color: theme.colors.white, fontSize: 12, fontWeight: '700' },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
+    // Photos and videos fill the whole bubble, edge to edge.
+    bubbleVisual: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' },
+    metaOverlay: {
+        position: 'absolute', right: 6, bottom: 6, marginTop: 0,
+        backgroundColor: 'rgba(15, 23, 42, 0.55)', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2,
+    },
+    metaInline: { paddingHorizontal: 8, paddingBottom: 4 },
     privateMediaLoading: {
         minWidth: 190,
         minHeight: 54,
@@ -793,11 +796,11 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 8,
         paddingHorizontal: 12,
     },
-    pendingMedia: { width: 220, height: 160, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.surfaceMuted },
+    pendingMedia: { width: 250, height: 180, overflow: 'hidden', backgroundColor: theme.colors.surfaceMuted },
     pendingMediaThumb: { width: '100%', height: '100%' },
     pendingMediaIcon: { alignItems: 'center', justifyContent: 'center' },
     pendingMediaLabel: {
-        position: 'absolute', left: 0, right: 0, bottom: 0,
+        position: 'absolute', left: 0, right: 0, top: 0,
         flexDirection: 'row', alignItems: 'center', gap: 6,
         paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(15, 23, 42, 0.65)',
     },
@@ -819,8 +822,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     timeText: { fontSize: 11 },
     timeMe: { color: 'rgba(0,0,0,0.5)' },
     timeThem: { color: theme.colors.text.muted },
-    msgImage: { width: 220, height: 220, borderRadius: 10 },
-    inlineVideoWrap: { position: 'relative', width: 220, height: 220, borderRadius: 10, overflow: 'hidden' },
+    msgImage: { width: 250, height: 250 },
+    inlineVideoWrap: { position: 'relative', width: 250, height: 250, overflow: 'hidden' },
     videoPlayOverlay: {
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0,0,0,0.3)',
@@ -885,9 +888,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     quotedContainer: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3 },
     quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
     quotedText: { fontSize: 12 },
-    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2, marginBottom: 2 },
-    reactionsMe: { alignSelf: 'flex-end' },
-    reactionsThem: { alignSelf: 'flex-start' },
+    // Reactions sit on the bubble's bottom edge, right under the message.
+    reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: -8, marginBottom: 2, zIndex: 2 },
+    reactionsMe: { alignSelf: 'flex-end', marginRight: 10 },
+    reactionsThem: { alignSelf: 'flex-start', marginLeft: 10 },
     reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceMuted, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.separator, gap: 2 },
     reactionCount: { fontSize: 11, fontWeight: '700', color: theme.colors.text.secondary },
     suggestionChip: {
