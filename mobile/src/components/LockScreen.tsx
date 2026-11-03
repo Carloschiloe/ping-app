@@ -3,6 +3,11 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { GlassBackdrop } from '../design/Glass';
+import { PingOrb } from '../design/PingOrb';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
 
 interface LockScreenProps {
     onUnlock: () => void;
@@ -46,68 +51,57 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
 
     return (
         <View style={styles.container}>
-            <View style={styles.iconContainer}>
-                <Ionicons name="lock-closed" size={64} color="#0a84ff" />
-            </View>
-            <Text style={styles.title}>Ping está bloqueado</Text>
-            <Text style={styles.subtitle}>Usa FaceID o tu huella dactilar para acceder a tus chats y recordatorios.</Text>
+            <GlassBackdrop>
+                <View style={styles.content}>
+                    <View style={styles.orb}>
+                        <PingOrb size={84} />
+                        <View style={styles.lockBadge}>
+                            <Ionicons name="lock-closed" size={16} color={colors.text} />
+                        </View>
+                    </View>
+                    <Text style={styles.title}>Ping está bloqueado</Text>
+                    <Text style={styles.subtitle}>Usa FaceID o tu huella dactilar para acceder a tus chats y recordatorios.</Text>
 
-            <TouchableOpacity style={styles.button} onPress={handleAuth} activeOpacity={0.8}>
-                <Ionicons name="scan" size={24} color="white" />
-                <Text style={styles.buttonText}>Desbloquear Ahora</Text>
-            </TouchableOpacity>
+                    <TouchableOpacity style={styles.button} onPress={handleAuth} activeOpacity={0.85}>
+                        <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                        <Ionicons name="finger-print" size={22} color={colors.onAccent} />
+                        <Text style={styles.buttonText}>Desbloquear</Text>
+                    </TouchableOpacity>
+                </View>
+            </GlassBackdrop>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        ...StyleSheet.absoluteFill,
-        backgroundColor: '#f9fafb',
-        justifyContent: 'center',
+    // Above everything, so nothing of the app shows until it unlocks.
+    container: { ...StyleSheet.absoluteFill, zIndex: 9999 },
+    content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: space.xxl },
+    orb: { marginBottom: space.xxl },
+    lockBadge: {
+        position: 'absolute',
+        right: -6,
+        bottom: -6,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
         alignItems: 'center',
-        padding: 24,
-        zIndex: 9999, // Ensure it's always on top
-    },
-    iconContainer: {
-        width: 120,
-        height: 120,
-        borderRadius: 60,
-        backgroundColor: '#e0f2fe',
         justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 32,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
-    title: {
-        fontSize: 24,
-        fontWeight: '700',
-        color: '#111827',
-        marginBottom: 12,
-    },
-    subtitle: {
-        fontSize: 16,
-        color: '#4b5563',
-        textAlign: 'center',
-        lineHeight: 24,
-        marginBottom: 48,
-    },
+    title: { ...type.title, marginBottom: space.md },
+    subtitle: { ...type.subhead, textAlign: 'center', lineHeight: 22, marginBottom: 44 },
     button: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#0a84ff',
-        paddingVertical: 16,
-        paddingHorizontal: 32,
-        borderRadius: 30,
-        gap: 12,
-        shadowColor: '#0a84ff',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
+        justifyContent: 'center',
+        height: 54,
+        paddingHorizontal: space.xxl,
+        borderRadius: radius.full,
+        gap: space.sm,
+        overflow: 'hidden',
     },
-    buttonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: '600',
-    }
+    buttonText: { fontFamily: fonts.semibold, color: colors.onAccent, fontSize: 17 },
 });

@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
-import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
 import { resolveConversationId, canViewOriginConversation, isCommitmentOverdue } from '../../utils/commitmentDisplay';
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
@@ -12,6 +11,9 @@ import { getProposalParticipationState } from '../../utils/agreement';
 import { getActorPresentation } from '../../utils/actorPresentation';
 import { dayBadge } from './dayBadge';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 
 interface CommitmentRowProps {
     commitment: any;
@@ -100,7 +102,6 @@ export function CommitmentRow({
     onReceived,
     onReopen,
 }: CommitmentRowProps) {
-    const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [menuVisible, setMenuVisible] = useState(false);
 
@@ -201,11 +202,11 @@ export function CommitmentRow({
         if (onReopen && status === 'cancelled' && !isArchived) {
             return (
                 <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                    style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                     onPress={() => onReopen(c.id)}
                 >
-                    <Ionicons name="arrow-undo-outline" size={13} color={theme.colors.accent} />
-                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Reactivar</Text>
+                    <Ionicons name="arrow-undo-outline" size={13} color={colors.accent} />
+                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Reactivar</Text>
                 </TouchableOpacity>
             );
         }
@@ -217,19 +218,19 @@ export function CommitmentRow({
             return (
                 <>
                     <TouchableOpacity
-                        style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                        style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                         onPress={() => onNudge(c)}
                     >
-                        <Ionicons name="notifications-outline" size={13} color={theme.colors.accent} />
-                        <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Recordarle</Text>
+                        <Ionicons name="notifications-outline" size={13} color={colors.accent} />
+                        <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Recordarle</Text>
                     </TouchableOpacity>
                     {onReceived && primaryAction === 'complete' && (
                         <TouchableOpacity
-                            style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                            style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                             onPress={() => onReceived(c.id)}
                         >
-                            <Ionicons name="checkmark" size={13} color={theme.colors.accent} />
-                            <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Ya me lo dio</Text>
+                            <Ionicons name="checkmark" size={13} color={colors.accent} />
+                            <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Ya me lo dio</Text>
                         </TouchableOpacity>
                     )}
                 </>
@@ -248,21 +249,21 @@ export function CommitmentRow({
         if (!c.due_at) {
             return (
                 <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                    style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                     onPress={() => onOpenReschedule(c)}
                 >
-                    <Ionicons name="calendar-outline" size={13} color={theme.colors.accent} />
-                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Agendar</Text>
+                    <Ionicons name="calendar-outline" size={13} color={colors.accent} />
+                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Agendar</Text>
                 </TouchableOpacity>
             );
         }
         if (primaryAction === 'accept') {
             return (
                 <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                    style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                     onPress={() => onConfirm(c)}
                 >
-                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>
+                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>
                         {c._isAgreementProposal ? 'Aceptar' : 'Confirmar'}
                     </Text>
                 </TouchableOpacity>
@@ -271,11 +272,11 @@ export function CommitmentRow({
         if (primaryAction === 'complete') {
             return (
                 <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: theme.colors.accentSoft }]}
+                    style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                     onPress={() => onMarkDone(c.id)}
                 >
-                    <Ionicons name="checkmark" size={13} color={theme.colors.accent} />
-                    <Text style={[styles.primaryBtnText, { color: theme.colors.accent }]}>Listo</Text>
+                    <Ionicons name="checkmark" size={13} color={colors.accent} />
+                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Listo</Text>
                 </TouchableOpacity>
             );
         }
@@ -392,10 +393,10 @@ export function CommitmentRow({
     const relation = presentation.relationLabel === 'Tuyo' ? null : presentation.relationLabel;
     const metaParts = [isMeeting ? 'Reunión' : null, relation].filter(Boolean) as string[];
     const statusColor = status === 'resolved'
-        ? theme.colors.success
+        ? colors.success
         : status === 'cancelled' || status === 'rejected'
-            ? theme.colors.danger
-            : theme.colors.text.secondary;
+            ? colors.danger
+            : colors.textSoft;
 
     return (
         <TouchableOpacity
@@ -406,14 +407,14 @@ export function CommitmentRow({
             <View
                 style={[
                     styles.dayBadge,
-                    { backgroundColor: isOverdueItem ? `${theme.colors.danger}26` : theme.colors.surfaceMuted },
+                    { backgroundColor: isOverdueItem ? `${colors.danger}26` : colors.glassRaised },
                 ]}
             >
-                <Text style={[styles.dayBadgeDay, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.primary }]} numberOfLines={1}>
+                <Text style={[styles.dayBadgeDay, { color: isOverdueItem ? colors.danger : colors.text }]} numberOfLines={1}>
                     {badge.day}
                 </Text>
                 {!!badge.detail && (
-                    <Text style={[styles.dayBadgeDetail, { color: isOverdueItem ? theme.colors.danger : theme.colors.text.secondary }]} numberOfLines={1}>
+                    <Text style={[styles.dayBadgeDetail, { color: isOverdueItem ? colors.danger : colors.textSoft }]} numberOfLines={1}>
                         {badge.detail}
                     </Text>
                 )}
@@ -424,23 +425,23 @@ export function CommitmentRow({
                     <Text
                         style={[
                             styles.title,
-                            { color: theme.colors.text.primary },
+                            { color: colors.text },
                             status === 'resolved' && styles.strikethrough,
-                            status === 'cancelled' && { color: theme.colors.text.muted },
+                            status === 'cancelled' && { color: colors.textFaint },
                         ]}
                         numberOfLines={2}
                     >
                         {c.title}
                     </Text>
                     <TouchableOpacity onPress={openMenu} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.moreBtn}>
-                        <Ionicons name="ellipsis-horizontal" size={18} color={theme.colors.text.muted} />
+                        <Ionicons name="ellipsis-horizontal" size={18} color={colors.textFaint} />
                     </TouchableOpacity>
                 </View>
 
                 {metaParts.length > 0 && (
                     <View style={styles.metaRow}>
-                        {isMeeting && <Ionicons name="people-outline" size={13} color={theme.colors.text.secondary} />}
-                        <Text style={[styles.metaLine, styles.metaText, { color: theme.colors.text.secondary }]} numberOfLines={1}>
+                        {isMeeting && <Ionicons name="people-outline" size={13} color={colors.textSoft} />}
+                        <Text style={[styles.metaLine, styles.metaText, { color: colors.textSoft }]} numberOfLines={1}>
                             {metaParts.join(' · ')}
                         </Text>
                     </View>
@@ -456,8 +457,8 @@ export function CommitmentRow({
                     {renderPrimaryAction()}
                     {hasConversation && (
                         <TouchableOpacity onPress={goToChat} style={styles.chatLink}>
-                            <Ionicons name="chatbubble-ellipses-outline" size={11} color={theme.colors.accent} />
-                            <Text style={[styles.chatLinkText, { color: theme.colors.accent }]}>Conversación</Text>
+                            <Ionicons name="chatbubble-ellipses-outline" size={11} color={colors.accent} />
+                            <Text style={[styles.chatLinkText, { color: colors.accent }]}>Conversación</Text>
                         </TouchableOpacity>
                     )}
                 </View>
@@ -469,10 +470,11 @@ export function CommitmentRow({
                 -- se pinta siempre por encima de todo. */}
             <Modal visible={Platform.OS !== 'ios' && menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
                 <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
-                    <View style={[styles.actionMenu, { backgroundColor: theme.colors.surface }]}>
+                    <View style={styles.actionMenu}>
+                        <SheetFill />
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenDetail(c); }}>
-                            <Ionicons name="information-circle-outline" size={18} color={theme.colors.text.primary} />
-                            <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver detalle</Text>
+                            <Ionicons name="information-circle-outline" size={18} color={colors.text} />
+                            <Text style={[styles.androidMenuText, { color: colors.text }]}>Ver detalle</Text>
                         </TouchableOpacity>
                         {/* PING — TERMINAL LIFECYCLE ACTIONS FIX: same !isFinished
                             guard as the iOS branch above and as "Cancelar" below --
@@ -481,32 +483,32 @@ export function CommitmentRow({
                             to every mutation guard below, same criterion as iOS. */}
                         {!isProposal && !isFinished && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
-                                <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Reprogramar fecha</Text>
+                                <Ionicons name="calendar-outline" size={18} color={colors.text} />
+                                <Text style={[styles.androidMenuText, { color: colors.text }]}>Reprogramar fecha</Text>
                             </TouchableOpacity>
                         )}
                         {canRespondToProposal && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onOpenReschedule(c); }}>
-                                <Ionicons name="calendar-outline" size={18} color={theme.colors.text.primary} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Proponer otra fecha</Text>
+                                <Ionicons name="calendar-outline" size={18} color={colors.text} />
+                                <Text style={[styles.androidMenuText, { color: colors.text }]}>Proponer otra fecha</Text>
                             </TouchableOpacity>
                         )}
                         {hasConversation && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); goToChat(); }}>
-                                <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.text.primary} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.text.primary }]}>Ver conversación</Text>
+                                <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.text} />
+                                <Text style={[styles.androidMenuText, { color: colors.text }]}>Ver conversación</Text>
                             </TouchableOpacity>
                         )}
                         {canRespondToProposal && onReject && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onReject(c); }}>
-                                <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Rechazar propuesta</Text>
+                                <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+                                <Text style={[styles.androidMenuText, { color: colors.danger }]}>Rechazar propuesta</Text>
                             </TouchableOpacity>
                         )}
                         {onWithdraw && canWithdrawProposal && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onWithdraw(c); }}>
-                                <Ionicons name="close-circle-outline" size={18} color={theme.colors.danger} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>Retirar propuesta</Text>
+                                <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+                                <Text style={[styles.androidMenuText, { color: colors.danger }]}>Retirar propuesta</Text>
                             </TouchableOpacity>
                         )}
                         {onCancel && !isFinished && !isProposal && !isArchived && (
@@ -516,8 +518,8 @@ export function CommitmentRow({
                             // Android (línea de abajo) ahora dice "Cerrar",
                             // nunca ambiguo con esta fila.
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onCancel(c.id); }}>
-                                <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.danger }]}>{`Cancelar ${isMeeting ? 'reunión' : 'tarea'}`}</Text>
+                                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                                <Text style={[styles.androidMenuText, { color: colors.danger }]}>{`Cancelar ${isMeeting ? 'reunión' : 'tarea'}`}</Text>
                             </TouchableOpacity>
                         )}
                         {/* PING — ARCHIVE UX AUDIT + IMPLEMENTATION: mismo
@@ -528,8 +530,8 @@ export function CommitmentRow({
                             ofrecido si YA está archivado -- ver Restaurar. */}
                         {onArchive && !isProposal && !isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onArchive(c.id); }}>
-                                <Ionicons name="archive-outline" size={18} color={theme.colors.text.secondary} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.text.secondary }]}>Archivar</Text>
+                                <Ionicons name="archive-outline" size={18} color={colors.textSoft} />
+                                <Text style={[styles.androidMenuText, { color: colors.textSoft }]}>Archivar</Text>
                             </TouchableOpacity>
                         )}
                         {/* PING — ARCHIVE LIFECYCLE COMPLETION: "Restaurar"
@@ -538,13 +540,13 @@ export function CommitmentRow({
                             exclusivamente -- nunca reabre/completa/cancela. */}
                         {onRestore && isArchived && (
                             <TouchableOpacity style={styles.androidMenuItem} onPress={() => { setMenuVisible(false); onRestore(c.id); }}>
-                                <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.accent} />
-                                <Text style={[styles.androidMenuText, { color: theme.colors.accent }]}>Restaurar</Text>
+                                <Ionicons name="arrow-undo-outline" size={18} color={colors.accent} />
+                                <Text style={[styles.androidMenuText, { color: colors.accent }]}>Restaurar</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.androidMenuItem} onPress={() => setMenuVisible(false)}>
-                            <Ionicons name="close-outline" size={18} color={theme.colors.text.muted} />
-                            <Text style={[styles.androidMenuText, { color: theme.colors.text.muted }]}>Cerrar</Text>
+                            <Ionicons name="close-outline" size={18} color={colors.textFaint} />
+                            <Text style={[styles.androidMenuText, { color: colors.textFaint }]}>Cerrar</Text>
                         </TouchableOpacity>
                     </View>
                 </Pressable>
@@ -572,11 +574,11 @@ const styles = StyleSheet.create({
     },
     dayBadgeDay: {
         fontSize: 13,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     dayBadgeDetail: {
         fontSize: 12,
-        fontWeight: '500',
+        fontFamily: fonts.medium,
         marginTop: 1,
     },
     content: {
@@ -599,7 +601,7 @@ const styles = StyleSheet.create({
         flex: 1,
         flexShrink: 1,
         fontSize: 15,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
         lineHeight: 20,
     },
     strikethrough: {
@@ -609,7 +611,7 @@ const styles = StyleSheet.create({
     // una sola línea secundaria, nunca un arrow-glyph ambiguo ("← Carlos").
     metaLine: {
         fontSize: 12,
-        fontWeight: '500',
+        fontFamily: fonts.medium,
     },
     metaRow: {
         flexDirection: 'row',
@@ -624,7 +626,7 @@ const styles = StyleSheet.create({
     // 150px que tenía el badge horizontal antiguo).
     statusLine: {
         fontSize: 12,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     chatLink: {
         flexDirection: 'row',
@@ -633,7 +635,7 @@ const styles = StyleSheet.create({
     },
     chatLinkText: {
         fontSize: 11,
-        fontWeight: '500',
+        fontFamily: fonts.medium,
     },
     // Sección 9: fila de acciones DEBAJO del título/metadata, nunca al
     // lado -- el botón primario ya no compite por ancho con el título.
@@ -654,7 +656,7 @@ const styles = StyleSheet.create({
     },
     primaryBtnText: {
         fontSize: 12,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     moreBtn: {
         width: 28,
@@ -664,7 +666,7 @@ const styles = StyleSheet.create({
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     actionMenu: {
@@ -672,6 +674,7 @@ const styles = StyleSheet.create({
         borderTopRightRadius: 16,
         paddingVertical: 8,
         paddingBottom: 24,
+        ...sheetSurface,
     },
     androidMenuItem: {
         flexDirection: 'row',
@@ -682,6 +685,6 @@ const styles = StyleSheet.create({
     },
     androidMenuText: {
         fontSize: 15,
-        fontWeight: '500',
+        fontFamily: fonts.medium,
     },
 });

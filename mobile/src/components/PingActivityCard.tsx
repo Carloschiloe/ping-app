@@ -1,8 +1,10 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAgentConversationTurns } from '../api/query-modules/agent';
-import { useAppTheme } from '../theme/ThemeContext';
+import { Glass } from '../design/Glass';
+import { colors, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 function resultSummary(result: any): string {
     if (result?.kind === 'response') return result.response?.answer || 'Ping respondió en esta conversación.';
@@ -13,55 +15,48 @@ function resultSummary(result: any): string {
 }
 
 export function PingActivityCard({ conversationId, onOpen }: { conversationId: string; onOpen: () => void }) {
-    const { theme } = useAppTheme();
     const { data } = useAgentConversationTurns(conversationId);
     const latest = data?.turns[data.turns.length - 1];
-    const styles = useMemo(() => createStyles(theme), [theme]);
 
     if (!latest) return null;
     return (
         <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Abrir historial de Ping"
-            style={styles.card}
+            style={styles.wrap}
             onPress={onOpen}
             activeOpacity={0.82}
         >
-            <View style={styles.iconWrap}><Ionicons name="sparkles" size={16} color={theme.colors.primary} /></View>
-            <View style={styles.copy}>
-                <Text style={styles.title}>Ping en esta conversación</Text>
-                <Text style={styles.text} numberOfLines={2}>{resultSummary(latest.result)}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={theme.colors.text.secondary} />
+            <Glass style={styles.card} intensity={40}>
+                <View style={styles.iconWrap}><Ionicons name="sparkles" size={15} color={colors.accentBright} /></View>
+                <View style={styles.copy}>
+                    <Text style={styles.title}>Ping en esta conversación</Text>
+                    <Text style={styles.text} numberOfLines={2}>{resultSummary(latest.result)}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+            </Glass>
         </TouchableOpacity>
     );
 }
 
-function createStyles(theme: any) {
-    return StyleSheet.create({
-        card: {
-            marginHorizontal: 12,
-            marginTop: 10,
-            marginBottom: 4,
-            padding: 11,
-            borderRadius: 14,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: theme.colors.surface,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.colors.primary,
-        },
-        iconWrap: {
-            width: 30,
-            height: 30,
-            borderRadius: 15,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: `${theme.colors.primary}18`,
-            marginRight: 9,
-        },
-        copy: { flex: 1 },
-        title: { color: theme.colors.text.primary, fontSize: 12, fontWeight: '700' },
-        text: { color: theme.colors.text.secondary, fontSize: 12, marginTop: 2 },
-    });
-}
+const styles = StyleSheet.create({
+    wrap: { marginHorizontal: space.md, marginTop: space.sm + 2, marginBottom: space.xs },
+    card: {
+        padding: space.md - 1,
+        borderRadius: radius.md,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    iconWrap: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accentTint,
+        marginRight: space.sm + 1,
+    },
+    copy: { flex: 1 },
+    title: { fontFamily: fonts.semibold, color: colors.text, fontSize: 12 },
+    text: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 12, marginTop: 2 },
+});

@@ -6,7 +6,6 @@ import { useConversations, useDeleteMessage, useSharedContent } from '../api/que
 import type { SharedContentScreenProps } from '../navigation/types';
 import type { SharedContentItem } from '../types/sharedContent';
 import { useSharedContentUrl } from '../hooks/useSharedContentUrl';
-import { useAppTheme } from '../theme/ThemeContext';
 import { documentIconName, formatSharedDuration, formatSharedDateTime, formatSharedFileSize } from '../utils/sharedContent';
 import AudioPlayer from '../components/AudioPlayer';
 import { SharedContentActionSheet } from '../components/shared-content/SharedContentActionSheet';
@@ -15,39 +14,57 @@ import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import * as Haptics from 'expo-haptics';
 import { createClientMessageId } from '../utils/synchronization';
+import { colors, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
+import { ScreenHeader } from '../design/ScreenHeader';
 
 const CONTENT_TITLES = { audio: 'Audios', document: 'Documentos', link: 'Enlaces' } as const;
 
 function Meta({ item }: { item: SharedContentItem }) {
-    const { theme } = useAppTheme();
-    return <Text style={{ color: theme.colors.text.secondary, fontSize: 12, marginTop: 4 }}>{item.sender.name} · {formatSharedDateTime(item.createdAt)}</Text>;
+    return <Text style={styles.meta}>{item.sender.name} · {formatSharedDateTime(item.createdAt)}</Text>;
 }
 
 function GoToMessage({ onPress }: { onPress: () => void }) {
-    const { theme } = useAppTheme();
-    return <TouchableOpacity onPress={onPress} style={styles.messageLink}><Ionicons name="chatbubble-outline" size={15} color={theme.colors.accent} /><Text style={{ color: theme.colors.accent, fontWeight: '700', fontSize: 12 }}>Ir al mensaje</Text></TouchableOpacity>;
+    return (
+        <TouchableOpacity onPress={onPress} style={styles.messageLink}>
+            <Ionicons name="chatbubble-outline" size={14} color={colors.accentBright} />
+            <Text style={styles.linkText}>Ir al mensaje</Text>
+        </TouchableOpacity>
+    );
 }
 
 function ActionsButton({ onPress }: { onPress: () => void }) {
-    const { theme } = useAppTheme();
-    return <TouchableOpacity onPress={onPress} accessibilityLabel="Acciones del archivo" style={styles.actionsButton}>
-        <Ionicons name="ellipsis-horizontal" size={22} color={theme.colors.text.secondary} />
-    </TouchableOpacity>;
+    return (
+        <TouchableOpacity onPress={onPress} accessibilityLabel="Acciones del archivo" style={styles.actionsButton} hitSlop={8}>
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSoft} />
+        </TouchableOpacity>
+    );
+}
+
+// Every item sits on its own full-width glass band.
+function Band({ first, last, children }: { first: boolean; last: boolean; children: React.ReactNode }) {
+    return (
+        <View style={[first && styles.bandFirst, last && styles.bandLast]}>
+            <Glass style={[StyleSheet.absoluteFill, styles.bandGlass]} intensity={22} tint={colors.glassTintLight} />
+            {children}
+            {!last && <View pointerEvents="none" style={styles.bandSeparator} />}
+        </View>
+    );
 }
 
 function AudioRow({ item, onMessage, onActions }: { item: SharedContentItem; onMessage: () => void; onActions: () => void }) {
-    const { theme } = useAppTheme();
     const { url, state, refresh } = useSharedContentUrl(item);
     return (
-        <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View style={styles.item}>
             <View style={styles.rowHeader}>
-                <Text style={[styles.title, { color: theme.colors.text.primary, flex: 1 }]}>{item.sender.name}</Text>
+                <Text style={[styles.title, styles.grow]}>{item.sender.name}</Text>
                 <ActionsButton onPress={onActions} />
             </View>
-            {state === 'loading' && <ActivityIndicator style={styles.audioLoading} />}
-            {state === 'available' && url && <AudioPlayer url={url} durationMs={item.file?.durationMs} style={[styles.audioPlayer, { backgroundColor: theme.colors.surfaceMuted }]} />}
-            {state === 'unavailable' && <TouchableOpacity onPress={refresh}><Text style={{ color: theme.colors.danger }}>Audio no disponible · Reintentar</Text></TouchableOpacity>}
-            <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>
+            {state === 'loading' && <ActivityIndicator style={styles.audioLoading} color={colors.accentBright} />}
+            {state === 'available' && url && <AudioPlayer url={url} durationMs={item.file?.durationMs} style={styles.audioPlayer} />}
+            {state === 'unavailable' && <TouchableOpacity onPress={refresh}><Text style={styles.unavailable}>Audio no disponible · Reintentar</Text></TouchableOpacity>}
+            <Text style={styles.detail}>
                 {[formatSharedDateTime(item.createdAt), formatSharedDuration(item.file?.durationMs)].filter(Boolean).join(' · ')}
             </Text>
             <GoToMessage onPress={onMessage} />
@@ -56,7 +73,6 @@ function AudioRow({ item, onMessage, onActions }: { item: SharedContentItem; onM
 }
 
 function DocumentRow({ item, onMessage, onActions }: { item: SharedContentItem; onMessage: () => void; onActions: () => void }) {
-    const { theme } = useAppTheme();
     const [shouldResolve, setShouldResolve] = useState(false);
     const { url, state, refresh } = useSharedContentUrl(item, shouldResolve);
     useEffect(() => {
@@ -69,18 +85,20 @@ function DocumentRow({ item, onMessage, onActions }: { item: SharedContentItem; 
         setShouldResolve(true);
     };
     return (
-        <View style={[styles.card, styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <View style={[styles.icon, { backgroundColor: theme.colors.accentSoft }]}><Ionicons name={documentIconName(item)} size={26} color={theme.colors.accent} /></View>
+        <View style={[styles.item, styles.row]}>
+            <View style={styles.icon}><Ionicons name={documentIconName(item)} size={22} color={colors.accentBright} /></View>
             <View style={styles.grow}>
                 <View style={styles.rowHeader}>
-                    <Text style={[styles.title, { color: theme.colors.text.primary, flex: 1 }]} numberOfLines={2}>{item.file?.name || 'Documento'}</Text>
+                    <Text style={[styles.title, styles.grow]} numberOfLines={2}>{item.file?.name || 'Documento'}</Text>
                     <ActionsButton onPress={onActions} />
                 </View>
-                <Text style={{ color: theme.colors.text.secondary, fontSize: 12 }}>{formatSharedFileSize(item.file?.sizeBytes)}</Text>
+                <Text style={styles.detail}>{formatSharedFileSize(item.file?.sizeBytes)}</Text>
                 <Meta item={item} />
                 <View style={styles.inlineActions}>
-                    <TouchableOpacity onPress={open}><Text style={{ color: theme.colors.accent, fontWeight: '700' }}>{state === 'loading' ? 'Abriendo…' : 'Abrir'}</Text></TouchableOpacity>
-                    {state === 'unavailable' && <Text style={{ color: theme.colors.danger, fontSize: 12 }}>No disponible</Text>}
+                    <TouchableOpacity onPress={open} style={styles.openButton}>
+                        <Text style={styles.openText}>{state === 'loading' ? 'Abriendo…' : 'Abrir'}</Text>
+                    </TouchableOpacity>
+                    {state === 'unavailable' && <Text style={styles.unavailable}>No disponible</Text>}
                     <GoToMessage onPress={onMessage} />
                 </View>
             </View>
@@ -89,16 +107,17 @@ function DocumentRow({ item, onMessage, onActions }: { item: SharedContentItem; 
 }
 
 function LinkRow({ item, onMessage, onActions }: { item: SharedContentItem; onMessage: () => void; onActions: () => void }) {
-    const { theme } = useAppTheme();
     return (
-        <View style={[styles.card, styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <View style={[styles.icon, { backgroundColor: theme.colors.accentSoft }]}><Ionicons name="link-outline" size={26} color={theme.colors.accent} /></View>
+        <View style={[styles.item, styles.row]}>
+            <View style={styles.icon}><Ionicons name="link-outline" size={22} color={colors.accentBright} /></View>
             <View style={styles.grow}>
                 <View style={styles.rowHeader}>
-                    <Text style={[styles.title, { color: theme.colors.text.primary, flex: 1 }]}>{item.link?.domain}</Text>
+                    <Text style={[styles.title, styles.grow]}>{item.link?.domain}</Text>
                     <ActionsButton onPress={onActions} />
                 </View>
-                <TouchableOpacity onPress={() => item.link && Linking.openURL(item.link.url)}><Text style={{ color: theme.colors.accent }} numberOfLines={2}>{item.link?.url}</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => item.link && Linking.openURL(item.link.url)}>
+                    <Text style={styles.url} numberOfLines={2}>{item.link?.url}</Text>
+                </TouchableOpacity>
                 <Meta item={item} />
                 <GoToMessage onPress={onMessage} />
             </View>
@@ -107,7 +126,6 @@ function LinkRow({ item, onMessage, onActions }: { item: SharedContentItem; onMe
 }
 
 export default function SharedContentScreen({ route, navigation }: SharedContentScreenProps) {
-    const { theme } = useAppTheme();
     const { category } = route.params;
     const query = useSharedContent(route.params.conversationId, category);
     const items = query.data?.pages.flatMap((page) => page.items) || [];
@@ -119,7 +137,6 @@ export default function SharedContentScreen({ route, navigation }: SharedContent
     const queryClient = useQueryClient();
     const { mutateAsync: deleteMessage } = useDeleteMessage(route.params.conversationId);
 
-    useEffect(() => navigation.setOptions({ title: CONTENT_TITLES[category] }), [category, navigation]);
     const goToMessage = (item: SharedContentItem) => navigation.navigate('Chat', {
         conversationId: route.params.conversationId,
         otherUser: route.params.otherUser,
@@ -172,24 +189,42 @@ export default function SharedContentScreen({ route, navigation }: SharedContent
         }
     };
 
-    if (query.isLoading) return <View style={[styles.center, { backgroundColor: theme.colors.background }]}><ActivityIndicator /></View>;
-    if (query.isError) return <View style={[styles.center, { backgroundColor: theme.colors.background }]}><Text style={{ color: theme.colors.text.secondary }}>No se pudo cargar el contenido.</Text><TouchableOpacity onPress={() => query.refetch()}><Text style={{ color: theme.colors.accent, marginTop: 10 }}>Reintentar</Text></TouchableOpacity></View>;
+    const header = <ScreenHeader title={CONTENT_TITLES[category]} onBack={() => navigation.goBack()} />;
+
+    if (query.isLoading) {
+        return <View style={styles.container}>{header}<View style={styles.center}><ActivityIndicator color={colors.accentBright} /></View></View>;
+    }
+    if (query.isError) {
+        return (
+            <View style={styles.container}>
+                {header}
+                <View style={styles.center}>
+                    <Text style={styles.emptyText}>No se pudo cargar el contenido.</Text>
+                    <TouchableOpacity onPress={() => query.refetch()}><Text style={styles.retry}>Reintentar</Text></TouchableOpacity>
+                </View>
+            </View>
+        );
+    }
 
     return (
-        <>
+        <View style={styles.container}>
+            {header}
             <FlatList
-                style={{ backgroundColor: theme.colors.background }}
                 contentContainerStyle={[styles.list, items.length === 0 && styles.emptyList]}
                 data={items}
                 keyExtractor={(item) => item.id}
-                renderItem={({ item }) => category === 'audio'
-                    ? <AudioRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />
-                    : category === 'document'
-                        ? <DocumentRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />
-                        : <LinkRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />}
-                ListEmptyComponent={<Text style={{ color: theme.colors.text.secondary }}>No hay {CONTENT_TITLES[category].toLowerCase()} compartidos.</Text>}
+                renderItem={({ item, index }) => (
+                    <Band first={index === 0} last={index === items.length - 1}>
+                        {category === 'audio'
+                            ? <AudioRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />
+                            : category === 'document'
+                                ? <DocumentRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />
+                                : <LinkRow item={item} onMessage={() => goToMessage(item)} onActions={() => setActionItem(item)} />}
+                    </Band>
+                )}
+                ListEmptyComponent={<Text style={styles.emptyText}>No hay {CONTENT_TITLES[category].toLowerCase()} compartidos.</Text>}
                 onEndReached={() => { if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage(); }}
-                ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator /> : null}
+                ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator style={styles.footer} color={colors.accentBright} /> : null}
             />
             <SharedContentActionSheet
                 visible={Boolean(actionItem)}
@@ -212,23 +247,44 @@ export default function SharedContentScreen({ route, navigation }: SharedContent
                 onClose={() => setForwardItem(null)}
                 onSelectConversation={forwardToConversation}
             />
-        </>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: 'transparent' },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    list: { padding: 14, gap: 10 },
+    list: { paddingTop: space.lg, paddingBottom: space.xxl },
     emptyList: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
-    card: { borderWidth: 1, borderRadius: 14, padding: 14 },
-    row: { flexDirection: 'row', gap: 12 },
+    emptyText: { ...type.subhead, textAlign: 'center' },
+    retry: { fontFamily: fonts.semibold, fontSize: 14, color: colors.accentBright, marginTop: 10 },
+    footer: { marginVertical: space.lg },
+    bandGlass: { borderWidth: 0 },
+    bandFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.glassBorder },
+    bandLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
+    bandSeparator: { position: 'absolute', left: space.xl, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+    item: { paddingHorizontal: space.xl, paddingVertical: space.lg },
+    row: { flexDirection: 'row', gap: space.md },
     grow: { flex: 1 },
-    title: { fontSize: 15, fontWeight: '700' },
-    rowHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    title: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
+    detail: { ...type.caption, color: colors.textFaint },
+    meta: { ...type.caption, color: colors.textFaint, marginTop: 4 },
+    url: { fontFamily: fonts.regular, fontSize: 13, color: colors.accentBright, marginTop: 2 },
+    unavailable: { ...type.caption, color: colors.danger },
+    rowHeader: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
     actionsButton: { padding: 4, marginTop: -4 },
-    icon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    icon: { width: 44, height: 44, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentTint },
     messageLink: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10, alignSelf: 'flex-start' },
-    inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 16, flexWrap: 'wrap' },
-    audioPlayer: { marginVertical: 8, paddingHorizontal: 10, borderRadius: 10 },
-    audioLoading: { marginVertical: 16 },
+    linkText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.accentBright },
+    inlineActions: { flexDirection: 'row', alignItems: 'center', gap: space.lg, flexWrap: 'wrap' },
+    openButton: {
+        marginTop: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        borderRadius: radius.full,
+        backgroundColor: colors.accentTint,
+    },
+    openText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.accentBright },
+    audioPlayer: { marginVertical: space.sm, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.glassRaised },
+    audioLoading: { marginVertical: space.lg },
 });

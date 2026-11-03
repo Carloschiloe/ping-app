@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { apiClient } from '../api/client';
 import { useContacts, useCreateContact } from '../api/queries';
 import { formatSuggestionDueAt } from '../utils/timeZone';
+import { colors, gradients } from '../design/tokens';
+import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 interface AISuggestionModalProps {
     visible: boolean;
@@ -156,6 +160,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
         <Modal transparent visible={visible} animationType="slide">
             <View style={styles.modalOverlay}>
                 <View style={styles.suggestionModal}>
+                    <SheetFill />
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>
                             {isCounterProposal
@@ -165,7 +170,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     : 'Agendar'}
                         </Text>
                         <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
-                            <Ionicons name="close" size={24} color="#6b7280" />
+                            <Ionicons name="close" size={24} color={colors.textFaint} />
                         </TouchableOpacity>
                     </View>
 
@@ -195,11 +200,11 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     setShowPicker(true);
                                 }}
                             >
-                                <Ionicons name={isMeeting ? "calendar" : "list"} size={20} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
-                                <Text style={[styles.dateText, isMeeting && { color: '#8b5cf6' }]}>
+                                <Ionicons name={isMeeting ? "calendar" : "list"} size={20} color={colors.accentBright} />
+                                <Text style={[styles.dateText, isMeeting && { color: colors.accentBright }]}>
                                     {formattedDate}
                                 </Text>
-                                <Ionicons name="pencil" size={14} color="#94a3b8" style={{ marginLeft: 'auto' }} />
+                                <Ionicons name="pencil" size={14} color={colors.textFaint} style={{ marginLeft: 'auto' }} />
                             </TouchableOpacity>
 
                             {showPicker && (
@@ -212,7 +217,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         onValueChange={(_, date) => onDateChange(date)}
                                         onDismiss={() => setShowPicker(false)}
                                         themeVariant="light"
-                                        {...(Platform.OS === 'android' ? { textColor: '#1e1b4b' } : {})}
+                                        {...(Platform.OS === 'android' ? { textColor: colors.accentBright } : {})}
                                     />
                                     {Platform.OS === 'ios' && (
                                         <TouchableOpacity 
@@ -228,14 +233,14 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             <View style={styles.statusContainer}>
                                 {isCheckingConflicts && (
                                     <View style={styles.checkingContainer}>
-                                        <ActivityIndicator size="small" color="#6366f1" />
+                                        <ActivityIndicator size="small" color={colors.accentBright} />
                                         <Text style={styles.checkingText}>Verificando conflictos...</Text>
                                     </View>
                                 )}
 
                                 {conflicts.length > 0 && !isCheckingConflicts && (
                                     <View style={styles.conflictBanner}>
-                                        <Ionicons name="warning" size={16} color="#ef4444" />
+                                        <Ionicons name="warning" size={16} color={colors.danger} />
                                         <Text style={styles.conflictText} numberOfLines={2}>
                                             Conflicto: ya tienes {conflicts.length === 1 ? 'un compromiso' : 'compromisos'} a esta hora ({conflicts.map((c: any) => c.title).join(', ')})
                                         </Text>
@@ -253,8 +258,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                             style={[styles.assigneeOption, suggestionData.assignedToUserId === null && !suggestionData.counterpartyContactId && styles.assigneeOptionActive]}
                                             onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: null, counterpartyContactId: null })}
                                         >
-                                            <View style={[styles.assigneeAvatar, { backgroundColor: '#10b981' }]}>
-                                                <Ionicons name="people" size={24} color="white" />
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: colors.successTint }]}>
+                                                <Ionicons name="people" size={24} color={colors.onAccent} />
                                             </View>
                                             <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === null && !suggestionData.counterpartyContactId && styles.assigneeTextActive]}>Todos</Text>
                                         </TouchableOpacity>
@@ -264,7 +269,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         style={[styles.assigneeOption, suggestionData.assignedToUserId === user?.id && styles.assigneeOptionActive]}
                                         onPress={() => onUpdateData({ ...suggestionData, assignedToUserId: user?.id, counterpartyContactId: null })}
                                     >
-                                        <View style={[styles.assigneeAvatar, { backgroundColor: isMeeting ? '#8b5cf6' : '#6366f1' }]}>
+                                        <View style={[styles.assigneeAvatar, { backgroundColor: isMeeting ? colors.accentBright : colors.accentBright }]}>
                                             <Text style={styles.assigneeAvatarText}>Yo</Text>
                                         </View>
                                         <Text style={[styles.assigneeOptionText, suggestionData.assignedToUserId === user?.id && styles.assigneeTextActive]}>Para ti</Text>
@@ -284,7 +289,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                             </Text>
                                         </TouchableOpacity>
                                     )) : (
-                                        <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 10, alignSelf: 'center' }}>Cargando participantes...</Text>
+                                        <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: colors.textFaint, marginLeft: 10, alignSelf: 'center' }}>Cargando participantes...</Text>
                                     )}
 
                                     {/* Parte 12: contraparte externa sin cuenta en Ping (tabla contacts). */}
@@ -294,7 +299,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                             style={[styles.assigneeOption, suggestionData.counterpartyContactId === c.id && styles.assigneeOptionActive]}
                                             onPress={() => onUpdateData({ ...suggestionData, counterpartyContactId: c.id, assignedToUserId: null })}
                                         >
-                                            <View style={[styles.assigneeAvatar, { backgroundColor: '#f59e0b' }]}>
+                                            <View style={[styles.assigneeAvatar, { backgroundColor: colors.warningTint }]}>
                                                 <Text style={styles.assigneeAvatarText}>{c.display_name?.substring(0, 1).toUpperCase() || '?'}</Text>
                                             </View>
                                             <Text style={[styles.assigneeOptionText, suggestionData.counterpartyContactId === c.id && styles.assigneeTextActive]} numberOfLines={1}>
@@ -308,8 +313,8 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         onPress={handleCreateContact}
                                         disabled={isCreatingContact}
                                     >
-                                        <View style={[styles.assigneeAvatar, { backgroundColor: '#e2e8f0' }]}>
-                                            <Ionicons name="person-add" size={20} color="#64748b" />
+                                        <View style={[styles.assigneeAvatar, { backgroundColor: colors.glassRaised }]}>
+                                            <Ionicons name="person-add" size={20} color={colors.textFaint} />
                                         </View>
                                         <Text style={styles.assigneeOptionText}>Contacto{'\n'}nuevo</Text>
                                     </TouchableOpacity>
@@ -317,15 +322,15 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             </View>
 
                             <View style={styles.currentAssigneeBadge}>
-                                <Ionicons name="checkmark-circle" size={16} color={isMeeting ? "#8b5cf6" : "#6366f1"} />
-                                <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontWeight: '700' }}>{assigneeName}</Text></Text>
+                                <Ionicons name="checkmark-circle" size={16} color={colors.accentBright} />
+                                <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontFamily: fonts.bold }}>{assigneeName}</Text></Text>
                             </View>
                             </>
                             )}
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.acceptBtn, isMeeting && { backgroundColor: '#8b5cf6' }, (!isCounterProposal && isGroup
+                            style={[styles.acceptBtn, (!isCounterProposal && isGroup
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId && { opacity: 0.5 })
                                 : (!isCounterProposal && !suggestionData.assignedToUserId && !suggestionData.counterpartyContactId && { opacity: 0.5 }))]}
                             onPress={onConfirm}
@@ -333,6 +338,13 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId)
                                 : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId))}
                         >
+                            <LinearGradient
+                                pointerEvents="none"
+                                colors={gradients.accent}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={StyleSheet.absoluteFill}
+                            />
                             <Text style={styles.acceptBtnText}>
                                 {isCounterProposal ? 'Enviar nuevo horario' : isEditing ? 'Guardar cambios' : 'Agendar'}
                             </Text>
@@ -344,7 +356,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 onPress={() => setShowCancelConfirmation(true)}
                                 disabled={isCancelling || isSubmittingCancellation}
                             >
-                                <Ionicons name="ban-outline" size={19} color="#dc2626" />
+                                <Ionicons name="ban-outline" size={19} color={colors.danger} />
                                 <Text style={styles.cancelCommitmentBtnText}>
                                     Cancelar {isMeeting ? 'reunión' : 'compromiso'}
                                 </Text>
@@ -354,7 +366,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         {isEditing && onCancel && showCancelConfirmation && (
                             <View style={styles.cancelConfirmation}>
                                 <View style={styles.cancelConfirmationTitleRow}>
-                                    <Ionicons name="warning-outline" size={20} color="#b91c1c" />
+                                    <Ionicons name="warning-outline" size={20} color={colors.danger} />
                                     <Text style={styles.cancelConfirmationTitle}>Confirmar cancelación</Text>
                                 </View>
                                 <Text style={styles.cancelConfirmationText}>
@@ -365,7 +377,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     value={cancelReason}
                                     onChangeText={setCancelReason}
                                     placeholder="Motivo opcional, por ejemplo: se resolvió antes"
-                                    placeholderTextColor="#9ca3af"
+                                    placeholderTextColor={colors.textFaint}
                                     maxLength={500}
                                     multiline
                                     editable={!isCancelling && !isSubmittingCancellation}
@@ -387,7 +399,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         disabled={isCancelling || isSubmittingCancellation}
                                     >
                                         {(isCancelling || isSubmittingCancellation) ? (
-                                            <ActivityIndicator size="small" color="white" />
+                                            <ActivityIndicator size="small" color={colors.onAccent} />
                                         ) : (
                                             <Text style={styles.confirmCancellationBtnText}>Sí, cancelar</Text>
                                         )}
@@ -404,23 +416,23 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
 
 const styles = StyleSheet.create({
     modalOverlay: {
-        flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20,
+        flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', alignItems: 'center', padding: 20,
     },
     suggestionModal: {
-        backgroundColor: 'white', 
         borderRadius: 24, 
         width: '100%', 
         padding: 24, 
-        shadowColor: '#000', 
+        shadowColor: colors.ink, 
         shadowOpacity: 0.2, 
         shadowRadius: 10, 
         elevation: 5,
         maxHeight: '90%',
+        ...sheetSurface,
     },
     modalHeader: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12,
     },
-    modalTitle: { fontSize: 18, fontWeight: '700', color: '#1e1b4b' },
+    modalTitle: { fontSize: 18, fontFamily: fonts.bold, color: colors.accentBright },
     modalCloseBtn: { padding: 4 },
     modalScroll: {
         flexGrow: 0,
@@ -429,18 +441,18 @@ const styles = StyleSheet.create({
         paddingBottom: 20,
     },
     modalBody: { marginBottom: 12 },
-    inputLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', marginBottom: 8, textTransform: 'uppercase' },
-    modalInput: {
-        backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, fontSize: 16, color: '#111827', marginBottom: 16,
+    inputLabel: { fontSize: 12, fontFamily: fonts.bold, color: colors.textFaint, marginBottom: 8, textTransform: 'uppercase' },
+    modalInput: { fontFamily: fonts.regular,
+        backgroundColor: colors.glassRaised, borderWidth: 1, borderColor: colors.glassBorder, borderRadius: 12, padding: 12, fontSize: 16, color: colors.text, marginBottom: 16,
     },
     datePreview: {
-        flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff7ed', borderRadius: 12, padding: 12, gap: 10,
+        flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accentTint, borderRadius: 12, padding: 12, gap: 10,
     },
-    dateText: { fontSize: 14, fontWeight: '500', color: '#c2410c' },
+    dateText: { fontSize: 14, fontFamily: fonts.medium, color: colors.accentBright },
     conflictBanner: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fee2e2',
+        backgroundColor: colors.dangerTint,
         padding: 10,
         borderRadius: 12,
         gap: 8,
@@ -458,8 +470,8 @@ const styles = StyleSheet.create({
     },
     checkingText: {
         fontSize: 12,
-        color: '#6366f1',
-        fontWeight: '500',
+        color: colors.accentBright,
+        fontFamily: fonts.medium,
     },
     assigneeSelectorContainer: { marginTop: 4, marginBottom: 16 },
     assigneeList: { paddingVertical: 4, gap: 12 },
@@ -468,29 +480,29 @@ const styles = StyleSheet.create({
     assigneeAvatar: {
         width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 6, borderWidth: 2, borderColor: 'transparent',
     },
-    assigneeAvatarText: { color: 'white', fontSize: 16, fontWeight: '700' },
-    assigneeOptionText: { fontSize: 11, color: '#6b7280', textAlign: 'center' },
-    assigneeTextActive: { color: '#6366f1', fontWeight: '700' },
+    assigneeAvatarText: { color: colors.onAccent, fontSize: 16, fontFamily: fonts.bold },
+    assigneeOptionText: { fontFamily: fonts.regular, fontSize: 11, color: colors.textFaint, textAlign: 'center' },
+    assigneeTextActive: { color: colors.accentBright, fontFamily: fonts.bold },
     currentAssigneeBadge: {
-        flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f3ff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, alignSelf: 'flex-start', gap: 6,
+        flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accentTint, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, alignSelf: 'flex-start', gap: 6,
     },
-    currentAssigneeText: { fontSize: 13, color: '#4b5563' },
+    currentAssigneeText: { fontFamily: fonts.regular, fontSize: 13, color: colors.textSoft },
     conflictText: {
-        color: '#ef4444',
+        color: colors.danger,
         fontSize: 12,
-        fontWeight: '500',
+        fontFamily: fonts.medium,
         marginLeft: 8,
         flex: 1,
         lineHeight: 16,
     },
-    acceptBtn: { backgroundColor: '#6366f1', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
-    acceptBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
+    acceptBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 16, alignItems: 'center', overflow: 'hidden' },
+    acceptBtnText: { color: colors.onAccent, fontSize: 16, fontFamily: fonts.bold },
     cancelCommitmentBtn: {
         marginTop: 12,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#fecaca',
-        backgroundColor: '#fff7f7',
+        borderColor: colors.danger,
+        backgroundColor: colors.dangerTint,
         paddingVertical: 14,
         alignItems: 'center',
         justifyContent: 'center',
@@ -498,16 +510,16 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     cancelCommitmentBtnText: {
-        color: '#dc2626',
+        color: colors.danger,
         fontSize: 15,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     cancelConfirmation: {
         marginTop: 12,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#fecaca',
-        backgroundColor: '#fff7f7',
+        borderColor: colors.danger,
+        backgroundColor: colors.dangerTint,
         padding: 14,
     },
     cancelConfirmationTitleRow: {
@@ -516,26 +528,26 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     cancelConfirmationTitle: {
-        color: '#991b1b',
+        color: colors.danger,
         fontSize: 15,
-        fontWeight: '800',
+        fontFamily: fonts.extrabold,
     },
-    cancelConfirmationText: {
-        color: '#7f1d1d',
+    cancelConfirmationText: { fontFamily: fonts.regular,
+        color: colors.danger,
         fontSize: 13,
         lineHeight: 18,
         marginTop: 8,
     },
-    cancelReasonInput: {
+    cancelReasonInput: { fontFamily: fonts.regular,
         minHeight: 64,
         marginTop: 12,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#fecaca',
-        backgroundColor: 'white',
+        borderColor: colors.danger,
+        backgroundColor: colors.glassRaised,
         paddingHorizontal: 12,
         paddingVertical: 10,
-        color: '#111827',
+        color: colors.text,
         fontSize: 14,
         textAlignVertical: 'top',
     },
@@ -548,44 +560,44 @@ const styles = StyleSheet.create({
         flex: 1,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#d1d5db',
+        borderColor: colors.glassBorder,
         paddingVertical: 12,
         alignItems: 'center',
-        backgroundColor: 'white',
+        backgroundColor: colors.glassRaised,
     },
     keepCommitmentBtnText: {
-        color: '#374151',
+        color: colors.text,
         fontSize: 14,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     confirmCancellationBtn: {
         flex: 1,
         borderRadius: 12,
         paddingVertical: 12,
         alignItems: 'center',
-        backgroundColor: '#dc2626',
+        backgroundColor: colors.danger,
     },
     confirmCancellationBtnText: {
-        color: 'white',
+        color: colors.onAccent,
         fontSize: 14,
-        fontWeight: '800',
+        fontFamily: fonts.extrabold,
     },
     pickerWrapper: {
-        backgroundColor: '#f9fafb',
+        backgroundColor: colors.glassRaised,
         borderRadius: 16,
         padding: 8,
         marginTop: 8,
     },
     confirmPickerBtn: {
-        backgroundColor: '#6366f1',
+        backgroundColor: colors.accent,
         paddingVertical: 10,
         borderRadius: 12,
         alignItems: 'center',
         marginTop: 8,
     },
     confirmPickerBtnText: {
-        color: 'white',
-        fontWeight: '700',
+        color: colors.onAccent,
+        fontFamily: fonts.bold,
         fontSize: 14,
     }
 });

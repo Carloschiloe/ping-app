@@ -3,7 +3,6 @@ import { View, Text, Modal, TouchableOpacity, StyleSheet, ScrollView, Pressable 
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAppTheme } from '../../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../../utils/commitmentStatus';
 import { resolveConversationId, canViewOriginConversation, getWaitingLabel, isProposalDatePassed, getStatusLabel } from '../../utils/commitmentDisplay';
 import { getCommitmentPrimaryAction } from '../../utils/commitmentPrimaryAction';
@@ -11,6 +10,9 @@ import { getProposalWaitingLabel } from '../../utils/agreement';
 import { AgreementParticipantsList } from '../AgreementParticipantsList';
 import { useNavigation } from '@react-navigation/native';
 import type { ChatsTabNavigationProp } from '../../navigation/types';
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 
 interface CommitmentDetailSheetProps {
     item: any | null;
@@ -66,7 +68,6 @@ export function CommitmentDetailSheet({
     onArchive,
     onRestore,
 }: CommitmentDetailSheetProps) {
-    const { theme } = useAppTheme();
     const navigation = useNavigation<ChatsTabNavigationProp>();
 
     if (!item) return null;
@@ -113,46 +114,47 @@ export function CommitmentDetailSheet({
     return (
         <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
             <Pressable style={styles.overlay} onPress={onClose} />
-            <View style={[styles.sheet, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.sheet}>
+                <SheetFill />
                 <View style={styles.handle} />
 
                 {/* Header */}
                 <View style={styles.header}>
-                    <Text style={[styles.title, { color: theme.colors.text.primary }]} numberOfLines={2}>
+                    <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
                         {item.title}
                     </Text>
                     <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                        <Ionicons name="close" size={22} color={theme.colors.text.secondary} />
+                        <Ionicons name="close" size={22} color={colors.textSoft} />
                     </TouchableOpacity>
                 </View>
 
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
                     {/* Meta Grid */}
-                    <View style={[styles.metaBlock, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border }]}>
+                    <View style={[styles.metaBlock, { backgroundColor: colors.glassRaised, borderColor: colors.glassBorder }]}>
                         <View style={styles.metaRow}>
-                            <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Estado</Text>
-                            <Text style={[styles.metaValue, { color: theme.colors.accent }]}>{getStatusLabel(status)}</Text>
+                            <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Estado</Text>
+                            <Text style={[styles.metaValue, { color: colors.accent }]}>{getStatusLabel(status)}</Text>
                         </View>
                         <View style={styles.metaRow}>
-                            <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Fecha</Text>
-                            <Text style={[styles.metaValue, { color: theme.colors.text.primary }]}>{formatDetailDate(item.due_at)}</Text>
+                            <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Fecha</Text>
+                            <Text style={[styles.metaValue, { color: colors.text }]}>{formatDetailDate(item.due_at)}</Text>
                         </View>
                         {item.owner?.full_name && (
                             <View style={styles.metaRow}>
-                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Creador</Text>
-                                <Text style={[styles.metaValue, { color: theme.colors.text.primary }]}>{item.owner.full_name}</Text>
+                                <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Creador</Text>
+                                <Text style={[styles.metaValue, { color: colors.text }]}>{item.owner.full_name}</Text>
                             </View>
                         )}
                         {item.assignee?.full_name && (
                             <View style={styles.metaRow}>
-                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Responsable</Text>
-                                <Text style={[styles.metaValue, { color: theme.colors.text.primary }]}>{item.assignee.full_name}</Text>
+                                <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Responsable</Text>
+                                <Text style={[styles.metaValue, { color: colors.text }]}>{item.assignee.full_name}</Text>
                             </View>
                         )}
                         {!!waiting && (
                             <View style={styles.metaRow}>
-                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Seguimiento</Text>
-                                <Text style={[styles.metaValue, { color: theme.colors.warning }]}>{waiting}</Text>
+                                <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Seguimiento</Text>
+                                <Text style={[styles.metaValue, { color: colors.warning }]}>{waiting}</Text>
                             </View>
                         )}
                         {/* M-1H v5 (sección 17): una commitment_proposal pendiente
@@ -160,14 +162,14 @@ export function CommitmentDetailSheet({
                             confunde con "Seguimiento" de un commitment ya activo. */}
                         {isProposal && primaryAction === 'waiting' && (
                             <View style={styles.metaRow}>
-                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Esperando</Text>
-                                <Text style={[styles.metaValue, { color: theme.colors.warning }]}>{proposalWaitingLabel}</Text>
+                                <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Esperando</Text>
+                                <Text style={[styles.metaValue, { color: colors.warning }]}>{proposalWaitingLabel}</Text>
                             </View>
                         )}
                         {proposalDatePassed && (
                             <View style={styles.metaRow}>
-                                <Text style={[styles.metaLabel, { color: theme.colors.text.secondary }]}>Nota</Text>
-                                <Text style={[styles.metaValue, { color: theme.colors.warning }]}>La fecha propuesta ya pasó</Text>
+                                <Text style={[styles.metaLabel, { color: colors.textSoft }]}>Nota</Text>
+                                <Text style={[styles.metaValue, { color: colors.warning }]}>La fecha propuesta ya pasó</Text>
                             </View>
                         )}
                     </View>
@@ -175,7 +177,7 @@ export function CommitmentDetailSheet({
                     {/* Agreement Responses if multipartite */}
                     {item.agreement_responses && item.agreement_responses.length > 0 && (
                         <View style={styles.sectionBlock}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.text.secondary }]}>Respuestas del equipo</Text>
+                            <Text style={[styles.sectionTitle, { color: colors.textSoft }]}>Respuestas del equipo</Text>
                             <AgreementParticipantsList
                                 responses={item.agreement_responses}
                                 fallbackParticipants={participants}
@@ -186,9 +188,9 @@ export function CommitmentDetailSheet({
 
                     {/* Next Action if present */}
                     {!!item.next_action && (
-                        <View style={[styles.sectionBlock, { backgroundColor: theme.colors.surfaceMuted, padding: 12, borderRadius: 8 }]}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.text.secondary }]}>Próxima acción</Text>
-                            <Text style={[styles.bodyText, { color: theme.colors.text.primary }]}>{item.next_action}</Text>
+                        <View style={[styles.sectionBlock, { backgroundColor: colors.glassRaised, padding: 12, borderRadius: 8 }]}>
+                            <Text style={[styles.sectionTitle, { color: colors.textSoft }]}>Próxima acción</Text>
+                            <Text style={[styles.bodyText, { color: colors.text }]}>{item.next_action}</Text>
                         </View>
                     )}
 
@@ -206,19 +208,19 @@ export function CommitmentDetailSheet({
                         a stray Resultado section even if some legacy row
                         happened to carry a non-empty value. */}
                     {status === 'resolved' && !!item.resolution_result && (
-                        <View style={[styles.sectionBlock, { backgroundColor: 'rgba(34,197,94,0.1)', padding: 12, borderRadius: 8 }]}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.success }]}>Resultado</Text>
-                            <Text style={[styles.bodyText, { color: theme.colors.text.primary }]}>{item.resolution_result}</Text>
+                        <View style={[styles.sectionBlock, { backgroundColor: colors.successTint, padding: 12, borderRadius: 8 }]}>
+                            <Text style={[styles.sectionTitle, { color: colors.success }]}>Resultado</Text>
+                            <Text style={[styles.bodyText, { color: colors.text }]}>{item.resolution_result}</Text>
                         </View>
                     )}
                 </ScrollView>
 
                 {/* Actions Footer */}
-                <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+                <View style={[styles.footer, { borderTopColor: colors.glassBorder }]}>
                     {hasConversation && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={goToChat}>
-                            <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.colors.accent} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.accent }]}>Ver en chat</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.glassRaised }]} onPress={goToChat}>
+                            <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.accent} />
+                            <Text style={[styles.actionBtnText, { color: colors.accent }]}>Ver en chat</Text>
                         </TouchableOpacity>
                     )}
 
@@ -231,23 +233,23 @@ export function CommitmentDetailSheet({
                         archivado (activo, resuelto o cancelado) sólo ofrece
                         Ver en chat/Restaurar, nunca estas acciones. */}
                     {!isFinished && !isProposal && !isArchived && onReschedule && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => { onClose(); onReschedule(item); }}>
-                            <Ionicons name="calendar-outline" size={16} color={theme.colors.accent} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.accent }]}>Reprogramar</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.glassRaised }]} onPress={() => { onClose(); onReschedule(item); }}>
+                            <Ionicons name="calendar-outline" size={16} color={colors.accent} />
+                            <Text style={[styles.actionBtnText, { color: colors.accent }]}>Reprogramar</Text>
                         </TouchableOpacity>
                     )}
 
                     {!isFinished && !isArchived && primaryAction === 'accept' && onConfirmRequest && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onConfirmRequest(item); }}>
-                            <Ionicons name="checkmark" size={16} color={theme.colors.white} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>{isProposal ? 'Aceptar' : 'Confirmar'}</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.accent }]} onPress={() => { onClose(); onConfirmRequest(item); }}>
+                            <Ionicons name="checkmark" size={16} color={colors.onAccent} />
+                            <Text style={[styles.actionBtnText, { color: colors.onAccent }]}>{isProposal ? 'Aceptar' : 'Confirmar'}</Text>
                         </TouchableOpacity>
                     )}
 
                     {!isFinished && !isProposal && !isArchived && primaryAction === 'complete' && onMarkDone && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onMarkDone(item.id); }}>
-                            <Ionicons name="checkmark" size={16} color={theme.colors.white} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Completar</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.accent }]} onPress={() => { onClose(); onMarkDone(item.id); }}>
+                            <Ionicons name="checkmark" size={16} color={colors.onAccent} />
+                            <Text style={[styles.actionBtnText, { color: colors.onAccent }]}>Completar</Text>
                         </TouchableOpacity>
                     )}
 
@@ -256,9 +258,9 @@ export function CommitmentDetailSheet({
                         first is the only path back to visibility; it never
                         reopens on its own (status stays identical). */}
                     {isFinished && !isProposal && !isArchived && onReopen && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onReopen(item.id); }}>
-                            <Ionicons name="refresh-outline" size={16} color={theme.colors.white} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Reabrir</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.accent }]} onPress={() => { onClose(); onReopen(item.id); }}>
+                            <Ionicons name="refresh-outline" size={16} color={colors.onAccent} />
+                            <Text style={[styles.actionBtnText, { color: colors.onAccent }]}>Reabrir</Text>
                         </TouchableOpacity>
                     )}
 
@@ -275,9 +277,9 @@ export function CommitmentDetailSheet({
                         for the identical onCancel action; the endpoint/behavior
                         itself is unchanged. */}
                     {!isFinished && !isProposal && !isArchived && onCancel && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => { onClose(); onCancel(item.id); }}>
-                            <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.danger }]}>Cancelar</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.dangerTint }]} onPress={() => { onClose(); onCancel(item.id); }}>
+                            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                            <Text style={[styles.actionBtnText, { color: colors.danger }]}>Cancelar</Text>
                         </TouchableOpacity>
                     )}
 
@@ -292,9 +294,9 @@ export function CommitmentDetailSheet({
                         cambia status, sólo archived_at. Nunca ofrecido si YA
                         está archivado -- ver Restaurar abajo. */}
                     {!isProposal && !isArchived && onArchive && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => { onClose(); onArchive(item.id); }}>
-                            <Ionicons name="archive-outline" size={16} color={theme.colors.text.secondary} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.text.secondary }]}>Archivar</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.glassRaised }]} onPress={() => { onClose(); onArchive(item.id); }}>
+                            <Ionicons name="archive-outline" size={16} color={colors.textSoft} />
+                            <Text style={[styles.actionBtnText, { color: colors.textSoft }]}>Archivar</Text>
                         </TouchableOpacity>
                     )}
 
@@ -305,9 +307,9 @@ export function CommitmentDetailSheet({
                         completa ni cancela; el status canónico intacto
                         decide qué vuelve a estar disponible después. */}
                     {!isProposal && isArchived && onRestore && (
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.colors.accent }]} onPress={() => { onClose(); onRestore(item.id); }}>
-                            <Ionicons name="arrow-undo-outline" size={16} color={theme.colors.white} />
-                            <Text style={[styles.actionBtnText, { color: theme.colors.white }]}>Restaurar</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.accent }]} onPress={() => { onClose(); onRestore(item.id); }}>
+                            <Ionicons name="arrow-undo-outline" size={16} color={colors.onAccent} />
+                            <Text style={[styles.actionBtnText, { color: colors.onAccent }]}>Restaurar</Text>
                         </TouchableOpacity>
                     )}
                 </View>
@@ -319,7 +321,7 @@ export function CommitmentDetailSheet({
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
     },
     sheet: {
         borderTopLeftRadius: 20,
@@ -327,13 +329,14 @@ const styles = StyleSheet.create({
         maxHeight: '80%',
         minHeight: 320,
         paddingBottom: 32,
+        ...sheetSurface,
     },
     handle: {
         alignSelf: 'center',
         width: 36,
         height: 4,
         borderRadius: 2,
-        backgroundColor: '#d1d5db',
+        backgroundColor: colors.glassRaised,
         marginTop: 10,
         marginBottom: 8,
     },
@@ -346,7 +349,7 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 17,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         flex: 1,
         marginRight: 10,
     },
@@ -368,22 +371,22 @@ const styles = StyleSheet.create({
     },
     metaLabel: {
         fontSize: 12,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     metaValue: {
         fontSize: 13,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     sectionBlock: {
         gap: 6,
     },
     sectionTitle: {
         fontSize: 12,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
-    bodyText: {
+    bodyText: { fontFamily: fonts.regular,
         fontSize: 14,
         lineHeight: 20,
     },
@@ -407,6 +410,6 @@ const styles = StyleSheet.create({
     },
     actionBtnText: {
         fontSize: 13,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
 });

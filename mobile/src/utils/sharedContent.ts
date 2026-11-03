@@ -53,6 +53,18 @@ export function sharedContentReadTarget(item: SharedContentItem) {
         : { type: 'message' as const, id: item.messageId };
 }
 
+// What a person reads as the item's name: photos, videos and voice notes
+// are stored under internal file names, so they are named by who sent them.
+export function sharedContentTitle(item: SharedContentItem): string {
+    const who = item.sender?.name?.trim();
+    const of = (kind: string) => (who ? `${kind} de ${who}` : kind);
+    if (item.type === 'image') return of('Foto');
+    if (item.type === 'video') return of('Video');
+    if (item.type === 'audio') return of('Audio');
+    if (item.type === 'link') return item.link?.domain || 'Enlace';
+    return item.file?.name || 'Documento';
+}
+
 export function documentIconName(item: SharedContentItem) {
     const mime = item.file?.mimeType || '';
     const name = item.file?.name?.toLowerCase() || '';

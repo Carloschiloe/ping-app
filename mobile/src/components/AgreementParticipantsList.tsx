@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAppTheme } from '../theme/ThemeContext';
+import { colors, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
 import {
     getAgreementResponseLabel,
     getInvolvedParticipants,
@@ -25,8 +26,6 @@ export function AgreementParticipantsList({
     fallbackParticipants = [],
     currentUserId,
 }: AgreementParticipantsListProps) {
-    const { theme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
     const participants = getInvolvedParticipants(
         responses || [],
         fallbackParticipants || [],
@@ -44,15 +43,15 @@ export function AgreementParticipantsList({
             <Text style={styles.title}>Personas involucradas</Text>
             {participants.map((participant) => {
                 const status = participant.status;
-                const colors = status === 'approved'
-                    ? { color: '#15803d', background: '#dcfce7', icon: 'checkmark-circle' as const }
+                const tone = status === 'approved'
+                    ? { color: colors.success, background: colors.successTint, icon: 'checkmark-circle' as const }
                     : status === 'rejected'
-                        ? { color: '#b91c1c', background: '#fee2e2', icon: 'close-circle' as const }
+                        ? { color: colors.danger, background: colors.dangerTint, icon: 'close-circle' as const }
                         : status === 'counter_proposed'
-                            ? { color: '#7c3aed', background: '#ede9fe', icon: 'time' as const }
+                            ? { color: colors.accentBright, background: colors.accentTint, icon: 'time' as const }
                             : status === 'pending'
-                                ? { color: '#b45309', background: '#fef3c7', icon: 'hourglass-outline' as const }
-                                : { color: theme.colors.text.muted, background: theme.colors.surfaceMuted, icon: 'remove-circle-outline' as const };
+                                ? { color: colors.warning, background: colors.warningTint, icon: 'hourglass-outline' as const }
+                                : { color: colors.textFaint, background: colors.glassRaised, icon: 'remove-circle-outline' as const };
                 const label = participant.hasRecordedResponse
                     ? getAgreementResponseLabel(status)
                     : 'Sin respuesta registrada';
@@ -60,7 +59,7 @@ export function AgreementParticipantsList({
                 return (
                     <View key={participant.id} style={styles.row}>
                         <View style={styles.person}>
-                            <Ionicons name={colors.icon} size={18} color={colors.color} />
+                            <Ionicons name={tone.icon} size={18} color={tone.color} />
                             <View style={styles.copy}>
                                 <Text style={styles.name}>{participant.name}</Text>
                                 {status === 'counter_proposed' && participant.proposed_due_at ? (
@@ -68,8 +67,8 @@ export function AgreementParticipantsList({
                                 ) : null}
                             </View>
                         </View>
-                        <View style={[styles.badge, { backgroundColor: colors.background }]}>
-                            <Text style={[styles.badgeText, { color: colors.color }]}>{label}</Text>
+                        <View style={[styles.badge, { backgroundColor: tone.background }]}>
+                            <Text style={[styles.badgeText, { color: tone.color }]}>{label}</Text>
                         </View>
                     </View>
                 );
@@ -83,18 +82,9 @@ export function AgreementParticipantsList({
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
-    section: {
-        marginBottom: 12,
-        gap: 8,
-    },
-    title: {
-        color: theme.colors.text.muted,
-        fontSize: 12,
-        fontWeight: '700',
-        letterSpacing: 0.3,
-        textTransform: 'uppercase',
-    },
+const styles = StyleSheet.create({
+    section: { marginBottom: space.md, gap: space.sm },
+    title: { ...type.overline },
     row: {
         minHeight: 44,
         flexDirection: 'row',
@@ -103,44 +93,16 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 10,
         paddingVertical: 7,
         paddingHorizontal: 10,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        borderRadius: radius.md,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
-    person: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    copy: {
-        flex: 1,
-    },
-    name: {
-        color: theme.colors.text.primary,
-        fontSize: 13,
-        fontWeight: '700',
-    },
-    date: {
-        color: theme.colors.text.muted,
-        fontSize: 11,
-        marginTop: 2,
-    },
-    badge: {
-        maxWidth: '48%',
-        borderRadius: 999,
-        paddingHorizontal: 9,
-        paddingVertical: 5,
-    },
-    badgeText: {
-        fontSize: 10,
-        fontWeight: '800',
-        textAlign: 'center',
-    },
-    legacyNote: {
-        color: theme.colors.text.muted,
-        fontSize: 11,
-        lineHeight: 15,
-    },
+    person: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+    copy: { flex: 1 },
+    name: { fontFamily: fonts.semibold, color: colors.text, fontSize: 13 },
+    date: { fontFamily: fonts.regular, color: colors.textFaint, fontSize: 11, marginTop: 2 },
+    badge: { maxWidth: '48%', borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 5 },
+    badgeText: { fontFamily: fonts.bold, fontSize: 10, textAlign: 'center' },
+    legacyNote: { fontFamily: fonts.regular, color: colors.textFaint, fontSize: 11, lineHeight: 15 },
 });

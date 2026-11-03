@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, Switch } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
@@ -14,16 +14,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import Constants from 'expo-constants';
-import { useAppTheme } from '../theme/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import Reanimated, { FadeInDown } from 'react-native-reanimated';
 
 import { EditProfileSheet } from '../components/perfil/EditProfileSheet';
 import { CalendarsSheet } from '../components/perfil/CalendarsSheet';
 import { FocusModeSheet } from '../components/perfil/FocusModeSheet';
 import { MemorySheet } from '../components/perfil/MemorySheet';
+import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
 
 export default function ProfileScreen() {
-    const { theme } = useAppTheme();
-    const styles = useMemo(() => createStyles(theme), [theme]);
     const insets = useSafeAreaInsets();
     const { user, refreshProfile } = useAuth();
     const [phone, setPhone] = useState('');
@@ -251,219 +254,120 @@ export default function ProfileScreen() {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[
-                styles.content,
-                {
-                    paddingTop: contentPaddingTop,
-                    paddingBottom: Math.max(insets.bottom, 20) + 20,
-                },
-            ]}
+            contentContainerStyle={{
+                paddingTop: contentPaddingTop,
+                paddingBottom: Math.max(insets.bottom, 12) + TAB_BAR_CLEARANCE,
+            }}
         >
-            {/* HEADER / IDENTITY */}
-            <View style={styles.headerBlock}>
-                <View style={styles.headerLeft}>
-                    <View style={[styles.avatarWrapper, { backgroundColor: theme.colors.accent }]}>
-                        {avatarUrl ? (
-                            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                        ) : (
-                            <Text style={styles.avatarText}>{initialLetter}</Text>
-                        )}
-                    </View>
-                    <View style={styles.headerInfo}>
-                        <Text
-                            style={[styles.headerName, { color: theme.colors.text.primary }]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                        >
-                            {fullName || 'Sin nombre'}
-                        </Text>
-                        <Text
-                            style={[styles.headerEmail, { color: theme.colors.text.secondary }]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                        >
-                            {user?.email}
-                        </Text>
-                    </View>
-                </View>
-                <TouchableOpacity
-                    style={[styles.editBtn, { backgroundColor: theme.colors.surfaceMuted }]}
-                    onPress={() => setEditProfileVisible(true)}
-                    accessibilityLabel="Editar perfil"
-                >
-                    <Text style={[styles.editBtnText, { color: theme.colors.text.primary }]}>Editar</Text>
-                </TouchableOpacity>
+            <View style={styles.header}>
+                <Text style={type.overline}>TU CUENTA</Text>
+                <Text style={styles.headerTitle}>Perfil</Text>
             </View>
+
+            {/* IDENTITY */}
+            <Reanimated.View entering={FadeInDown.duration(380)} style={styles.heroWrap}>
+                <Glass style={styles.hero} intensity={30} tint={colors.glassTintLight}>
+                    <View style={styles.avatarRing}>
+                        <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
+                            {avatarUrl ? (
+                                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                            ) : (
+                                <Text style={styles.avatarText}>{initialLetter}</Text>
+                            )}
+                        </LinearGradient>
+                    </View>
+                    <Text style={styles.heroName} numberOfLines={1} ellipsizeMode="tail">
+                        {fullName || 'Sin nombre'}
+                    </Text>
+                    <Text style={styles.heroEmail} numberOfLines={1} ellipsizeMode="tail">
+                        {user?.email}
+                    </Text>
+                    {!!phone && <Text style={styles.heroPhone}>{phone}</Text>}
+                    <TouchableOpacity
+                        style={styles.editBtn}
+                        onPress={() => setEditProfileVisible(true)}
+                        accessibilityLabel="Editar perfil"
+                        activeOpacity={0.85}
+                    >
+                        <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                        <Ionicons name="create-outline" size={16} color={colors.onAccent} />
+                        <Text style={styles.editBtnText}>Editar perfil</Text>
+                    </TouchableOpacity>
+                </Glass>
+            </Reanimated.View>
 
             {/* INTEGRATIONS */}
-            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted }]}>INTEGRACIONES Y CALENDARIO</Text>
-            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
-                <TouchableOpacity style={styles.row} onPress={() => setCalendarsVisible(true)} accessibilityLabel="Cuentas y calendarios">
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="calendar-outline" size={20} color={theme.colors.accent} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Cuentas y calendarios</Text>
-                        <Text style={[styles.rowSubtitle, { color: theme.colors.text.secondary }]}>{integrationsSub}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
-                </TouchableOpacity>
-            </View>
+            <Section title="INTEGRACIONES Y CALENDARIO" order={1}>
+                <Row icon="calendar-outline" title="Cuentas y calendarios" subtitle={integrationsSub} onPress={() => setCalendarsVisible(true)} />
+            </Section>
 
             {/* PRIVACY & SECURITY */}
-            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>PRIVACIDAD Y SEGURIDAD</Text>
-            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
+            <Section title="PRIVACIDAD Y SEGURIDAD" order={2}>
                 {hasBiometricHw && (
-                    <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator }]}>
-                        <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                            <Ionicons name="finger-print-outline" size={20} color={theme.colors.text.primary} />
-                        </View>
-                        <View style={styles.rowBody}>
-                            <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Bloqueo de Aplicación</Text>
-                        </View>
-                        <Switch
-                            value={biometricEnabled}
-                            onValueChange={handleToggleBiometric}
-                            trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                            thumbColor={theme.colors.white}
-                        />
-                    </View>
+                    <Row icon="finger-print-outline" title="Bloqueo de Aplicación">
+                        <Toggle value={biometricEnabled} onValueChange={handleToggleBiometric} />
+                    </Row>
                 )}
-
-                <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator }]}>
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="checkmark-done-outline" size={20} color={theme.colors.text.primary} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Confirmaciones de Lectura</Text>
-                    </View>
-                    <Switch
-                        value={readReceiptsEnabled}
-                        onValueChange={handleToggleReadReceipts}
-                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                        thumbColor={theme.colors.white}
-                    />
-                </View>
-
-                <View style={styles.row}>
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="time-outline" size={20} color={theme.colors.text.primary} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Última Vez en Línea</Text>
-                    </View>
-                    <Switch
-                        value={lastSeenEnabled}
-                        onValueChange={handleToggleLastSeen}
-                        trackColor={{ false: theme.colors.separator, true: theme.colors.success }}
-                        thumbColor={theme.colors.white}
-                    />
-                </View>
-            </View>
+                <Row icon="checkmark-done-outline" title="Confirmaciones de Lectura" divider={hasBiometricHw}>
+                    <Toggle value={readReceiptsEnabled} onValueChange={handleToggleReadReceipts} />
+                </Row>
+                <Row icon="time-outline" title="Última Vez en Línea" divider>
+                    <Toggle value={lastSeenEnabled} onValueChange={handleToggleLastSeen} />
+                </Row>
+            </Section>
 
             {/* PING NOTICES */}
-            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>AVISOS DE PING</Text>
-            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
-                <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator }]}>
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="sunny-outline" size={20} color={theme.colors.text.primary} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Resumen de la mañana</Text>
-                    </View>
-                    <Switch
-                        value={dailySummaryEnabled}
-                        onValueChange={handleToggleDailySummary}
-                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                        thumbColor={theme.colors.white}
-                    />
-                </View>
-
+            <Section title="AVISOS DE PING" order={3}>
+                <Row icon="sunny-outline" title="Resumen de la mañana">
+                    <Toggle value={dailySummaryEnabled} onValueChange={handleToggleDailySummary} />
+                </Row>
                 {dailySummaryEnabled && (
-                    <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator }]}>
-                        <View style={styles.rowBody}>
-                            <Text style={[styles.rowSubtitle, { color: theme.colors.text.secondary }]}>Hora del resumen</Text>
+                    <View style={[styles.row, styles.hourRow]}>
+                        <Text style={styles.rowSubtitle}>Hora del resumen</Text>
+                        <View style={styles.hourChips}>
+                            {SUMMARY_HOURS.map((hour) => {
+                                const selected = summaryHour === hour;
+                                return (
+                                    <TouchableOpacity
+                                        key={hour}
+                                        onPress={() => handleSelectSummaryHour(hour)}
+                                        accessibilityLabel={`Resumen a las ${hour}`}
+                                        accessibilityState={{ selected }}
+                                        style={[styles.hourChip, selected && styles.hourChipActive]}
+                                    >
+                                        {selected && <LinearGradient colors={gradients.accent} style={StyleSheet.absoluteFill} />}
+                                        <Text style={[styles.hourChipText, selected && styles.hourChipTextActive]}>{hour}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
                         </View>
-                        {SUMMARY_HOURS.map((hour) => (
-                            <TouchableOpacity
-                                key={hour}
-                                onPress={() => handleSelectSummaryHour(hour)}
-                                accessibilityLabel={`Resumen a las ${hour}`}
-                                accessibilityState={{ selected: summaryHour === hour }}
-                                style={[styles.hourChip, { backgroundColor: summaryHour === hour ? theme.colors.accent : theme.colors.surfaceMuted }]}
-                            >
-                                <Text style={[styles.hourChipText, { color: summaryHour === hour ? theme.colors.white : theme.colors.text.primary }]}>{hour}</Text>
-                            </TouchableOpacity>
-                        ))}
                     </View>
                 )}
-
-                <View style={styles.row}>
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="alarm-outline" size={20} color={theme.colors.text.primary} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Avisar si algo se me pasa</Text>
-                    </View>
-                    <Switch
-                        value={overdueNoticesEnabled}
-                        onValueChange={handleToggleOverdueNotices}
-                        trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                        thumbColor={theme.colors.white}
-                    />
-                </View>
-            </View>
+                <Row icon="alarm-outline" title="Avisar si algo se me pasa" divider>
+                    <Toggle value={overdueNoticesEnabled} onValueChange={handleToggleOverdueNotices} />
+                </Row>
+            </Section>
 
             {/* MEMORY */}
-            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>MEMORIA DE PING</Text>
-            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
-                <TouchableOpacity style={styles.row} onPress={() => setMemoryVisible(true)} accessibilityLabel="Lo que Ping recuerda">
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="bulb-outline" size={20} color={theme.colors.accent} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Lo que Ping recuerda</Text>
-                        <Text style={[styles.rowSubtitle, { color: theme.colors.text.secondary }]}>Ver u olvidar lo que le contaste</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} />
-                </TouchableOpacity>
-            </View>
+            <Section title="MEMORIA DE PING" order={4}>
+                <Row icon="bulb-outline" title="Lo que Ping recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
+            </Section>
 
             {/* PREFERENCES */}
-            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginTop: 24 }]}>PREFERENCIAS</Text>
-            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
-                <TouchableOpacity
-                    style={styles.row}
-                    onPress={() => setFocusModeVisible(true)}
-                    accessibilityLabel="Modo foco"
-                >
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.surfaceMuted }]}>
-                        <Ionicons name="moon-outline" size={20} color={focusActive ? theme.colors.accent : theme.colors.text.primary} />
-                    </View>
-                    <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: theme.colors.text.primary }]}>Modo foco</Text>
-                    </View>
-                    <Text style={[
-                        styles.rowStatus,
-                        { color: focusActive ? theme.colors.accent : theme.colors.text.muted },
-                    ]}>
-                        {focusStatusLabel}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.colors.text.muted} style={{ marginLeft: 4 }} />
-                </TouchableOpacity>
-            </View>
+            <Section title="PREFERENCIAS" order={5}>
+                <Row icon="moon-outline" title="Modo foco" accessibilityLabel="Modo foco" onPress={() => setFocusModeVisible(true)}>
+                    <Text style={[styles.rowStatus, focusActive && styles.rowStatusActive]}>{focusStatusLabel}</Text>
+                </Row>
+            </Section>
 
             {/* LOGOUT */}
-            <View style={{ marginTop: 36 }}>
-                <TouchableOpacity
-                    style={[styles.logoutBtn, { backgroundColor: theme.colors.surface, borderColor: theme.colors.danger }]}
-                    onPress={handleLogout}
-                    accessibilityLabel="Cerrar sesión"
-                >
-                    <Text style={[styles.logoutText, { color: theme.colors.danger }]}>Cerrar sesión</Text>
+            <Section order={6}>
+                <TouchableOpacity style={[styles.row, styles.logoutRow]} onPress={handleLogout} accessibilityLabel="Cerrar sesión">
+                    <Ionicons name="log-out-outline" size={19} color={colors.danger} />
+                    <Text style={styles.logoutText}>Cerrar sesión</Text>
                 </TouchableOpacity>
-                <Text style={[styles.versionText, { color: theme.colors.text.muted }]}>Ping v{appVersion}</Text>
-            </View>
+            </Section>
+            <Text style={styles.versionText}>Ping v{appVersion}</Text>
 
             {/* SHEETS */}
             <EditProfileSheet
@@ -505,124 +409,163 @@ export default function ProfileScreen() {
 // Morning summary hours the user can pick (the server accepts 5 to 11).
 const SUMMARY_HOURS = [6, 7, 8, 9, 10];
 
-const createStyles = (theme: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.colors.background },
-    hourChip: { minWidth: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
-    hourChipText: { fontSize: 14, fontWeight: '600' },
-    content: { paddingHorizontal: 16 },
+// One group of settings: a label above a full-width glass band.
+function Section({ title, order, children }: { title?: string; order: number; children: React.ReactNode }) {
+    return (
+        <Reanimated.View entering={FadeInDown.delay(order * 50).duration(380)} style={styles.section}>
+            {title && <Text style={styles.sectionTitle}>{title}</Text>}
+            <View>
+                <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+                {children}
+            </View>
+        </Reanimated.View>
+    );
+}
 
-    headerBlock: {
-        flexDirection: 'row',
+type RowProps = {
+    icon: React.ComponentProps<typeof Ionicons>['name'];
+    title: string;
+    subtitle?: string;
+    divider?: boolean;
+    onPress?: () => void;
+    accessibilityLabel?: string;
+    children?: React.ReactNode;
+};
+
+function Row({ icon, title, subtitle, divider, onPress, accessibilityLabel, children }: RowProps) {
+    const body = (
+        <>
+            {divider && <View pointerEvents="none" style={styles.divider} />}
+            <View style={styles.iconBox}>
+                <Ionicons name={icon} size={19} color={colors.accentBright} />
+            </View>
+            <View style={styles.rowBody}>
+                <Text style={styles.rowTitle}>{title}</Text>
+                {!!subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
+            </View>
+            {children}
+            {onPress && <Ionicons name="chevron-forward" size={18} color={colors.textFaint} style={styles.chevron} />}
+        </>
+    );
+    if (!onPress) return <View style={styles.row}>{body}</View>;
+    return (
+        <TouchableOpacity style={styles.row} onPress={onPress} accessibilityLabel={accessibilityLabel ?? title}>
+            {body}
+        </TouchableOpacity>
+    );
+}
+
+function Toggle({ value, onValueChange }: { value: boolean; onValueChange: (value: boolean) => void }) {
+    return (
+        <Switch
+            value={value}
+            onValueChange={onValueChange}
+            trackColor={{ false: colors.glassRaised, true: colors.accent }}
+            thumbColor={colors.onAccent}
+        />
+    );
+}
+
+const AVATAR = 84;
+
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: 'transparent' },
+    header: { paddingHorizontal: space.xl, paddingBottom: space.lg },
+    headerTitle: { ...type.display, marginTop: 2 },
+
+    heroWrap: { paddingHorizontal: space.lg },
+    hero: {
+        borderRadius: radius.xl,
+        borderTopColor: colors.glassEdge,
         alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 32,
+        paddingTop: space.xxl,
+        paddingBottom: space.xl,
+        paddingHorizontal: space.xl,
     },
-    headerLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-        minWidth: 0, // needed for flex truncation
+    avatarRing: {
+        padding: 3,
+        borderRadius: radius.xl + 3,
+        borderWidth: 1.5,
+        borderColor: colors.accentBright,
+        marginBottom: space.md,
     },
-    avatarWrapper: {
-        width: 58,
-        height: 58,
-        borderRadius: 29,
+    avatar: {
+        width: AVATAR,
+        height: AVATAR,
+        borderRadius: radius.xl,
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 14,
-        flexShrink: 0,
         overflow: 'hidden',
     },
-    avatarImage: {
-        width: 58,
-        height: 58,
-        borderRadius: 29,
-    },
-    avatarText: {
-        color: 'white',
-        fontSize: 22,
-        fontWeight: '700',
-    },
-    headerInfo: {
-        flex: 1,
-        minWidth: 0,
-        paddingRight: 8,
-    },
-    headerName: {
-        fontSize: 17,
-        fontWeight: '700',
-        marginBottom: 2,
-    },
-    headerEmail: {
-        fontSize: 13,
-    },
+    avatarImage: { width: AVATAR, height: AVATAR },
+    avatarText: { fontFamily: fonts.bold, fontSize: 34, color: colors.onAccent },
+    heroName: { ...type.title, fontSize: 22, maxWidth: '100%' },
+    heroEmail: { ...type.subhead, marginTop: 3, maxWidth: '100%' },
+    heroPhone: { ...type.caption, color: colors.textFaint, marginTop: 2 },
     editBtn: {
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 16,
-        flexShrink: 0,
-    },
-    editBtnText: {
-        fontSize: 13,
-        fontWeight: '600',
-    },
-
-    sectionTitle: {
-        fontSize: 12,
-        fontWeight: '700',
-        marginBottom: 8,
-        marginLeft: 12,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    card: {
-        borderRadius: 14,
-        borderWidth: StyleSheet.hairlineWidth,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: space.lg,
+        paddingHorizontal: space.xl,
+        paddingVertical: 10,
+        borderRadius: radius.full,
         overflow: 'hidden',
+    },
+    editBtnText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.onAccent },
+
+    section: { marginTop: space.xxl },
+    sectionTitle: { ...type.overline, marginBottom: space.sm, marginLeft: space.xl },
+    band: {
+        borderLeftWidth: 0,
+        borderRightWidth: 0,
     },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
+        paddingHorizontal: space.xl,
         paddingVertical: 13,
     },
+    divider: {
+        position: 'absolute',
+        top: 0,
+        left: space.xl + 34 + space.md,
+        right: 0,
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.separator,
+    },
     iconBox: {
-        width: 32,
-        height: 32,
-        borderRadius: 8,
+        width: 34,
+        height: 34,
+        borderRadius: radius.sm,
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 12,
+        marginRight: space.md,
+        backgroundColor: colors.accentTint,
     },
-    rowBody: {
-        flex: 1,
-    },
-    rowTitle: {
-        fontSize: 15,
-        fontWeight: '500',
-    },
-    rowSubtitle: {
-        fontSize: 13,
-        marginTop: 2,
-    },
-    rowStatus: {
-        fontSize: 13,
-        fontWeight: '500',
-    },
+    rowBody: { flex: 1 },
+    rowTitle: { fontFamily: fonts.medium, fontSize: 15, color: colors.text },
+    rowSubtitle: { ...type.subhead, fontSize: 13, marginTop: 2 },
+    rowStatus: { fontFamily: fonts.medium, fontSize: 13, color: colors.textFaint },
+    rowStatusActive: { color: colors.accentBright },
+    chevron: { marginLeft: space.xs },
 
-    logoutBtn: {
-        paddingVertical: 11,
-        borderRadius: 12,
+    hourRow: { flexDirection: 'column', alignItems: 'flex-start', gap: space.sm, paddingTop: 0, paddingLeft: space.xl + 34 + space.md },
+    hourChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+    hourChip: {
+        minWidth: 34,
+        height: 34,
+        borderRadius: 17,
         alignItems: 'center',
-        borderWidth: 1,
-        marginBottom: 16,
+        justifyContent: 'center',
+        overflow: 'hidden',
+        backgroundColor: colors.glassRaised,
     },
-    logoutText: {
-        fontSize: 15,
-        fontWeight: '600',
-    },
-    versionText: {
-        textAlign: 'center',
-        fontSize: 12,
-    },
+    hourChipActive: { backgroundColor: colors.accent },
+    hourChipText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft },
+    hourChipTextActive: { color: colors.onAccent },
+
+    logoutRow: { justifyContent: 'center', gap: space.sm, paddingVertical: 15 },
+    logoutText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.danger },
+    versionText: { ...type.caption, color: colors.textFaint, textAlign: 'center', marginTop: space.lg },
 });

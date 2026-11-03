@@ -2,8 +2,10 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAppTheme } from '../../theme/ThemeContext';
 
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 interface FocusModeSheetProps {
     visible: boolean;
     onClose: () => void;
@@ -21,7 +23,6 @@ export function FocusModeSheet({
     onActivateFocus,
     onCancelFocus,
 }: FocusModeSheetProps) {
-    const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
 
     const focusDurations = [
@@ -39,63 +40,63 @@ export function FocusModeSheet({
                     style={[
                         styles.sheet,
                         {
-                            backgroundColor: theme.colors.surface,
                             paddingBottom: Math.max(insets.bottom, 24) + 12,
                         },
                     ]}
                 >
+                    <SheetFill />
                     <View style={styles.handle} />
                     <View style={styles.header}>
-                        <Text style={[styles.title, { color: theme.colors.text.primary }]}>Modo Foco</Text>
+                        <Text style={[styles.title, { color: colors.text }]}>Modo Foco</Text>
                         <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Ionicons name="close-circle" size={24} color={theme.colors.text.muted} />
+                            <Ionicons name="close-circle" size={24} color={colors.textFaint} />
                         </TouchableOpacity>
                     </View>
 
-                    <Text style={[styles.description, { color: theme.colors.text.secondary }]}>
+                    <Text style={[styles.description, { color: colors.textSoft }]}>
                         Reduce interrupciones dentro de Ping durante un tiempo determinado.
                     </Text>
 
                     {focusActive ? (
                         <View style={styles.activeContainer}>
-                            <View style={[styles.activeBadge, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.accent }]}>
-                                <Ionicons name="moon" size={22} color={theme.colors.accent} />
+                            <View style={[styles.activeBadge, { backgroundColor: colors.glassRaised, borderColor: colors.accent }]}>
+                                <Ionicons name="moon" size={22} color={colors.accentBright} />
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.activeTitle, { color: theme.colors.text.primary }]}>Modo Foco Activo</Text>
-                                    <Text style={[styles.activeMeta, { color: theme.colors.text.secondary }]}>
+                                    <Text style={[styles.activeTitle, { color: colors.text }]}>Modo Foco Activo</Text>
+                                    <Text style={[styles.activeMeta, { color: colors.textSoft }]}>
                                         {focusRemainingLabel ? `Quedan ${focusRemainingLabel}` : 'Activo'}
                                     </Text>
                                 </View>
                             </View>
 
                             <TouchableOpacity
-                                style={[styles.cancelBtn, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.danger }]}
+                                style={[styles.cancelBtn, { backgroundColor: colors.glassRaised, borderColor: colors.danger }]}
                                 onPress={async () => {
                                     await onCancelFocus();
                                     onClose();
                                 }}
                             >
-                                <Text style={[styles.cancelBtnText, { color: theme.colors.danger }]}>Desactivar Modo Foco</Text>
+                                <Text style={[styles.cancelBtnText, { color: colors.danger }]}>Desactivar Modo Foco</Text>
                             </TouchableOpacity>
                         </View>
                     ) : (
                         <View style={styles.optionsContainer}>
-                            <Text style={[styles.optionsLabel, { color: theme.colors.text.muted }]}>DURACIÓN</Text>
+                            <Text style={[styles.optionsLabel, { color: colors.textFaint }]}>DURACIÓN</Text>
                             <View style={styles.chipsRow}>
                                 {focusDurations.map(opt => (
                                     <TouchableOpacity
                                         key={opt.minutes}
                                         style={[
                                             styles.chip,
-                                            { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.separator },
+                                            { backgroundColor: colors.glassRaised, borderColor: colors.separator },
                                         ]}
                                         onPress={async () => {
                                             await onActivateFocus(opt.minutes);
                                             onClose();
                                         }}
                                     >
-                                        <Ionicons name="timer-outline" size={16} color={theme.colors.accent} />
-                                        <Text style={[styles.chipText, { color: theme.colors.text.primary }]}>{opt.label}</Text>
+                                        <Ionicons name="timer-outline" size={16} color={colors.accentBright} />
+                                        <Text style={[styles.chipText, { color: colors.text }]}>{opt.label}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
@@ -110,7 +111,7 @@ export function FocusModeSheet({
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     sheet: {
@@ -119,13 +120,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingTop: 12,
         // No explicit height — grows with content only
+        ...sheetSurface,
     },
     handle: {
         alignSelf: 'center',
         width: 36,
         height: 4,
         borderRadius: 2,
-        backgroundColor: '#d1d5db',
+        backgroundColor: colors.glassRaised,
         marginBottom: 16,
     },
     header: {
@@ -136,12 +138,12 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 18,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     closeBtn: {
         padding: 4,
     },
-    description: {
+    description: { fontFamily: fonts.regular,
         fontSize: 14,
         lineHeight: 20,
         marginBottom: 20,
@@ -160,9 +162,9 @@ const styles = StyleSheet.create({
     },
     activeTitle: {
         fontSize: 15,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
-    activeMeta: {
+    activeMeta: { fontFamily: fonts.regular,
         fontSize: 13,
         marginTop: 2,
     },
@@ -174,14 +176,14 @@ const styles = StyleSheet.create({
     },
     cancelBtnText: {
         fontSize: 15,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     optionsContainer: {
         marginBottom: 16,
     },
     optionsLabel: {
         fontSize: 11,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         letterSpacing: 0.6,
         marginBottom: 12,
     },
@@ -201,6 +203,6 @@ const styles = StyleSheet.create({
     },
     chipText: {
         fontSize: 14,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
 });

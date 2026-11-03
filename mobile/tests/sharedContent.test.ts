@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { darkTheme, lightTheme } from '../src/theme/theme';
 import type { SharedContentItem } from '../src/types/sharedContent';
 import {
     EMPTY_SHARED_CONTENT_SUMMARY,
@@ -8,6 +7,7 @@ import {
     formatSharedFileSize,
     sharedContentCount,
     sharedContentReadTarget,
+    sharedContentTitle,
     sharedContentViewState,
     visualFilters,
 } from '../src/utils/sharedContent';
@@ -21,6 +21,16 @@ const item: SharedContentItem = {
 };
 
 describe('Shared Content mobile presentation', () => {
+    it('names photos, videos and audios by who sent them, not by the internal file name', () => {
+        const photo = { ...item, type: 'image' as const, file: { ...item.file!, name: '3f2a9c1e-8b7d.jpg', mimeType: 'image/jpeg' } };
+        expect(sharedContentTitle(photo)).toBe('Foto de Alice');
+        expect(sharedContentTitle({ ...photo, type: 'video' })).toBe('Video de Alice');
+        expect(sharedContentTitle({ ...photo, type: 'audio' })).toBe('Audio de Alice');
+        expect(sharedContentTitle({ ...photo, sender: { id: 'u1', name: ' ', avatarUrl: null } })).toBe('Foto');
+        expect(sharedContentTitle(item)).toBe('informe.pdf');
+        expect(sharedContentTitle({ ...item, type: 'link', file: null, link: { url: 'https://a.cl/x', domain: 'a.cl', title: null } })).toBe('a.cl');
+    });
+
     it('maps summary counts and discreet empty values', () => {
         expect(sharedContentCount(EMPTY_SHARED_CONTENT_SUMMARY, 'visual')).toBe(0);
         expect(sharedContentCount({ ...EMPTY_SHARED_CONTENT_SUMMARY, photos: 2, videos: 1 }, 'visual')).toBe(3);
@@ -49,13 +59,6 @@ describe('Shared Content mobile presentation', () => {
         expect(sharedContentReadTarget(item)).toEqual({ type: 'attachment', id: 'a1' });
         expect(sharedContentReadTarget({ ...item, id: 'legacy:m1', attachmentId: null, source: 'legacy_message' }))
             .toEqual({ type: 'message', id: 'm1' });
-    });
-
-    it('uses theme tokens with distinct light and dark surfaces', () => {
-        expect(lightTheme.colors.surface).not.toBe(darkTheme.colors.surface);
-        expect(lightTheme.colors.text.primary).not.toBe(darkTheme.colors.text.primary);
-        expect(lightTheme.colors.accent).toBeTruthy();
-        expect(darkTheme.colors.accent).toBeTruthy();
     });
 
     it('focuses loaded and remote-window messages once and handles deletion', () => {

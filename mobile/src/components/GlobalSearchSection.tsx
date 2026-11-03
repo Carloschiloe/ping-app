@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../design/tokens';
 
 const HighlightText = ({ text, highlight, style, numberOfLines, highlightStyle }: any) => {
     if (!highlight.trim()) {
@@ -43,11 +44,11 @@ export function GlobalSearchSection({ section, searchQuery, styles, onPress }: G
                         {item.avatar_url ? (
                             <Image source={{ uri: item.avatar_url }} style={styles.resultAvatar} />
                         ) : (
-                            <View style={[styles.resultIconInner, { backgroundColor: item.type === 'person' ? '#3b82f6' : (item.type === 'group' ? '#10b981' : '#f59e0b') }]}> 
+                            <View style={styles.resultIconInner}>
                                 <Ionicons
                                     name={item.type === 'person' ? 'person' : (item.type === 'group' ? 'people' : (section.type === 'tasks' ? 'calendar' : 'chatbubble'))}
-                                    size={14}
-                                    color="white"
+                                    size={15}
+                                    color={colors.accentBright}
                                 />
                             </View>
                         )}
@@ -64,7 +65,7 @@ export function GlobalSearchSection({ section, searchQuery, styles, onPress }: G
                             {item.type === 'person' ? item.email : (item.type === 'group' ? 'Grupo' : (section.type === 'tasks' ? 'Tarea' : `De ${item.sender?.full_name || 'Enviado'}`))}
                         </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={14} color="#cbd5e1" />
+                    <Ionicons name="chevron-forward" size={14} color={colors.textFaint} />
                 </TouchableOpacity>
             ))}
         </View>

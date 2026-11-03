@@ -5,12 +5,15 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import type { SharedContentItem } from '../../types/sharedContent';
 import { useSharedContentUrl } from '../../hooks/useSharedContentUrl';
-import { useAppTheme } from '../../theme/ThemeContext';
+import { colors, radius, space } from '../../design/tokens';
+import { fonts, type } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 import {
     copySharedContentImageAsync,
     saveSharedContentItemAsync,
     shareSharedContentItemAsync,
 } from '../../utils/sharedContentActions';
+import { sharedContentTitle } from '../../utils/sharedContent';
 
 type Props = {
     visible: boolean;
@@ -33,7 +36,6 @@ export function SharedContentActionSheet({
     onForward,
     onDelete,
 }: Props) {
-    const { theme } = useAppTheme();
     const [busy, setBusy] = useState(false);
     const resolved = useSharedContentUrl(item, visible && !signedUrl);
     const url = signedUrl || resolved.url;
@@ -84,36 +86,37 @@ export function SharedContentActionSheet({
         ];
 
     const sheet = (
-        <View style={[styles.sheet, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.sheet}>
+            <SheetFill />
             <View style={styles.sheetHeader}>
                 <View style={styles.titleWrap}>
-                    <Text style={[styles.title, { color: theme.colors.text.primary }]}>Acciones del archivo</Text>
-                    <Text style={[styles.subtitle, { color: theme.colors.text.secondary }]} numberOfLines={1}>
-                        {item.file?.name || item.link?.domain || 'Contenido compartido'}
+                    <Text style={styles.title}>Acciones del archivo</Text>
+                    <Text style={styles.subtitle} numberOfLines={1}>
+                        {sharedContentTitle(item)}
                     </Text>
                 </View>
                 <TouchableOpacity disabled={busy} onPress={onClose} accessibilityLabel="Cerrar acciones" style={styles.closeButton}>
-                    <Ionicons name="close" size={24} color={theme.colors.text.primary} />
+                    <Ionicons name="close" size={20} color={colors.text} />
                 </TouchableOpacity>
             </View>
             {actions.map((action) => (
                 <TouchableOpacity key={action.label} disabled={busy} onPress={action.onPress} style={styles.actionRow}>
-                    <Ionicons name={action.icon} size={22} color={theme.colors.accent} />
-                    <Text style={[styles.actionLabel, { color: theme.colors.text.primary }]}>{action.label}</Text>
+                    <View style={styles.actionIcon}><Ionicons name={action.icon} size={19} color={colors.accentBright} /></View>
+                    <Text style={styles.actionLabel}>{action.label}</Text>
                 </TouchableOpacity>
             ))}
             <TouchableOpacity disabled={busy} onPress={onForward} style={styles.actionRow}>
-                <Ionicons name="arrow-redo-outline" size={22} color={theme.colors.accent} />
-                <Text style={[styles.actionLabel, { color: theme.colors.text.primary }]}>Reenviar</Text>
+                <View style={styles.actionIcon}><Ionicons name="arrow-redo-outline" size={19} color={colors.accentBright} /></View>
+                <Text style={styles.actionLabel}>Reenviar</Text>
             </TouchableOpacity>
             {canDelete && (
                 <TouchableOpacity disabled={busy} onPress={onDelete} style={styles.actionRow}>
-                    <Ionicons name="trash-outline" size={22} color={theme.colors.danger} />
-                    <Text style={[styles.actionLabel, { color: theme.colors.danger }]}>Eliminar</Text>
+                    <View style={[styles.actionIcon, styles.actionIconDanger]}><Ionicons name="trash-outline" size={19} color={colors.danger} /></View>
+                    <Text style={[styles.actionLabel, styles.dangerLabel]}>Eliminar</Text>
                 </TouchableOpacity>
             )}
-            <TouchableOpacity disabled={busy} onPress={onClose} style={[styles.cancel, { borderTopColor: theme.colors.border }]}>
-                <Text style={[styles.actionLabel, { color: theme.colors.text.secondary }]}>Cancelar</Text>
+            <TouchableOpacity disabled={busy} onPress={onClose} style={styles.cancel}>
+                <Text style={styles.cancelLabel}>Cancelar</Text>
             </TouchableOpacity>
         </View>
     );
@@ -130,16 +133,41 @@ export function SharedContentActionSheet({
 }
 
 const styles = StyleSheet.create({
-    modalRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
+    modalRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.scrim },
     inlineRoot: { ...StyleSheet.absoluteFill, zIndex: 30, justifyContent: 'flex-end' },
-    inlineBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
-    sheet: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 26, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-    sheetHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    inlineBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: colors.scrim },
+    sheet: {
+        paddingHorizontal: space.xl,
+        paddingTop: space.xl,
+        paddingBottom: space.xxl,
+        borderTopLeftRadius: radius.xl,
+        borderTopRightRadius: radius.xl,
+        ...sheetSurface,
+    },
+    sheetHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: space.sm },
     titleWrap: { flex: 1 },
-    title: { fontSize: 19, fontWeight: '800' },
-    subtitle: { marginTop: 3, fontSize: 12 },
-    closeButton: { padding: 8 },
-    actionRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 14 },
-    actionLabel: { fontSize: 16, fontWeight: '600' },
-    cancel: { minHeight: 50, alignItems: 'center', justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, marginTop: 6 },
+    title: { ...type.title },
+    subtitle: { ...type.caption, color: colors.textFaint, marginTop: 3 },
+    closeButton: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.glassRaised,
+    },
+    actionRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 14 },
+    actionIcon: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentTint },
+    actionIconDanger: { backgroundColor: colors.dangerTint },
+    actionLabel: { fontFamily: fonts.medium, fontSize: 16, color: colors.text },
+    dangerLabel: { color: colors.danger },
+    cancel: {
+        minHeight: 50,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.separator,
+        marginTop: space.sm,
+    },
+    cancelLabel: { fontFamily: fonts.semibold, fontSize: 15, color: colors.textSoft },
 });

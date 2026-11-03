@@ -1,7 +1,9 @@
 import React from 'react';
 import { Modal, Pressable, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
-import { useAppTheme } from '../../theme/ThemeContext';
 import { isCommitmentOverdue, isProposalDatePassed } from '../../utils/commitmentDisplay';
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 
 // M-1H v4 — hallazgo real durante validación: tocar "Confirmar" ejecutaba la acción
 // de inmediato, sin modal, sin loading state, sin feedback de éxito/error.
@@ -20,8 +22,6 @@ export interface ConfirmCommitmentModalProps {
 }
 
 export function ConfirmCommitmentModal({ commitment, isPending, onCancel, onConfirm }: ConfirmCommitmentModalProps) {
-    const { theme } = useAppTheme();
-    const styles = createStyles(theme);
     const visible = !!commitment;
     // M-1H v5 (sección 28 del ticket): este modal SÓLO se abre cuando
     // getCommitmentPrimaryAction ya decidió 'accept' -- nunca aparece para
@@ -49,6 +49,7 @@ export function ConfirmCommitmentModal({ commitment, isPending, onCancel, onConf
             <Pressable style={styles.overlay} onPress={() => { if (!isPending) onCancel(); }}>
                 {/* Evita que el tap dentro de la tarjeta se propague al overlay y la cierre por accidente. */}
                 <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
+                    <SheetFill />
                     <Text style={styles.title}>{title}</Text>
                     <Text style={styles.commitmentTitle} numberOfLines={3}>{commitment?.title}</Text>
                     <Text style={styles.body}>{bodyText}</Text>
@@ -64,16 +65,16 @@ export function ConfirmCommitmentModal({ commitment, isPending, onCancel, onConf
                             onPress={onCancel}
                             disabled={isPending}
                         >
-                            <Text style={[styles.buttonText, { color: theme.colors.text.secondary }]}>Cancelar</Text>
+                            <Text style={[styles.buttonText, { color: colors.textSoft }]}>Cancelar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                            style={[styles.button, styles.confirmButton, { backgroundColor: theme.colors.accent }, isPending && styles.buttonDisabled]}
+                            style={[styles.button, styles.confirmButton, { backgroundColor: colors.accent }, isPending && styles.buttonDisabled]}
                             onPress={onConfirm}
                             disabled={isPending}
                         >
                             {isPending
-                                ? <ActivityIndicator size="small" color={theme.colors.white} />
-                                : <Text style={[styles.buttonText, { color: theme.colors.white }]}>{confirmLabel}</Text>}
+                                ? <ActivityIndicator size="small" color={colors.onAccent} />
+                                : <Text style={[styles.buttonText, { color: colors.onAccent }]}>{confirmLabel}</Text>}
                         </TouchableOpacity>
                     </View>
                 </Pressable>
@@ -82,19 +83,17 @@ export function ConfirmCommitmentModal({ commitment, isPending, onCancel, onConf
     );
 }
 
-function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
-    return StyleSheet.create({
-        overlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 },
-        card: { width: '100%', maxWidth: 340, backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20 },
-        title: { fontSize: 16, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 8 },
-        commitmentTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.accent, marginBottom: 8 },
-        body: { fontSize: 13, color: theme.colors.text.secondary, lineHeight: 18 },
-        warning: { fontSize: 13, color: theme.colors.danger, fontWeight: '600', marginTop: 8 },
-        buttonsRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
-        button: { flex: 1, paddingVertical: 11, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-        cancelButton: { backgroundColor: theme.colors.background },
-        confirmButton: {},
-        buttonDisabled: { opacity: 0.6 },
-        buttonText: { fontSize: 14, fontWeight: '700' },
-    });
-}
+const styles = StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', alignItems: 'center', padding: 24 },
+    card: { width: '100%', maxWidth: 340, borderRadius: 16, padding: 20, ...sheetSurface },
+    title: { fontSize: 16, fontFamily: fonts.bold, color: colors.text, marginBottom: 8 },
+    commitmentTitle: { fontSize: 15, fontFamily: fonts.semibold, color: colors.accent, marginBottom: 8 },
+    body: { fontFamily: fonts.regular, fontSize: 13, color: colors.textSoft, lineHeight: 18 },
+    warning: { fontSize: 13, color: colors.danger, fontFamily: fonts.semibold, marginTop: 8 },
+    buttonsRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
+    button: { flex: 1, paddingVertical: 11, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    cancelButton: { backgroundColor: colors.glassRaised },
+    confirmButton: {},
+    buttonDisabled: { opacity: 0.6 },
+    buttonText: { fontSize: 14, fontFamily: fonts.bold },
+});

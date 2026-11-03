@@ -3,6 +3,8 @@ import {
     View, Text, TextInput, FlatList, TouchableOpacity,
     ActivityIndicator, StyleSheet, Alert, Platform, Share, AppState
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
     Contact,
     ContactField,
@@ -14,19 +16,14 @@ import * as Linking from 'expo-linking';
 import { apiClient } from '../api/client';
 import { mapDeviceContacts, type DeviceContact } from '../utils/deviceContacts';
 import { PING_PUBLIC_INVITE_URL } from '../utils/pingInvitation';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
+import { ScreenHeader, HeaderButton, avatarGradient } from '../design/ScreenHeader';
 
 type RegisteredContact = NonNullable<DeviceContact['registered']>;
 
 type ContactAccess = 'all' | 'limited' | 'none';
-
-const AVATAR_COLORS = ['#0a84ff', '#30d158', '#ff6b35', '#bf5af2', '#ff9f0a'];
-function avatarColor(value: string) {
-    let hash = 0;
-    for (let index = 0; index < value.length; index += 1) {
-        hash = value.charCodeAt(index) + ((hash << 5) - hash);
-    }
-    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
 
 export default function NewChatScreen({ navigation }: any) {
     const [query, setQuery] = useState('');
@@ -216,98 +213,98 @@ export default function NewChatScreen({ navigation }: any) {
 
     const registeredCount = deviceContacts.filter((contact) => !!contact.registered).length;
 
-    const renderContact = ({ item }: { item: DeviceContact }) => {
+    const renderContact = ({ item, index }: { item: DeviceContact; index: number }) => {
         const isRegistered = !!item.registered;
         const isBusy = busyContactId === item.id;
         const label = item.registered?.full_name || item.name;
+        const first = index === 0;
+        const last = index === filteredContacts.length - 1;
         return (
-            <TouchableOpacity
-                style={styles.row}
-                onPress={() => isRegistered ? openRegisteredContact(item) : inviteContact(item)}
-                disabled={!!busyContactId}
-                activeOpacity={0.7}
-            >
-                <View style={[styles.avatar, { backgroundColor: avatarColor(label) }]}>
-                    <Text style={styles.avatarText}>{label.substring(0, 2).toUpperCase()}</Text>
-                </View>
-                <View style={styles.info}>
-                    <Text style={styles.name}>{label}</Text>
-                    <Text style={styles.sub}>{item.phone || item.email}</Text>
-                </View>
-                {isBusy ? (
-                    <ActivityIndicator size="small" color="#3346e8" />
-                ) : (
-                    <View style={[styles.contactAction, isRegistered ? styles.chatAction : styles.inviteAction]}>
-                        <Text style={[styles.contactActionText, isRegistered ? styles.chatActionText : styles.inviteActionText]}>
-                            {isRegistered ? 'Chatear' : 'Invitar'}
-                        </Text>
+            <View style={[first && styles.bandFirst, last && styles.bandLast]}>
+                <Glass style={[StyleSheet.absoluteFill, styles.bandGlass]} intensity={22} tint={colors.glassTintLight} />
+                <TouchableOpacity
+                    style={styles.row}
+                    onPress={() => isRegistered ? openRegisteredContact(item) : inviteContact(item)}
+                    disabled={!!busyContactId}
+                    activeOpacity={0.7}
+                >
+                    <LinearGradient colors={avatarGradient(label)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
+                        <Text style={styles.avatarText}>{label.substring(0, 2).toUpperCase()}</Text>
+                    </LinearGradient>
+                    <View style={styles.info}>
+                        <Text style={styles.name} numberOfLines={1}>{label}</Text>
+                        <Text style={styles.sub} numberOfLines={1}>{item.phone || item.email}</Text>
                     </View>
-                )}
-            </TouchableOpacity>
+                    {isBusy ? (
+                        <ActivityIndicator size="small" color={colors.accentBright} />
+                    ) : isRegistered ? (
+                        <View style={styles.contactAction}>
+                            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                            <Text style={styles.chatActionText}>Chatear</Text>
+                        </View>
+                    ) : (
+                        <View style={[styles.contactAction, styles.inviteAction]}>
+                            <Text style={styles.inviteActionText}>Invitar</Text>
+                        </View>
+                    )}
+                </TouchableOpacity>
+                {!last && <View pointerEvents="none" style={styles.bandSeparator} />}
+            </View>
         );
     };
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
-                    <Text style={styles.backText}>‹</Text>
-                </TouchableOpacity>
-                <View style={styles.headerCopy}>
-                    <Text style={styles.title}>Nuevo chat</Text>
-                    <Text style={styles.headerSubtitle}>Elige a alguien de tus contactos</Text>
-                </View>
-                <TouchableOpacity onPress={loadContacts} style={styles.refreshButton} disabled={contactsLoading}>
-                    <Text style={styles.refreshText}>↻</Text>
-                </TouchableOpacity>
-            </View>
+            <ScreenHeader
+                title="Nuevo chat"
+                subtitle="Elige a alguien de tus contactos"
+                onBack={() => navigation.goBack()}
+                right={<HeaderButton icon="refresh" label="Actualizar contactos" onPress={loadContacts} disabled={contactsLoading} />}
+            />
 
-            <View style={styles.searchWrap}>
-                <Text style={styles.searchIcon}>🔍</Text>
+            <Glass style={styles.searchBar}>
+                <Ionicons name="search" size={17} color={colors.textFaint} />
                 <TextInput
                     style={styles.searchInput}
                     placeholder="Buscar contacto o número..."
-                    placeholderTextColor="#9ca3af"
+                    placeholderTextColor={colors.textFaint}
+                    selectionColor={colors.accent}
                     value={query}
                     onChangeText={setQuery}
                     autoCapitalize="none"
                 />
                 {query.length > 0 ? (
-                    <TouchableOpacity onPress={() => setQuery('')}>
-                        <Text style={styles.clearBtn}>✕</Text>
+                    <TouchableOpacity onPress={() => setQuery('')} accessibilityLabel="Limpiar búsqueda">
+                        <Ionicons name="close-circle" size={18} color={colors.textFaint} />
                     </TouchableOpacity>
                 ) : null}
-            </View>
+            </Glass>
 
             {!permissionDenied ? (
                 <View style={styles.privacyNote}>
-                    <Text style={styles.privacyTitle}>Tus contactos permanecen privados</Text>
+                    <Ionicons name="lock-closed" size={13} color={colors.accentBright} />
                     <Text style={styles.privacyText}>
-                        Ping compara números exactos para mostrar quién ya está aquí. No publica tu agenda.
+                        Tus contactos son privados: Ping solo compara números para mostrar quién ya está aquí.
                     </Text>
                 </View>
             ) : null}
 
             {contactsLoading ? (
                 <View style={styles.centerState}>
-                    <ActivityIndicator size="large" color="#3346e8" />
+                    <ActivityIndicator size="large" color={colors.accentBright} />
                     <Text style={styles.stateText}>Buscando tus contactos…</Text>
                 </View>
             ) : permissionDenied ? (
                 <View style={styles.centerState}>
-                    <Text style={styles.emptyIcon}>👥</Text>
+                    <EmptyIcon name="people" />
                     <Text style={styles.emptyTitle}>Permite el acceso a contactos</Text>
                     <Text style={styles.emptyText}>
                         Ping necesita tu autorización para que puedas elegir a quién invitar o escribir.
                     </Text>
-                    <TouchableOpacity
-                        style={styles.primaryButton}
+                    <PrimaryButton
+                        label={canAskForContacts ? 'Permitir contactos' : 'Abrir configuración'}
                         onPress={() => canAskForContacts ? loadContacts() : Linking.openSettings()}
-                    >
-                        <Text style={styles.primaryButtonText}>
-                            {canAskForContacts ? 'Permitir contactos' : 'Abrir configuración'}
-                        </Text>
-                    </TouchableOpacity>
+                    />
                 </View>
             ) : (
                 <>
@@ -318,6 +315,7 @@ export default function NewChatScreen({ navigation }: any) {
                     </Text>
                     {discoveryWarning ? (
                         <View style={styles.discoveryWarning}>
+                            <Ionicons name="cloud-offline-outline" size={18} color={colors.warning} />
                             <Text style={styles.discoveryWarningText}>{discoveryWarning}</Text>
                             <TouchableOpacity onPress={loadContacts}>
                                 <Text style={styles.discoveryRetry}>Reintentar</Text>
@@ -329,41 +327,27 @@ export default function NewChatScreen({ navigation }: any) {
                         keyExtractor={(contact) => contact.id}
                         renderItem={renderContact}
                         keyboardShouldPersistTaps="handled"
+                        contentContainerStyle={styles.listContent}
                         ListEmptyComponent={() => (
                             <View style={styles.centerState}>
                                 {contactAccess === 'limited' ? (
                                     <>
-                                        <Text style={styles.emptyIcon}>👥</Text>
+                                        <EmptyIcon name="people" />
                                         <Text style={styles.emptyTitle}>Selecciona tus contactos</Text>
                                         <Text style={styles.emptyText}>
                                             iOS dio acceso limitado. Puedes seleccionar algunos contactos o permitir la agenda completa.
                                         </Text>
-                                        <TouchableOpacity
-                                            style={styles.primaryButton}
-                                            onPress={selectLimitedContacts}
-                                        >
-                                            <Text style={styles.primaryButtonText}>Seleccionar contactos</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={styles.secondaryButton}
-                                            onPress={() => Linking.openSettings()}
-                                        >
-                                            <Text style={styles.secondaryButtonText}>Dar acceso completo</Text>
-                                        </TouchableOpacity>
+                                        <PrimaryButton label="Seleccionar contactos" onPress={selectLimitedContacts} />
+                                        <SecondaryButton label="Dar acceso completo" onPress={() => Linking.openSettings()} />
                                     </>
                                 ) : (
                                     <>
-                                        <Text style={styles.emptyIcon}>🔍</Text>
+                                        <EmptyIcon name="search" />
                                         <Text style={styles.emptyTitle}>No encontramos contactos</Text>
                                         <Text style={styles.emptyText}>
                                             Revisa que tus contactos tengan un número móvil o correo electrónico.
                                         </Text>
-                                        <TouchableOpacity
-                                            style={styles.secondaryButton}
-                                            onPress={() => Linking.openSettings()}
-                                        >
-                                            <Text style={styles.secondaryButtonText}>Revisar permiso de contactos</Text>
-                                        </TouchableOpacity>
+                                        <SecondaryButton label="Revisar permiso de contactos" onPress={() => Linking.openSettings()} />
                                     </>
                                 )}
                             </View>
@@ -375,140 +359,128 @@ export default function NewChatScreen({ navigation }: any) {
     );
 }
 
+function EmptyIcon({ name }: { name: React.ComponentProps<typeof Ionicons>['name'] }) {
+    return (
+        <View style={styles.emptyIcon}>
+            <Ionicons name={name} size={30} color={colors.accentBright} />
+        </View>
+    );
+}
+
+function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+    return (
+        <TouchableOpacity style={styles.primaryButton} onPress={onPress} activeOpacity={0.85}>
+            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+            <Text style={styles.primaryButtonText}>{label}</Text>
+        </TouchableOpacity>
+    );
+}
+
+function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+    return (
+        <TouchableOpacity style={styles.secondaryButton} onPress={onPress}>
+            <Text style={styles.secondaryButtonText}>{label}</Text>
+        </TouchableOpacity>
+    );
+}
+
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f9fafb' },
-    header: {
-        backgroundColor: '#1e3a5f',
+    container: { flex: 1, backgroundColor: 'transparent' },
+    searchBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingTop: Platform.OS === 'ios' ? 56 : 16,
-        paddingBottom: 16,
-    },
-    back: { padding: 8, marginRight: 4 },
-    backText: { fontSize: 32, color: 'white', lineHeight: 32, fontWeight: '300' },
-    headerCopy: { flex: 1 },
-    title: { fontSize: 20, fontWeight: '700', color: 'white' },
-    headerSubtitle: { color: 'rgba(255,255,255,0.72)', fontSize: 12, marginTop: 2 },
-    refreshButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-    refreshText: { color: 'white', fontSize: 26, lineHeight: 28 },
-    searchWrap: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        margin: 16,
-        backgroundColor: 'white',
-        borderRadius: 14,
+        borderRadius: radius.md,
         paddingHorizontal: 14,
-        paddingVertical: 10,
-        shadowColor: '#000',
-        shadowOpacity: 0.07,
-        shadowRadius: 4,
-        elevation: 2,
+        height: 46,
+        gap: 10,
+        marginHorizontal: space.lg,
+        marginTop: space.lg,
     },
-    searchIcon: { fontSize: 16, marginRight: 8 },
-    searchInput: { flex: 1, fontSize: 15, color: '#111' },
-    clearBtn: { fontSize: 16, color: '#9ca3af', paddingLeft: 8 },
+    searchInput: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
     privacyNote: {
-        marginHorizontal: 16,
-        marginBottom: 14,
-        padding: 12,
-        borderRadius: 14,
-        backgroundColor: '#eef2ff',
-        borderWidth: 1,
-        borderColor: '#c7d2fe',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginHorizontal: space.xl,
+        marginTop: space.md,
     },
-    privacyTitle: { color: '#1e3a8a', fontSize: 13, fontWeight: '800' },
-    privacyText: { color: '#475569', fontSize: 12, lineHeight: 17, marginTop: 3 },
-    sectionLabel: {
-        paddingHorizontal: 20,
-        paddingVertical: 8,
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#64748b',
-        letterSpacing: 0.7,
-        backgroundColor: '#f3f4f6',
-    },
+    privacyText: { ...type.caption, flex: 1, color: colors.textFaint, lineHeight: 17 },
+    sectionLabel: { ...type.overline, paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.sm },
     discoveryWarning: {
-        marginHorizontal: 16,
-        marginVertical: 10,
-        padding: 12,
-        borderRadius: 12,
-        backgroundColor: '#fff7ed',
-        borderWidth: 1,
-        borderColor: '#fed7aa',
+        marginHorizontal: space.lg,
+        marginBottom: space.md,
+        padding: space.md,
+        borderRadius: radius.md,
+        backgroundColor: colors.warningTint,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
     },
-    discoveryWarningText: {
-        flex: 1,
-        color: '#9a3412',
-        fontSize: 12,
-        lineHeight: 17,
-    },
-    discoveryRetry: {
-        color: '#c2410c',
-        fontSize: 12,
-        fontWeight: '800',
-    },
+    discoveryWarningText: { ...type.caption, flex: 1, color: colors.text, lineHeight: 17 },
+    discoveryRetry: { fontFamily: fonts.bold, fontSize: 12, color: colors.warning },
+    listContent: { paddingBottom: space.xxl },
+    bandGlass: { borderWidth: 0 },
+    bandFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.glassBorder },
+    bandLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
+    bandSeparator: { position: 'absolute', left: 80, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: 'white',
-        borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
+        paddingHorizontal: space.xl,
+        paddingVertical: space.md,
     },
     avatar: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+        width: 46,
+        height: 46,
+        borderRadius: 16,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 14,
     },
-    avatarText: { color: 'white', fontWeight: '700', fontSize: 16 },
+    avatarText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.silver },
     info: { flex: 1, minWidth: 0 },
-    name: { fontSize: 15, fontWeight: '700', color: '#111827' },
-    sub: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+    name: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
+    sub: { ...type.subhead, fontSize: 13, marginTop: 2 },
     contactAction: {
-        borderRadius: 999,
-        paddingHorizontal: 13,
+        borderRadius: radius.full,
+        paddingHorizontal: 14,
         paddingVertical: 8,
-        minWidth: 68,
+        minWidth: 76,
         alignItems: 'center',
+        overflow: 'hidden',
     },
-    chatAction: { backgroundColor: '#3346e8' },
-    inviteAction: { backgroundColor: '#eef2ff', borderWidth: 1, borderColor: '#c7d2fe' },
-    contactActionText: { fontSize: 12, fontWeight: '800' },
-    chatActionText: { color: 'white' },
-    inviteActionText: { color: '#3346e8' },
+    inviteAction: { backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
+    chatActionText: { fontFamily: fonts.bold, fontSize: 12, color: colors.onAccent },
+    inviteActionText: { fontFamily: fonts.bold, fontSize: 12, color: colors.accentBright },
     centerState: { padding: 42, alignItems: 'center' },
-    stateText: { marginTop: 12, fontSize: 14, color: '#64748b' },
-    emptyIcon: { fontSize: 48, marginBottom: 12 },
-    emptyTitle: { fontSize: 17, fontWeight: '700', color: '#374151', marginBottom: 8 },
-    emptyText: { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20 },
+    stateText: { ...type.subhead, marginTop: space.md },
+    emptyIcon: {
+        width: 64,
+        height: 64,
+        borderRadius: radius.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accentTint,
+        marginBottom: space.lg,
+    },
+    emptyTitle: { ...type.headline, fontSize: 17, marginBottom: space.sm, textAlign: 'center' },
+    emptyText: { ...type.subhead, textAlign: 'center', lineHeight: 20 },
     primaryButton: {
-        marginTop: 18,
-        backgroundColor: '#3346e8',
-        borderRadius: 12,
-        paddingHorizontal: 18,
+        marginTop: space.xl,
+        borderRadius: radius.full,
+        paddingHorizontal: space.xl,
         paddingVertical: 12,
+        overflow: 'hidden',
     },
-    primaryButtonText: { color: 'white', fontWeight: '800', fontSize: 14 },
+    primaryButtonText: { fontFamily: fonts.bold, fontSize: 14, color: colors.onAccent },
     secondaryButton: {
-        marginTop: 10,
-        borderRadius: 12,
-        paddingHorizontal: 18,
+        marginTop: space.sm,
+        borderRadius: radius.full,
+        paddingHorizontal: space.xl,
         paddingVertical: 12,
-        borderWidth: 1,
-        borderColor: '#c7d2fe',
-        backgroundColor: 'white',
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
-    secondaryButtonText: {
-        color: '#3346e8',
-        fontWeight: '800',
-        fontSize: 14,
-    },
+    secondaryButtonText: { fontFamily: fonts.bold, fontSize: 14, color: colors.accentBright },
 });

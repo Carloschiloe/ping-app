@@ -1,6 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
-import { useAppTheme } from '../../theme/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors, radius, space } from '../../design/tokens';
+import { fonts, type } from '../../design/typography';
+import { Glass } from '../../design/Glass';
+import { avatarGradient } from '../../design/ScreenHeader';
 
 interface GroupMembersSectionProps {
     members: any[];
@@ -17,67 +21,94 @@ export function GroupMembersSection({
     isUpdatingParticipantRole,
     onToggleAdmin,
 }: GroupMembersSectionProps) {
-    const { theme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
     if (!members.length) return null;
 
     return (
         <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{members.length} Integrantes</Text>
-            {members.map((member) => (
-                <View key={member.id} style={styles.memberRow}>
-                    <View style={styles.memberAvatar}>
-                        {member.avatar_url ? (
-                            <Image source={{ uri: member.avatar_url }} style={{ width: '100%', height: '100%' }} />
-                        ) : (
-                            <Text style={styles.memberInitials}>{(member.full_name || member.email || '?').substring(0, 2).toUpperCase()}</Text>
-                        )}
-                    </View>
-                    <View style={styles.memberInfo}>
-                        <Text style={styles.memberEmail}>{member.full_name || member.email}</Text>
-                        <Text style={styles.memberSubline}>{member.email}</Text>
-                        {member.role === 'admin' && <Text style={styles.adminBadge}>Admin</Text>}
-                    </View>
-                    {isAdmin && member.id !== currentUserId && (
-                        <TouchableOpacity
-                            style={[styles.memberRoleBtn, isUpdatingParticipantRole && { opacity: 0.6 }]}
-                            onPress={() => onToggleAdmin(member)}
-                            disabled={isUpdatingParticipantRole}
-                        >
-                            <Text style={styles.memberRoleBtnText}>{member.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-            ))}
+            <Text style={styles.sectionTitle}>{members.length} INTEGRANTES</Text>
+            <View>
+                <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+                {members.map((member, index) => {
+                    const label = member.full_name || member.email || '?';
+                    return (
+                        <View key={member.id} style={styles.memberRow}>
+                            {index > 0 && <View pointerEvents="none" style={styles.divider} />}
+                            {member.avatar_url ? (
+                                <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+                            ) : (
+                                <LinearGradient colors={avatarGradient(label)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.memberAvatar}>
+                                    <Text style={styles.memberInitials}>{label.substring(0, 2).toUpperCase()}</Text>
+                                </LinearGradient>
+                            )}
+                            <View style={styles.memberInfo}>
+                                <View style={styles.nameLine}>
+                                    <Text style={styles.memberName} numberOfLines={1}>{label}</Text>
+                                    {member.role === 'admin' && <Text style={styles.adminBadge}>Admin</Text>}
+                                </View>
+                                {!!member.email && <Text style={styles.memberSubline} numberOfLines={1}>{member.email}</Text>}
+                            </View>
+                            {isAdmin && member.id !== currentUserId && (
+                                <TouchableOpacity
+                                    style={[styles.memberRoleBtn, isUpdatingParticipantRole && styles.memberRoleBtnBusy]}
+                                    onPress={() => onToggleAdmin(member)}
+                                    disabled={isUpdatingParticipantRole}
+                                >
+                                    <Text style={styles.memberRoleBtnText}>{member.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    );
+                })}
+            </View>
         </View>
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
-    section: {
-        backgroundColor: theme.colors.surface,
-        marginTop: 8,
-        padding: 16,
-        borderTopWidth: 1,
-        borderBottomWidth: 1,
-        borderColor: theme.colors.border,
+const styles = StyleSheet.create({
+    section: { marginTop: space.xxl },
+    sectionTitle: { ...type.overline, marginBottom: space.sm, marginLeft: space.xl },
+    band: { borderLeftWidth: 0, borderRightWidth: 0 },
+    memberRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.md },
+    divider: {
+        position: 'absolute',
+        top: 0,
+        left: space.xl + 44 + space.md,
+        right: 0,
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.separator,
     },
-    sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.colors.text.primary, marginBottom: 12 },
-    memberRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
     memberAvatar: {
-        width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.text.muted,
-        alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 12,
+        width: 44,
+        height: 44,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        marginRight: space.md,
     },
-    memberInitials: { fontSize: 16, fontWeight: '700', color: theme.colors.white },
-    memberInfo: { flex: 1 },
-    memberEmail: { fontSize: 16, fontWeight: '500', color: theme.colors.text.primary },
-    memberSubline: { fontSize: 12, color: theme.colors.text.secondary, marginTop: 2 },
-    adminBadge: { fontSize: 12, color: theme.colors.success, fontWeight: 'bold', marginTop: 2 },
+    memberInitials: { fontFamily: fonts.semibold, fontSize: 15, color: colors.silver },
+    memberInfo: { flex: 1, minWidth: 0 },
+    nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    memberName: { flexShrink: 1, fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
+    memberSubline: { ...type.caption, color: colors.textFaint, marginTop: 2 },
+    adminBadge: {
+        fontFamily: fonts.semibold,
+        fontSize: 11,
+        color: colors.success,
+        backgroundColor: colors.successTint,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: radius.full,
+        overflow: 'hidden',
+    },
     memberRoleBtn: {
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 10,
-        backgroundColor: theme.colors.accentSoft,
+        paddingHorizontal: space.md,
+        paddingVertical: 7,
+        borderRadius: radius.full,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
-    memberRoleBtnText: { fontSize: 12, fontWeight: '700', color: theme.colors.accent },
+    memberRoleBtnBusy: { opacity: 0.6 },
+    memberRoleBtnText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.accentBright },
 });

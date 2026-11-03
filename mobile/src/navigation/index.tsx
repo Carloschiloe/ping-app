@@ -1,13 +1,14 @@
-import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { DarkTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
-import { useAppTheme } from '../theme/ThemeContext';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FloatingTabBar } from '../design/FloatingTabBar';
+import { GlassBackdrop } from '../design/Glass';
+import { PingOrb } from '../design/PingOrb';
+import { colors } from '../design/tokens';
 
 import AuthScreen from '../screens/AuthScreen';
 import PasswordRecoveryScreen from '../screens/PasswordRecoveryScreen';
@@ -31,154 +32,90 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 const ConversationsStackNav = createNativeStackNavigator<ConversationsStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const ConversationsStack = () => {
-    const { theme: appTheme } = useAppTheme();
-    const stackHeaderStyle = { backgroundColor: appTheme.colors.primary };
-    const stackTintColor = appTheme.colors.white;
+// Every screen paints its own glass; the navigator only needs to stay dark
+// underneath so nothing flashes white between screens.
+const navigationTheme = {
+    ...DarkTheme,
+    colors: {
+        ...DarkTheme.colors,
+        background: colors.ink,
+        card: colors.surfaceSolid,
+        text: colors.text,
+        border: colors.separator,
+        primary: colors.accent,
+        notification: colors.accent,
+    },
+};
 
+const ConversationsStack = () => {
     return (
     <ConversationsStackNav.Navigator>
         <ConversationsStackNav.Screen
             name="ConversationsList"
             component={ConversationsScreen}
-            options={{ headerShown: false }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="Chat"
             component={ChatScreen}
-            options={({ route }: any) => ({
-                title: route.params?.isSelf ? 'Para mí' : (route.params?.otherUser?.full_name || route.params?.otherUser?.email?.split('@')[0] || 'Chat'),
-                headerBackTitle: '',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-                headerTitleStyle: { fontWeight: '700', color: stackTintColor },
-            })}
+            options={{ headerShown: false }}
         />
         <ConversationsStackNav.Screen
             name="TaskHistory"
             component={TaskHistoryScreen}
-            options={{
-                headerShown: true,
-                title: 'Historial de tareas',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="NewChat"
             component={NewChatScreen}
-            options={{ headerShown: false }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="NewGroup"
             component={NewGroupScreen}
-            options={{
-                headerShown: true,
-                title: 'Nuevo Grupo',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="ChatInfo"
             component={ChatInfoScreen}
-            options={{
-                headerShown: true,
-                title: 'Info del Chat',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="SharedContent"
             component={SharedContentScreen}
-            options={{
-                headerShown: true,
-                title: 'Contenido compartido',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="SharedVisualContent"
             component={SharedVisualContentScreen}
-            options={{
-                headerShown: true,
-                title: 'Fotos y videos',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="AddParticipants"
             component={AddParticipantsScreen}
-            options={{
-                headerShown: true,
-                title: 'Añadir Integrantes',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="PingAI"
             component={AgentPreviewScreen}
-            options={{ headerShown: false }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
     </ConversationsStackNav.Navigator>
     );
 };
 
-const MainTabs = () => {
-    const { theme: appTheme } = useAppTheme();
-    const insets = useSafeAreaInsets();
-    const bottomInset = Math.max(insets.bottom, 10);
-
-    return (
+const MainTabs = () => (
+    <GlassBackdrop>
     <Tab.Navigator
-        screenOptions={({ route }) => ({
-            headerShown: false,
-            tabBarHideOnKeyboard: true,
-            tabBarActiveTintColor: appTheme.isDark ? appTheme.colors.accent : appTheme.colors.primary,
-            tabBarInactiveTintColor: appTheme.isDark ? appTheme.colors.text.secondary : appTheme.colors.text.muted,
-            tabBarStyle: {
-                backgroundColor: appTheme.isDark ? appTheme.colors.surfaceElevated : appTheme.colors.surface,
-                borderTopColor: appTheme.isDark ? appTheme.colors.border : appTheme.colors.separator,
-                borderTopWidth: 1,
-                height: 54 + bottomInset,
-                paddingBottom: bottomInset,
-                paddingTop: 6,
-                shadowColor: '#000',
-                shadowOpacity: appTheme.isDark ? 0.2 : 0.08,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: -6 },
-                elevation: 8,
-            },
-            tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
-            tabBarIcon: ({ focused, color, size }) => {
-                let iconName: any;
-                if (route.name === 'Chats') {
-                    iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-                } else if (route.name === 'Hoy') {
-                    iconName = focused ? 'today' : 'today-outline';
-                } else if (route.name === 'Perfil') {
-                    iconName = focused ? 'person-circle' : 'person-circle-outline';
-                }
-                return <Ionicons name={iconName} size={24} color={color} />;
-            },
-        })}
+        tabBar={(props) => <FloatingTabBar {...props} />}
+        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true, sceneStyle: { backgroundColor: 'transparent' } }}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
-    );
-};
+    </GlassBackdrop>
+);
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
@@ -190,42 +127,20 @@ const PushNotificationHandler = () => {
 
 export const AppNavigator = () => {
     const { session, initialized, profileComplete, passwordRecoveryPending } = useAuth();
-    const { theme: appTheme, isDark } = useAppTheme();
-
     if (!initialized || (session && profileComplete === null)) {
         return (
-            <View style={styles.loading}>
-                <ActivityIndicator size="large" color="#1e3a5f" />
-            </View>
+            <GlassBackdrop>
+                <View style={styles.loading}>
+                    <PingOrb size={72} />
+                </View>
+            </GlassBackdrop>
         );
     }
 
     return (
         <NavigationContainer
             ref={navigationRef}
-            theme={isDark ? {
-                ...DarkTheme,
-                colors: {
-                    ...DarkTheme.colors,
-                    background: appTheme.colors.background,
-                    card: appTheme.colors.surface,
-                    text: appTheme.colors.text.primary,
-                    border: appTheme.colors.border,
-                    primary: appTheme.colors.primary,
-                    notification: appTheme.colors.accent,
-                },
-            } : {
-                ...DefaultTheme,
-                colors: {
-                    ...DefaultTheme.colors,
-                    background: appTheme.colors.background,
-                    card: appTheme.colors.surface,
-                    text: appTheme.colors.text.primary,
-                    border: appTheme.colors.border,
-                    primary: appTheme.colors.primary,
-                    notification: appTheme.colors.accent,
-                },
-            }}
+            theme={navigationTheme}
         >
             {session && profileComplete && !passwordRecoveryPending && <PushNotificationHandler />}
             <RootStack.Navigator screenOptions={{ headerShown: false }}>
@@ -255,5 +170,5 @@ export const AppNavigator = () => {
 };
 
 const styles = StyleSheet.create({
-    loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white' },
+    loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

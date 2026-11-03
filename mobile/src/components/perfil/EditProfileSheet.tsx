@@ -4,10 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { useAppTheme } from '../../theme/ThemeContext';
 import { getDisplayNameValidationError, normalizeDisplayName, normalizeOptionalPhone } from '../../utils/profile';
 import { uploadPrivateProfileAvatar } from '../../lib/privateFiles';
 
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 interface EditProfileSheetProps {
     visible: boolean;
     onClose: () => void;
@@ -29,7 +31,6 @@ export function EditProfileSheet({
     onSaveProfile,
     onSaveAvatar,
 }: EditProfileSheetProps) {
-    const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
     const [fullName, setFullName] = useState(initialFullName);
     const [phone, setPhone] = useState(initialPhone);
@@ -121,22 +122,22 @@ export function EditProfileSheet({
                     style={[
                         styles.sheet,
                         {
-                            backgroundColor: theme.colors.surface,
                             paddingBottom: Math.max(insets.bottom, 24) + 12,
                         },
                     ]}
                 >
+                    <SheetFill />
                     <View style={styles.handle} />
                     <View style={styles.header}>
                         <TouchableOpacity onPress={onClose} disabled={saving} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Text style={[styles.cancelText, { color: theme.colors.text.secondary }]}>Cancelar</Text>
+                            <Text style={[styles.cancelText, { color: colors.textSoft }]}>Cancelar</Text>
                         </TouchableOpacity>
-                        <Text style={[styles.title, { color: theme.colors.text.primary }]}>Editar Perfil</Text>
+                        <Text style={[styles.title, { color: colors.text }]}>Editar Perfil</Text>
                         <TouchableOpacity onPress={handleSave} disabled={saving} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                             {saving ? (
-                                <ActivityIndicator size="small" color={theme.colors.accent} />
+                                <ActivityIndicator size="small" color={colors.accentBright} />
                             ) : (
-                                <Text style={[styles.saveText, { color: theme.colors.accent }]}>Guardar</Text>
+                                <Text style={[styles.saveText, { color: colors.accentBright }]}>Guardar</Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -146,32 +147,32 @@ export function EditProfileSheet({
                             {currentAvatarUri ? (
                                 <Image source={{ uri: currentAvatarUri }} style={styles.avatarImage} />
                             ) : (
-                                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.accent }]}>
+                                <View style={[styles.avatarPlaceholder, { backgroundColor: colors.accent }]}>
                                     <Text style={styles.avatarText}>{initialLetter}</Text>
                                 </View>
                             )}
-                            <View style={[styles.cameraBadge, { backgroundColor: theme.colors.primary, borderColor: theme.colors.surface }]}>
-                                <Ionicons name="camera" size={14} color="white" />
+                            <View style={[styles.cameraBadge, { backgroundColor: colors.accent, borderColor: colors.surfaceSolid }]}>
+                                <Ionicons name="camera" size={14} color={colors.onAccent} />
                             </View>
                         </TouchableOpacity>
-                        <Text style={[styles.editPhotoText, { color: theme.colors.accent }]}>Cambiar foto</Text>
+                        <Text style={[styles.editPhotoText, { color: colors.accentBright }]}>Cambiar foto</Text>
                     </View>
 
                     <View style={styles.form}>
-                        <Text style={[styles.fieldLabel, { color: theme.colors.text.muted }]}>NOMBRE COMPLETO</Text>
+                        <Text style={[styles.fieldLabel, { color: colors.textFaint }]}>NOMBRE COMPLETO</Text>
                         <TextInput
-                            style={[styles.input, { backgroundColor: theme.colors.surfaceMuted, color: theme.colors.text.primary, borderColor: theme.colors.separator }]}
+                            style={[styles.input, { backgroundColor: colors.glassRaised, color: colors.text, borderColor: colors.glassBorder }]}
                             placeholder="Tu nombre real"
-                            placeholderTextColor={theme.colors.text.muted}
+                            placeholderTextColor={colors.textFaint}
                             value={fullName}
                             onChangeText={setFullName}
                         />
 
-                        <Text style={[styles.fieldLabel, { color: theme.colors.text.muted, marginTop: 16 }]}>TELÉFONO</Text>
+                        <Text style={[styles.fieldLabel, { color: colors.textFaint, marginTop: 16 }]}>TELÉFONO</Text>
                         <TextInput
-                            style={[styles.input, { backgroundColor: theme.colors.surfaceMuted, color: theme.colors.text.primary, borderColor: theme.colors.separator }]}
+                            style={[styles.input, { backgroundColor: colors.glassRaised, color: colors.text, borderColor: colors.glassBorder }]}
                             placeholder="+56912345678"
-                            placeholderTextColor={theme.colors.text.muted}
+                            placeholderTextColor={colors.textFaint}
                             value={phone}
                             onChangeText={setPhone}
                             keyboardType="phone-pad"
@@ -186,7 +187,7 @@ export function EditProfileSheet({
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     sheet: {
@@ -194,13 +195,14 @@ const styles = StyleSheet.create({
         borderTopRightRadius: 20,
         paddingHorizontal: 20,
         paddingTop: 12,
+        ...sheetSurface,
     },
     handle: {
         alignSelf: 'center',
         width: 36,
         height: 4,
         borderRadius: 2,
-        backgroundColor: '#d1d5db',
+        backgroundColor: colors.glassRaised,
         marginBottom: 16,
     },
     header: {
@@ -211,15 +213,15 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 17,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     cancelText: {
         fontSize: 16,
-        fontWeight: '400',
+        fontFamily: fonts.regular,
     },
     saveText: {
         fontSize: 16,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     avatarWrap: {
         alignItems: 'center',
@@ -245,9 +247,9 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     avatarText: {
-        color: 'white',
+        color: colors.onAccent,
         fontSize: 28,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     cameraBadge: {
         position: 'absolute',
@@ -262,19 +264,19 @@ const styles = StyleSheet.create({
     },
     editPhotoText: {
         fontSize: 13,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     form: {
         marginBottom: 20,
     },
     fieldLabel: {
         fontSize: 11,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         marginBottom: 6,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
-    input: {
+    input: { fontFamily: fonts.regular,
         borderWidth: 1,
         paddingVertical: 12,
         paddingHorizontal: 14,

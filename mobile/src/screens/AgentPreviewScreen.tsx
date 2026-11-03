@@ -8,7 +8,9 @@ import {
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
     StatusBar, Modal, Pressable, Alert,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import Reanimated, { FadeInDown, SlideInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -27,7 +29,11 @@ import {
     restoreAgentConversationMessages, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
-import { useAppTheme } from '../theme/ThemeContext';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
+import { SheetFill, sheetSurface } from '../design/Sheet';
+import { PingOrb } from '../design/PingOrb';
 import type { AgentCoreScreenProps } from '../navigation/types';
 import { useAgentVoiceInput } from '../hooks/useAgentVoiceInput';
 import { formatRecordingDuration } from '../utils/audioRecording';
@@ -39,7 +45,6 @@ import { LiveVoiceSession } from '../components/agent/LiveVoiceSession';
 const SLOW_REQUEST_COPY_DELAY_MS = 10_000;
 
 export default function AgentPreviewScreen({ navigation, route }: AgentCoreScreenProps) {
-    const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
     const conversationId = route.params?.conversationId;
     const adapterSurface = route.params?.surface ?? 'mobile_text';
@@ -272,8 +277,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     }, [clearAgentConversationHistory, historyConversationId, isClearingHistory, isPending]);
     const voiceCopy = voiceStatusCopy(voice.state);
 
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
-
     const renderItem = ({ item }: { item: AgentChatMessage }) => {
         const isUser = item.role === 'user';
         const citationsSummary = describeCitationsSummary(item.citations);
@@ -299,6 +302,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         }
                         : {})}
                 >
+                    {isUser && !item.error && (
+                        <LinearGradient pointerEvents="none" colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                    )}
                     {statusLabel && <Text style={styles.turnLabel}>{statusLabel}</Text>}
                     <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
 
@@ -325,6 +331,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                                             accessibilityRole="button"
                                             accessibilityLabel={`Confirmar: ${action.summary}`}
                                         >
+                                            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                                             <Text style={styles.pendingActionConfirmText}>Confirmar</Text>
                                         </TouchableOpacity>
                                     </View>
@@ -366,43 +373,48 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-            <StatusBar barStyle={theme.isDark ? 'light-content' : 'light-content'} />
+        <View style={styles.container}>
+            <StatusBar barStyle="light-content" />
+            {/* Darkens the waves behind the messages so the bubbles lead. */}
+            <View pointerEvents="none" style={styles.veil} />
 
-            <View style={styles.header} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Volver">
-                    <Ionicons name="arrow-back" size={24} color={theme.colors.white} />
-                </TouchableOpacity>
-                <View style={styles.headerInfo}>
-                        <Text style={styles.title}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
-                    <Text style={styles.subtitle}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
-                </View>
-                {liveVoiceEnabled ? (
-                    <TouchableOpacity
-                        onPress={() => setLiveVoiceVisible(true)}
-                        style={styles.headerBtn}
-                        testID="ping-voice-button"
-                        accessibilityRole="button"
-                        accessibilityLabel="Abrir Ping Voz"
-                    >
-                        <Ionicons name="radio" size={22} color={theme.colors.white} />
+            <Glass style={[styles.header, { paddingTop: insets.top + space.xs }]} intensity={60}>
+                <View style={styles.headerRow} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Volver" hitSlop={8}>
+                        <Ionicons name="chevron-back" size={26} color={colors.text} />
                     </TouchableOpacity>
-                ) : <View style={styles.headerBtn} />}
-                <TouchableOpacity
-                    onPress={handleClearHistory}
-                    style={styles.headerBtn}
-                    disabled={!historyConversationId || isPending || isClearingHistory}
-                    testID="ping-clear-history-button"
-                    accessibilityRole="button"
-                    accessibilityLabel="Limpiar chat de Ping"
-                >
-                    {isClearingHistory ? (
-                        <ActivityIndicator size="small" color={theme.colors.white} />
-                    ) : (
-                        <Ionicons name="trash-outline" size={22} color={theme.colors.white} />
+                    <PingOrb size={30} />
+                    <View style={styles.headerInfo}>
+                        <Text style={styles.title} numberOfLines={1}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
+                        <Text style={styles.subtitle} numberOfLines={1}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
+                    </View>
+                    {liveVoiceEnabled && (
+                        <TouchableOpacity
+                            onPress={() => setLiveVoiceVisible(true)}
+                            style={styles.headerBtn}
+                            testID="ping-voice-button"
+                            accessibilityRole="button"
+                            accessibilityLabel="Abrir Ping Voz"
+                        >
+                            <Ionicons name="radio" size={19} color={colors.accentBright} />
+                        </TouchableOpacity>
                     )}
-                </TouchableOpacity>
-            </View>
+                    <TouchableOpacity
+                        onPress={handleClearHistory}
+                        style={[styles.headerBtn, (!historyConversationId || isPending || isClearingHistory) && styles.headerBtnDisabled]}
+                        disabled={!historyConversationId || isPending || isClearingHistory}
+                        testID="ping-clear-history-button"
+                        accessibilityRole="button"
+                        accessibilityLabel="Limpiar chat de Ping"
+                    >
+                        {isClearingHistory ? (
+                            <ActivityIndicator size="small" color={colors.text} />
+                        ) : (
+                            <Ionicons name="trash-outline" size={18} color={colors.text} />
+                        )}
+                    </TouchableOpacity>
+                </View>
+            </Glass>
 
             <KeyboardAvoidingView
                 style={styles.keyboardArea}
@@ -411,15 +423,24 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
             >
                 {messages.length === 0 ? (
                     <View style={styles.emptyState}>
+                        <View style={styles.emptyOrb}>
+                            <PingOrb size={64} />
+                        </View>
                         <Text style={styles.emptyTitle}>Pregúntale a Ping</Text>
                         <Text style={styles.emptySubtitle}>
                             Consulta tu información o pídele que haga algo. Ping solo actuará después de pedirte confirmación.
                         </Text>
                         <View style={styles.startersWrap}>
-                            {AGENT_SUGGESTED_STARTERS.map((starter) => (
-                                <TouchableOpacity key={starter} style={styles.starterChip} onPress={() => handleStarterPress(starter)}>
-                                    <Text style={styles.starterChipText}>{starter}</Text>
-                                </TouchableOpacity>
+                            {AGENT_SUGGESTED_STARTERS.map((starter, index) => (
+                                <Reanimated.View key={starter} entering={FadeInDown.delay(80 + index * 60).duration(360)}>
+                                    <TouchableOpacity onPress={() => handleStarterPress(starter)} activeOpacity={0.75}>
+                                        <Glass style={styles.starterChip} intensity={30}>
+                                            <Ionicons name="sparkles-outline" size={17} color={colors.accentBright} />
+                                            <Text style={styles.starterChipText}>{starter}</Text>
+                                            <Ionicons name="arrow-forward" size={15} color={colors.textFaint} />
+                                        </Glass>
+                                    </TouchableOpacity>
+                                </Reanimated.View>
                             ))}
                         </View>
                     </View>
@@ -440,7 +461,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
 
                 {isPending && (
                     <View style={styles.loadingRow}>
-                        <ActivityIndicator size="small" color={theme.colors.info} />
+                        <ActivityIndicator size="small" color={colors.accentBright} />
                         <Text style={styles.loadingText}>
                             {isSlow ? 'Sigo buscando…' : 'Pensando…'}
                         </Text>
@@ -460,101 +481,121 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     </View>
                 )}
 
-                {voice.state === 'listening' || voice.state === 'capturing' ? (
-                    <View style={styles.inputContainer}>
-                        <TouchableOpacity
-                            style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]}
-                            onPress={voice.cancel}
-                            accessibilityRole="button"
-                            accessibilityLabel="Cancelar grabación"
-                        >
-                            <Ionicons name="trash-outline" size={22} color={theme.colors.danger} />
-                        </TouchableOpacity>
-                        <View style={styles.recordingStatus}>
-                            <View style={styles.recordingPulse}>
-                                <Ionicons name="mic" size={19} color={theme.colors.white} />
-                            </View>
-                            <View style={styles.recordingCopy}>
-                                <Text style={styles.recordingTitle}>{voice.state === 'listening' ? 'Preparando…' : 'Escuchando…'}</Text>
-                                <Text style={styles.recordingHint}>Toca para terminar</Text>
-                            </View>
-                            <Text style={styles.recordingTime}>{formatRecordingDuration(voice.durationMs)}</Text>
+                <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, space.sm) + space.xs }]}>
+                    {voice.state === 'listening' || voice.state === 'capturing' ? (
+                        <View style={styles.inputContainer}>
+                            <TouchableOpacity
+                                style={[styles.roundBtn, styles.roundBtnDanger]}
+                                onPress={voice.cancel}
+                                accessibilityRole="button"
+                                accessibilityLabel="Cancelar grabación"
+                            >
+                                <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                            </TouchableOpacity>
+                            <Glass style={[styles.field, styles.fieldRecording]} intensity={50}>
+                                <View style={styles.recordingStatus}>
+                                    <View style={styles.recordingDot} />
+                                    <View style={styles.recordingCopy}>
+                                        <Text style={styles.recordingTitle}>{voice.state === 'listening' ? 'Preparando…' : 'Escuchando…'}</Text>
+                                        <Text style={styles.recordingHint}>Toca para terminar</Text>
+                                    </View>
+                                    <Text style={styles.recordingTime}>{formatRecordingDuration(voice.durationMs)}</Text>
+                                </View>
+                            </Glass>
+                            <TouchableOpacity
+                                style={[styles.sendBtn, voice.state !== 'capturing' && styles.sendBtnDisabled]}
+                                onPress={voice.stop}
+                                disabled={voice.state !== 'capturing'}
+                                accessibilityRole="button"
+                                accessibilityLabel="Detener grabación"
+                            >
+                                <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.circleFill}>
+                                    <Ionicons name="checkmark" size={20} color={colors.onAccent} />
+                                </LinearGradient>
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity
-                            style={styles.sendBtn}
-                            onPress={voice.stop}
-                            disabled={voice.state !== 'capturing'}
-                            accessibilityRole="button"
-                            accessibilityLabel="Detener grabación"
-                        >
-                            <Ionicons name="checkmark" size={20} color={theme.colors.white} />
-                        </TouchableOpacity>
-                    </View>
-                ) : voice.state === 'transcribing' ? (
-                    <View style={styles.inputContainer}>
-                        <ActivityIndicator size="small" color={theme.colors.info} />
-                        <Text style={styles.transcribingText}>Transcribiendo…</Text>
-                        <TouchableOpacity
-                            style={styles.mediaBtn}
-                            onPress={voice.cancel}
-                            accessibilityRole="button"
-                            accessibilityLabel="Cancelar transcripción"
-                        >
-                            <Ionicons name="close" size={22} color={theme.colors.text.secondary} />
-                        </TouchableOpacity>
-                    </View>
-                ) : (
-                    <View style={styles.inputContainer}>
-                        <TextInput
-                            ref={inputRef}
-                            style={styles.input}
-                            placeholder="Escribe tu pregunta…"
-                            placeholderTextColor={theme.colors.text.muted}
-                            value={inputText}
-                            onChangeText={handleInputChange}
-                            multiline
-                            maxLength={2000}
-                            editable={!isPending}
-                        />
-                        {inputText.trim() ? (
+                    ) : voice.state === 'transcribing' ? (
+                        <View style={styles.inputContainer}>
+                            <Glass style={styles.field} intensity={50}>
+                                <View style={styles.recordingStatus}>
+                                    <ActivityIndicator size="small" color={colors.accentBright} />
+                                    <Text style={styles.transcribingText}>Transcribiendo…</Text>
+                                </View>
+                            </Glass>
                             <TouchableOpacity
-                                style={[styles.sendBtn, !canSendInput(inputText, isPending) && styles.sendBtnDisabled]}
-                                onPress={handleSend}
-                                disabled={!canSendInput(inputText, isPending)}
+                                onPress={voice.cancel}
                                 accessibilityRole="button"
-                                accessibilityLabel="Enviar"
+                                accessibilityLabel="Cancelar transcripción"
                             >
-                                <Ionicons name="send" size={20} color={theme.colors.white} />
+                                <Glass style={styles.roundBtn} intensity={50}>
+                                    <Ionicons name="close" size={20} color={colors.text} />
+                                </Glass>
                             </TouchableOpacity>
-                        ) : (
-                            <TouchableOpacity
-                                style={[styles.sendBtn, isPending && styles.sendBtnDisabled]}
-                                onPress={voice.start}
-                                disabled={isPending}
-                                accessibilityRole="button"
-                                accessibilityLabel="Grabar pregunta por voz"
-                            >
-                                <Ionicons name="mic" size={20} color={theme.colors.white} />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                )}
+                        </View>
+                    ) : (
+                        <View style={styles.inputContainer}>
+                            <Glass style={styles.field} intensity={50}>
+                                <TextInput
+                                    ref={inputRef}
+                                    style={styles.input}
+                                    placeholder="Escribe tu pregunta…"
+                                    placeholderTextColor={colors.textFaint}
+                                    selectionColor={colors.accent}
+                                    value={inputText}
+                                    onChangeText={handleInputChange}
+                                    multiline
+                                    maxLength={2000}
+                                    editable={!isPending}
+                                />
+                            </Glass>
+                            {inputText.trim() ? (
+                                <TouchableOpacity
+                                    style={[styles.sendBtn, !canSendInput(inputText, isPending) && styles.sendBtnDisabled]}
+                                    onPress={handleSend}
+                                    disabled={!canSendInput(inputText, isPending)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Enviar"
+                                >
+                                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.circleFill}>
+                                        <Ionicons name="send" size={18} color={colors.onAccent} />
+                                    </LinearGradient>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity
+                                    style={[styles.sendBtn, isPending && styles.sendBtnDisabled]}
+                                    onPress={voice.start}
+                                    disabled={isPending}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Grabar pregunta por voz"
+                                >
+                                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.circleFill}>
+                                        <Ionicons name="mic" size={20} color={colors.onAccent} />
+                                    </LinearGradient>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    )}
+                </View>
             </KeyboardAvoidingView>
 
             <Modal visible={!!citationsSheetFor} transparent animationType="fade" onRequestClose={() => setCitationsSheetFor(null)}>
                 <Pressable style={styles.sheetOverlay} onPress={() => setCitationsSheetFor(null)}>
-                    <View style={styles.sheetCard}>
+                    <Reanimated.View entering={SlideInDown.duration(320)} style={[styles.sheetCard, { paddingBottom: Math.max(insets.bottom, space.lg) + space.sm }]}>
+                        <SheetFill />
+                        <View style={styles.sheetHandle} />
                         <Text style={styles.sheetTitle}>Fuentes de esta respuesta</Text>
                         {describeCitationTypes(citationsSheetFor?.citations).map((label, idx) => (
                             <View key={`${label}-${idx}`} style={styles.sheetRow}>
-                                <Ionicons name="document-text-outline" size={18} color={theme.colors.text.secondary} />
+                                <View style={styles.sheetRowIcon}>
+                                    <Ionicons name="document-text-outline" size={17} color={colors.accentBright} />
+                                </View>
                                 <Text style={styles.sheetRowText}>{label}</Text>
                             </View>
                         ))}
                         <TouchableOpacity style={styles.sheetCloseBtn} onPress={() => setCitationsSheetFor(null)}>
                             <Text style={styles.sheetCloseText}>Cerrar</Text>
                         </TouchableOpacity>
-                    </View>
+                    </Reanimated.View>
                 </Pressable>
             </Modal>
             <LiveVoiceSession
@@ -566,134 +607,204 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true });
                 }}
             />
-        </SafeAreaView>
+        </View>
     );
 }
 
-function createStyles(theme: ReturnType<typeof useAppTheme>['theme']) {
-    return StyleSheet.create({
-        container: { flex: 1, backgroundColor: theme.colors.background },
-        header: {
-            backgroundColor: theme.colors.primary,
-            flexDirection: 'row', alignItems: 'center',
-            paddingHorizontal: 16, paddingVertical: 12,
-        },
-        headerBtn: { padding: 8, width: 40 },
-        headerInfo: { flex: 1, alignItems: 'center' },
-        title: { color: theme.colors.white, fontSize: 18, fontWeight: '700' },
-        subtitle: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
+const FIELD_HEIGHT = 46;
 
-        keyboardArea: { flex: 1 },
-        messageList: { flex: 1 },
-        // Leave room for the fixed composer so Confirm/Cancel buttons never
-        // sit behind it on short iPhone viewports.
-        listContent: { padding: 16, paddingBottom: 180 },
-        messageRow: { flexDirection: 'row', marginBottom: 12 },
-        agentRow: { justifyContent: 'flex-start' },
-        userRow: { justifyContent: 'flex-end' },
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: 'transparent' },
+    veil: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.chatVeil },
+    header: {
+        paddingHorizontal: space.sm,
+        paddingBottom: space.sm + 2,
+        borderWidth: 0,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        zIndex: 10,
+    },
+    headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+    backBtn: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
+    headerInfo: { flex: 1, justifyContent: 'center', marginLeft: 2 },
+    title: { fontFamily: fonts.semibold, fontSize: 17, letterSpacing: -0.2, color: colors.text },
+    subtitle: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint, marginTop: 1 },
+    headerBtn: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    headerBtnDisabled: { opacity: 0.5 },
 
-        bubble: { maxWidth: '85%', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
-        agentBubble: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4 },
-        userBubble: { backgroundColor: theme.colors.info, borderBottomRightRadius: 4 },
-        errorBubble: { backgroundColor: theme.isDark ? '#3a1f1f' : '#fee2e2', borderWidth: 1, borderColor: theme.colors.danger },
+    keyboardArea: { flex: 1 },
+    messageList: { flex: 1 },
+    // Leave room for the fixed composer so Confirm/Cancel buttons never
+    // sit behind it on short iPhone viewports.
+    listContent: { padding: 16, paddingBottom: 180 },
+    messageRow: { flexDirection: 'row', marginBottom: space.md },
+    agentRow: { justifyContent: 'flex-start' },
+    userRow: { justifyContent: 'flex-end' },
 
-        messageText: { fontSize: 15, color: theme.colors.bubbleTextThem, lineHeight: 20 },
-        userMessageText: { color: theme.colors.white },
-        turnLabel: { color: theme.colors.info, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 5 },
+    bubble: { maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.lg, overflow: 'hidden' },
+    agentBubble: {
+        backgroundColor: colors.bubbleThem,
+        borderBottomLeftRadius: 6,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    userBubble: { borderBottomRightRadius: 6 },
+    errorBubble: { backgroundColor: colors.dangerTint, borderWidth: 1, borderColor: colors.danger },
 
-        optionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, gap: 6 },
-        optionChip: {
-            backgroundColor: theme.colors.accentSoft, borderRadius: 14,
-            paddingHorizontal: 10, paddingVertical: 6,
-        },
-        optionChipText: { color: theme.colors.accent, fontSize: 13, fontWeight: '600' },
+    messageText: { fontFamily: fonts.regular, fontSize: 15, color: colors.text, lineHeight: 21 },
+    userMessageText: { color: colors.onAccent },
+    turnLabel: { ...type.overline, color: colors.accentBright, marginBottom: 5 },
 
-        pendingAction: {
-            marginTop: 10, padding: 12, borderRadius: 12, gap: 10,
-            borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface,
-        },
-        pendingActionSummary: { fontSize: 14, lineHeight: 20, color: theme.colors.text.primary, fontWeight: '600' },
-        pendingActionButtons: { flexDirection: 'row', gap: 8 },
-        pendingActionBtn: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, paddingHorizontal: 12 },
-        pendingActionCancel: { borderWidth: 1, borderColor: theme.colors.border },
-        pendingActionCancelText: { color: theme.colors.text.primary, fontSize: 15, fontWeight: '600' },
-        pendingActionConfirm: { backgroundColor: theme.colors.info },
-        pendingActionConfirmText: { color: theme.colors.white, fontSize: 15, fontWeight: '700' },
-        pendingActionDisabled: { opacity: 0.6 },
+    optionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: space.sm, gap: 6 },
+    optionChip: {
+        backgroundColor: colors.accentTint,
+        borderRadius: radius.full,
+        paddingHorizontal: space.md,
+        paddingVertical: 7,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    optionChipText: { fontFamily: fonts.semibold, color: colors.accentBright, fontSize: 13 },
 
-        citationsBtn: { marginTop: 8, alignSelf: 'flex-start', paddingVertical: 4 },
-        citationsText: { fontSize: 12, color: theme.colors.text.muted, textDecorationLine: 'underline' },
+    pendingAction: {
+        marginTop: 10,
+        padding: space.md,
+        borderRadius: radius.md,
+        gap: 10,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    pendingActionSummary: { fontFamily: fonts.semibold, fontSize: 14, lineHeight: 20, color: colors.text },
+    pendingActionButtons: { flexDirection: 'row', gap: space.sm },
+    pendingActionBtn: {
+        flex: 1,
+        minHeight: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: radius.full,
+        paddingHorizontal: space.md,
+        overflow: 'hidden',
+    },
+    pendingActionCancel: { backgroundColor: colors.glassDim, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
+    pendingActionCancelText: { fontFamily: fonts.semibold, color: colors.text, fontSize: 15 },
+    pendingActionConfirm: {},
+    pendingActionConfirmText: { fontFamily: fonts.bold, color: colors.onAccent, fontSize: 15 },
+    pendingActionDisabled: { opacity: 0.6 },
 
-        retryBtn: { marginTop: 8, alignSelf: 'flex-start' },
-        retryText: { fontSize: 13, color: theme.colors.danger, fontWeight: '700' },
+    citationsBtn: { marginTop: space.sm, alignSelf: 'flex-start', paddingVertical: 4 },
+    citationsText: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint, textDecorationLine: 'underline' },
 
-        emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-        emptyTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 8 },
-        emptySubtitle: { fontSize: 14, color: theme.colors.text.secondary, textAlign: 'center', marginBottom: 20 },
-        startersWrap: { width: '100%', gap: 8 },
-        starterChip: {
-            backgroundColor: theme.colors.surfaceMuted, borderRadius: 14,
-            paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: theme.colors.border,
-        },
-        starterChipText: { fontSize: 14, color: theme.colors.text.primary },
+    retryBtn: { marginTop: space.sm, alignSelf: 'flex-start' },
+    retryText: { fontFamily: fonts.bold, fontSize: 13, color: colors.danger },
 
-        inputContainer: {
-            flexDirection: 'row', alignItems: 'center',
-            padding: 12, backgroundColor: theme.colors.surface,
-            borderTopWidth: 1, borderTopColor: theme.colors.border,
-        },
-        input: {
-            flex: 1, backgroundColor: theme.colors.surfaceMuted,
-            borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, marginRight: 8,
-            fontSize: 15, maxHeight: 100, color: theme.colors.text.primary,
-        },
-        sendBtn: {
-            backgroundColor: theme.colors.info, width: 40, height: 40, borderRadius: 20,
-            alignItems: 'center', justifyContent: 'center',
-        },
-        sendBtnDisabled: { backgroundColor: theme.colors.text.muted },
-        mediaBtn: {
-            width: 40, height: 40, borderRadius: 20,
-            alignItems: 'center', justifyContent: 'center',
-            backgroundColor: theme.colors.surfaceMuted, marginRight: 8,
-        },
+    emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
+    emptyOrb: { marginBottom: space.xl },
+    emptyTitle: { ...type.title, marginBottom: space.sm },
+    emptySubtitle: { ...type.subhead, textAlign: 'center', marginBottom: space.xl },
+    startersWrap: { width: '100%', gap: space.sm },
+    starterChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
+        borderRadius: radius.lg,
+        paddingHorizontal: space.lg,
+        paddingVertical: 14,
+    },
+    starterChipText: { flex: 1, fontFamily: fonts.medium, fontSize: 14, color: colors.text },
 
-        voiceStatusRow: {
-            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-            paddingHorizontal: 16, paddingBottom: 6, gap: 8,
-        },
-        voiceStatusText: { flex: 1, fontSize: 12, color: theme.colors.text.secondary, fontStyle: 'italic' },
-        voiceErrorText: { color: theme.colors.danger, fontStyle: 'normal' },
-        voiceSettingsLink: { fontSize: 12, color: theme.colors.info, fontWeight: '700' },
+    composer: { paddingHorizontal: space.md, paddingTop: space.xs },
+    inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm },
+    field: { flex: 1, minHeight: FIELD_HEIGHT, borderRadius: FIELD_HEIGHT / 2, justifyContent: 'center' },
+    fieldRecording: { borderColor: colors.danger },
+    input: {
+        fontFamily: fonts.regular,
+        paddingHorizontal: space.lg,
+        paddingTop: Platform.OS === 'android' ? 12 : 13,
+        paddingBottom: Platform.OS === 'android' ? 10 : 12,
+        fontSize: 15,
+        lineHeight: 20,
+        minHeight: FIELD_HEIGHT,
+        maxHeight: 120,
+        includeFontPadding: false,
+        color: colors.text,
+    },
+    roundBtn: {
+        width: FIELD_HEIGHT,
+        height: FIELD_HEIGHT,
+        borderRadius: FIELD_HEIGHT / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    roundBtnDanger: { backgroundColor: colors.glassDim, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.danger },
+    sendBtn: { width: FIELD_HEIGHT, height: FIELD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
+    circleFill: {
+        width: FIELD_HEIGHT,
+        height: FIELD_HEIGHT,
+        borderRadius: FIELD_HEIGHT / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    sendBtnDisabled: { opacity: 0.4 },
 
-        recordingStatus: {
-            flex: 1, minHeight: 40, borderRadius: 20, paddingHorizontal: 10, marginRight: 8,
-            flexDirection: 'row', alignItems: 'center', gap: 9,
-            backgroundColor: theme.isDark ? '#2b1b20' : '#fff1f2',
-            borderWidth: 1, borderColor: theme.isDark ? '#7f1d1d' : '#fecdd3',
-        },
-        recordingPulse: {
-            width: 28, height: 28, borderRadius: 14,
-            alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.danger,
-        },
-        recordingCopy: { flex: 1 },
-        recordingTitle: { color: theme.colors.text.primary, fontSize: 13, fontWeight: '700' },
-        recordingHint: { color: theme.colors.text.muted, fontSize: 10, marginTop: 1 },
-        recordingTime: {
-            minWidth: 42, color: theme.colors.danger, fontSize: 14, fontWeight: '800',
-            fontVariant: ['tabular-nums'], textAlign: 'right',
-        },
-        transcribingText: { flex: 1, marginLeft: 10, fontSize: 13, color: theme.colors.text.secondary },
+    voiceStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: space.lg,
+        paddingBottom: 6,
+        gap: space.sm,
+    },
+    voiceStatusText: { flex: 1, fontFamily: fonts.regular, fontSize: 12, color: colors.textSoft, fontStyle: 'italic' },
+    voiceErrorText: { color: colors.danger, fontStyle: 'normal' },
+    voiceSettingsLink: { fontFamily: fonts.bold, fontSize: 12, color: colors.accentBright },
 
-        loadingRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 8 },
-        loadingText: { marginLeft: 8, fontSize: 13, color: theme.colors.text.secondary, fontStyle: 'italic' },
+    recordingStatus: { minHeight: FIELD_HEIGHT, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm + 1 },
+    recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
+    recordingCopy: { flex: 1 },
+    recordingTitle: { fontFamily: fonts.semibold, color: colors.text, fontSize: 13 },
+    recordingHint: { fontFamily: fonts.regular, color: colors.textFaint, fontSize: 10, marginTop: 1 },
+    recordingTime: {
+        fontFamily: fonts.bold,
+        minWidth: 42,
+        color: colors.danger,
+        fontSize: 14,
+        fontVariant: ['tabular-nums'],
+        textAlign: 'right',
+    },
+    transcribingText: { flex: 1, fontFamily: fonts.medium, fontSize: 13, color: colors.textSoft },
 
-        sheetOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
-        sheetCard: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20 },
-        sheetTitle: { fontSize: 16, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 12 },
-        sheetRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 10 },
-        sheetRowText: { fontSize: 14, color: theme.colors.text.primary },
-        sheetCloseBtn: { marginTop: 12, alignItems: 'center', paddingVertical: 10 },
-        sheetCloseText: { color: theme.colors.info, fontWeight: '700', fontSize: 15 },
-    });
-}
+    loadingRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, marginBottom: space.sm },
+    loadingText: { marginLeft: space.sm, fontFamily: fonts.regular, fontSize: 13, color: colors.textSoft, fontStyle: 'italic' },
+
+    sheetOverlay: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
+    sheetCard: {
+        borderTopLeftRadius: radius.xl,
+        borderTopRightRadius: radius.xl,
+        paddingTop: space.sm,
+        paddingHorizontal: space.xl,
+        ...sheetSurface,
+    },
+    sheetHandle: { alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: colors.glassBorder, marginBottom: space.md },
+    sheetTitle: { ...type.title, marginBottom: space.md },
+    sheetRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm, gap: space.md },
+    sheetRowIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: radius.sm,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accentTint,
+    },
+    sheetRowText: { flex: 1, fontFamily: fonts.medium, fontSize: 14, color: colors.text },
+    sheetCloseBtn: { marginTop: space.md, alignItems: 'center', paddingVertical: 14 },
+    sheetCloseText: { fontFamily: fonts.semibold, color: colors.textSoft, fontSize: 15 },
+});

@@ -1,13 +1,13 @@
 import React from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 // `Pressable` from react-native-gesture-handler (not core react-native) — this row lives
 // inside a `Swipeable`, whose pan/tap recognition runs entirely on RNGH's native gesture
-// manager. Core RN's `TouchableOpacity` uses the legacy JS responder system (RCTTouchHandler),
-// a separate, uncoordinated touch pipeline; nesting it inside Swipeable's gesture tree is a
-// documented source of the exact symptom reproduced here (swipe gesture intermittently not
-// activating). RNGH's own Pressable wraps its touch handling in `Gesture.Native()`, so it's
-// accounted for by the same manager Swipeable uses, removing the dual-system race entirely.
+// manager. Core RN's touchables use the legacy JS responder system, a separate,
+// uncoordinated touch pipeline; nesting them inside Swipeable's gesture tree makes the
+// swipe gesture intermittently fail to activate. RNGH's Pressable is accounted for by the
+// same manager Swipeable uses, removing the dual-system race entirely.
 import { Pressable } from 'react-native-gesture-handler';
+import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { deriveIsGroup, deriveIsSelf } from '../utils/conversationCompat';
@@ -16,18 +16,16 @@ import {
     getFreshProfileAvatarUrl,
     useProfileAvatarUrl,
 } from '../hooks/useProfileAvatarUrl';
+import { DeliveryTicks } from './chat/DeliveryTicks';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
+import { avatarGradient } from '../design/ScreenHeader';
 
-const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+const AVATAR_SIZE = 52;
 
 const avatarInitials = (email?: string) => {
     if (!email) return '?';
     return email.substring(0, 2).toUpperCase();
-};
-
-const avatarColor = (str: string) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return COLORS[Math.abs(hash) % COLORS.length];
 };
 
 type ConversationRowProps = {
@@ -38,13 +36,11 @@ type ConversationRowProps = {
     onAvatarPress?: (url: string) => void;
     formatTime: (iso: string) => string;
     isOnline: (lastSeen?: string) => boolean;
-    styles: any;
-    theme: any;
     pinned?: boolean;
     previewOverride?: string;
 };
 
-export const ConversationRow = React.memo(function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, styles, theme, pinned = false, previewOverride }: ConversationRowProps) {
+export const ConversationRow = React.memo(function ConversationRow({ item, userId, typingUsers, onPress, onAvatarPress, formatTime, isOnline, pinned = false, previewOverride }: ConversationRowProps) {
     const isGroup = deriveIsGroup(item);
     const isSelf = deriveIsSelf(item);
     const otherUser = item.otherUser;
@@ -53,15 +49,13 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
     const isSystem = resolveMessageMetadata(lastMsg)?.isSystem;
     const isByMe = lastMsg && lastMsg.sender_id === userId;
     const unreadCount = item.unreadCount || 0;
-    // isUnread drives visual weight (bold name, dot, checkmarks) and includes
-    // the manual "unmarked as read" preference; the numeric badge below stays
-    // keyed to unreadCount alone so a manually-flagged, fully-read conversation
-    // never shows a fabricated count.
+    // isUnread drives visual weight and includes the manual "mark as unread"
+    // preference; the numeric badge stays keyed to unreadCount alone so a
+    // manually-flagged, fully-read conversation never shows a fabricated count.
     const isUnread = unreadCount > 0 || !!item.manuallyUnread;
     const typers = typingUsers[item.id] || [];
     const isTyping = typers.length > 0;
     const isOperation = item.mode === 'operation';
-    const indicatorOffset = isOperation ? 16 : 14;
 
     let displayName = 'Chat';
     let initials = '?';
@@ -98,87 +92,120 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
         !isSelf && !isGroup ? otherUser?.id : null,
         avatarUrl
     );
-    const color = avatarColor(colorStr);
     const preview = previewOverride ?? (isTyping
         ? (typers[0].isRecording ? 'Grabando audio…' : 'Escribiendo…')
         : (lastMsg && !isSystem ? lastMsg.text : 'Sin mensajes aún'));
 
+    const press = useSharedValue(0);
+    const pressStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: 1 - press.value * 0.02 }],
+        backgroundColor: interpolateColor(press.value, [0, 1], ['rgba(255,255,255,0)', colors.glassPressed]),
+    }));
+
+    const ticks = (() => {
+        if (isTyping || !isByMe || !lastMsg) return null;
+        if (lastMsg.status === 'pending_offline') return <Ionicons name="time-outline" size={15} color={colors.textFaint} style={styles.tickGap} />;
+        const state = lastMsg.status === 'read' ? 'read'
+            : (lastMsg.status === 'delivered' || lastMsg.status === 'received') ? 'delivered' : 'sent';
+        return <View style={styles.tickGap}><DeliveryTicks state={state} /></View>;
+    })();
+
     return (
         <Pressable
-            style={({ pressed }) => [styles.row, isUnread && styles.rowUnread, pressed && { opacity: 0.6 }]}
             onPress={onPress}
+            onPressIn={() => { press.value = withSpring(1, { damping: 20 }); }}
+            onPressOut={() => { press.value = withSpring(0, { damping: 20 }); }}
             accessibilityRole="button"
             accessibilityLabel={pinned ? `Para mí, conversación fijada` : `Abrir conversación con ${displayName}`}
         >
-            <Pressable
-                style={({ pressed }) => [styles.avatarContainer, pressed && resolvedAvatarUrl ? { opacity: 0.2 } : null]}
-                onPress={async () => {
-                    const freshUrl = await getFreshProfileAvatarUrl(
-                        !isSelf && !isGroup ? otherUser?.id : null,
-                        avatarUrl
-                    );
-                    if (freshUrl) onAvatarPress?.(freshUrl);
-                }}
-                disabled={!resolvedAvatarUrl}
-                accessibilityRole="imagebutton"
-                accessibilityLabel="Ver foto de perfil"
-            >
-                {isOperation ? (
-                    <View style={styles.avatarOperationWrap}>
-                        <View style={styles.avatarOperationInner}>
-                            <View style={[styles.avatarSm, !resolvedAvatarUrl && { backgroundColor: color }]}>
-                                {resolvedAvatarUrl ? (
-                                    <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImageSm} />
-                                ) : (
-                                    <Text style={styles.avatarTextSm}>{initials}</Text>
-                                )}
-                            </View>
+            <Animated.View style={[styles.row, pressStyle]}>
+                <Pressable
+                    style={styles.avatarWrap}
+                    onPress={async () => {
+                        const freshUrl = await getFreshProfileAvatarUrl(
+                            !isSelf && !isGroup ? otherUser?.id : null,
+                            avatarUrl
+                        );
+                        if (freshUrl) onAvatarPress?.(freshUrl);
+                    }}
+                    disabled={!resolvedAvatarUrl}
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel="Ver foto de perfil"
+                >
+                    <View style={[styles.avatar, isOperation && styles.avatarOperation]}>
+                        {resolvedAvatarUrl ? (
+                            <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} />
+                        ) : (
+                            <LinearGradient colors={avatarGradient(colorStr)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarFill}>
+                                {isSelf
+                                    ? <Ionicons name="bookmark" size={20} color={colors.accentBright} />
+                                    : <Text style={styles.avatarText}>{initials}</Text>}
+                            </LinearGradient>
+                        )}
+                    </View>
+                    {online && <View style={styles.onlineDot} />}
+                </Pressable>
+
+                <View style={styles.info}>
+                    <View style={styles.topRow}>
+                        <View style={styles.nameRow}>
+                            <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
                         </View>
+                        {lastMsg && <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>}
                     </View>
-                ) : (
-                    <View style={[styles.avatar, !resolvedAvatarUrl && { backgroundColor: color }]}>
-                        {resolvedAvatarUrl ? <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
+                    <View style={styles.bottomRow}>
+                        <View style={styles.previewWrap}>
+                            {ticks}
+                            <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
+                        </View>
+                        {unreadCount > 0 ? (
+                            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.badge}>
+                                <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                            </LinearGradient>
+                        ) : isUnread ? <View style={styles.unreadDot} /> : null}
                     </View>
-                )}
-                {online && <View style={[styles.onlineDot, { right: indicatorOffset }]} />}
-                {isUnread && !online && <View style={[styles.unreadIndicator, { right: indicatorOffset }]} />}
-                {isUnread && online && <View style={[styles.unreadIndicator, { right: indicatorOffset + 14 }]} />}
-            </Pressable>
-            <View style={styles.info}>
-                <View style={styles.topRow}>
-                    <View style={styles.nameRow}>
-                        {pinned && <Text style={styles.pinnedIcon}>📌</Text>}
-                        <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
-                    </View>
-                    {lastMsg && <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>}
                 </View>
-                <View style={styles.bottomRow}>
-                    <View style={styles.previewWrap}>
-                        {!isTyping && isByMe && lastMsg && (() => {
-                            const status = lastMsg.status;
-                            if (status === 'pending_offline') {
-                                return <Ionicons name="time-outline" size={18} color="#94a3b8" style={{ marginRight: 6 }} />;
-                            }
-                            const isRead = status === 'read';
-                            const isDelivered = status === 'delivered' || status === 'received' || status === 'read';
-                            return (
-                                <Ionicons
-                                    name={isDelivered ? 'checkmark-done' : 'checkmark'}
-                                    size={18}
-                                    color={isRead ? '#3b82f6' : '#94a3b8'}
-                                    style={{ marginRight: 6 }}
-                                />
-                            );
-                        })()}
-                        <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
-                    </View>
-                    {unreadCount > 0 && (
-                        <LinearGradient colors={['#6366f1', '#8b5cf6']} style={styles.unreadBadge} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                            <Text style={styles.unreadText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-                        </LinearGradient>
-                    )}
-                </View>
-            </View>
+            </Animated.View>
         </Pressable>
     );
+});
+
+const styles = StyleSheet.create({
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: space.xl,
+        paddingVertical: space.md,
+        gap: 14,
+    },
+    avatarWrap: { position: 'relative' },
+    avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: 18, overflow: 'hidden' },
+    avatarOperation: { borderWidth: 1.5, borderColor: colors.accent },
+    avatarFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    avatarImage: { width: '100%', height: '100%' },
+    avatarText: { fontFamily: fonts.bold, fontSize: 17, color: colors.silver, letterSpacing: 0.5 },
+    onlineDot: {
+        position: 'absolute', right: -2, bottom: -2,
+        width: 14, height: 14, borderRadius: 7,
+        backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.ink,
+    },
+    info: {
+        flex: 1,
+        paddingVertical: 2,
+    },
+    topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
+    nameRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: space.sm },
+    name: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text, flexShrink: 1, letterSpacing: -0.2 },
+    nameUnread: { fontFamily: fonts.extrabold },
+    time: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint },
+    timeUnread: { fontFamily: fonts.bold, color: colors.accentBright },
+    bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    previewWrap: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: space.md },
+    tickGap: { marginRight: 5 },
+    preview: { fontFamily: fonts.regular, fontSize: 14, color: colors.textFaint, flexShrink: 1 },
+    previewUnread: { fontFamily: fonts.semibold, color: colors.textSoft },
+    previewTyping: { fontFamily: fonts.semibold, color: colors.accentBright },
+    badge: { minWidth: 22, height: 22, borderRadius: radius.full, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center' },
+    badgeText: { fontFamily: fonts.extrabold, fontSize: 11.5, color: colors.onAccent },
+    unreadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
 });

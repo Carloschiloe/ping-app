@@ -1,27 +1,13 @@
-type QuotedMessageTheme = {
-    secondary: string;
-    background: string;
-    white: string;
-    text: {
-        primary: string;
-        secondary: string;
-    };
-};
+import { colors } from '../design/tokens';
 
-type AudioMessageTheme = {
-    accent: string;
-    bubbleTextMe: string;
-    bubbleTextThem: string;
-};
-
-export function getAudioMessagePalette(
-    isOwnMessage: boolean,
-    colors: AudioMessageTheme
-) {
-    const foreground = isOwnMessage ? colors.bubbleTextMe : colors.bubbleTextThem;
+// My bubbles are blue, so everything on them is white; on the other
+// person's glass bubble the accent carries the controls.
+export function getAudioMessagePalette(isOwnMessage: boolean) {
+    const foreground = isOwnMessage ? colors.onAccent : colors.text;
+    const accent = isOwnMessage ? colors.onAccent : colors.accentBright;
     return {
-        iconColor: isOwnMessage ? foreground : colors.accent,
-        waveColor: isOwnMessage ? foreground : colors.accent,
+        iconColor: accent,
+        waveColor: accent,
         labelColor: foreground,
         transcriptColor: foreground,
     };
@@ -50,33 +36,19 @@ export function resolveMediaTapPresentation(
     return { kind: 'external', url: resolvedUrl };
 }
 
-export function getQuotedMessagePalette(
-    isOwnMessage: boolean,
-    isDark: boolean,
-    colors: QuotedMessageTheme
-) {
-    if (isOwnMessage && isDark) {
-        return {
-            backgroundColor: 'rgba(255,255,255,0.15)',
-            borderLeftColor: colors.white,
-            nameColor: colors.white,
-            textColor: 'rgba(255,255,255,0.8)',
-        };
-    }
-
+export function getQuotedMessagePalette(isOwnMessage: boolean) {
     if (isOwnMessage) {
         return {
-            backgroundColor: 'rgba(30,58,95,0.08)',
-            borderLeftColor: colors.secondary,
-            nameColor: colors.secondary,
-            textColor: colors.text.primary,
+            backgroundColor: colors.onAccentTint,
+            borderLeftColor: colors.onAccent,
+            nameColor: colors.onAccent,
+            textColor: colors.onAccentSoft,
         };
     }
-
     return {
-        backgroundColor: colors.background,
-        borderLeftColor: colors.secondary,
-        nameColor: colors.secondary,
-        textColor: colors.text.secondary,
+        backgroundColor: colors.glassRaised,
+        borderLeftColor: colors.accentBright,
+        nameColor: colors.accentBright,
+        textColor: colors.textSoft,
     };
 }

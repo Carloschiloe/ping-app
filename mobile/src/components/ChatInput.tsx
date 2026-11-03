@@ -1,9 +1,13 @@
 import React from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, Platform, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AudioPlayer from './AudioPlayer';
-import { useAppTheme } from '../theme/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import Reanimated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AudioPlayer from './AudioPlayer';
+import { Glass } from '../design/Glass';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
 import { formatRecordingDuration } from '../utils/audioRecording';
 
 interface ChatInputProps {
@@ -36,6 +40,29 @@ export type ChatInputHandle = {
     blurComposer: () => void;
 };
 
+// A soft halo that slowly swells and fades around the mic, so the composer
+// feels alive while it waits.
+function Breath() {
+    const t = useSharedValue(0);
+    React.useEffect(() => {
+        t.value = withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.quad) }), -1, true);
+    }, [t]);
+    const halo = useAnimatedStyle(() => ({
+        opacity: 0.12 + t.value * 0.3,
+        transform: [{ scale: 1 + t.value * 0.24 }],
+    }));
+    return <Reanimated.View pointerEvents="none" style={[styles.breath, halo]} />;
+}
+
+function AccentCircle({ children, danger = false }: { children: React.ReactNode; danger?: boolean }) {
+    if (danger) return <View style={[styles.circleFill, styles.circleDanger]}>{children}</View>;
+    return (
+        <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.circleFill}>
+            {children}
+        </LinearGradient>
+    );
+}
+
 export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
     text,
     onTextChange,
@@ -54,11 +81,10 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
     onUploadAudio,
     onFocus,
 }, ref) => {
-    const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [showActions, setShowActions] = React.useState(false);
     const inputRef = React.useRef<TextInput>(null);
+    const bottomPadding = Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16);
 
     React.useImperativeHandle(ref, () => ({
         isComposerFocused: () => inputRef.current?.isFocused() ?? false,
@@ -77,117 +103,118 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
 
     if (recordingUri) {
         return (
-            <View
-                style={[
-                    styles.inputBar,
-                    { paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16) },
-                ]}
-            >
-                <TouchableOpacity 
-                    style={[styles.mediaBtn, { backgroundColor: '#fee2e2' }]} 
-                    onPress={onCancelAudio} 
+            <View style={[styles.inputBar, styles.container, { paddingBottom: bottomPadding }]}>
+                <TouchableOpacity
+                    style={[styles.roundBtn, styles.roundBtnDanger]}
+                    onPress={onCancelAudio}
                     disabled={sendingMedia || isPending}
+                    accessibilityLabel="Descartar audio"
                 >
-                    <Ionicons name="trash-outline" size={24} color={theme.colors.danger} />
+                    <Ionicons name="trash-outline" size={20} color={colors.danger} />
                 </TouchableOpacity>
-                <View style={{ flex: 1, paddingHorizontal: 4 }}>
-                    <View style={styles.audioPreviewContainer}>
+                <Glass style={styles.field} intensity={50}>
+                    <View style={styles.audioPreview}>
                         <AudioPlayer url={recordingUri} isMe={false} durationMs={recordingDurationMs} />
                     </View>
-                </View>
-                <TouchableOpacity 
-                    style={[styles.sendBtn, (sendingMedia || isPending) && styles.sendDisabled]} 
-                    onPress={onUploadAudio} 
+                </Glass>
+                <TouchableOpacity
+                    style={[styles.sendBtn, (sendingMedia || isPending) && styles.sendDisabled]}
+                    onPress={onUploadAudio}
                     disabled={sendingMedia || isPending}
+                    accessibilityLabel="Enviar audio"
                 >
-                    {sendingMedia || isPending ? <ActivityIndicator size="small" color={theme.colors.white} /> : <Ionicons name="send" size={18} color={theme.colors.white} />}
+                    <AccentCircle>
+                        {sendingMedia || isPending ? <ActivityIndicator size="small" color={colors.onAccent} /> : <Ionicons name="send" size={18} color={colors.onAccent} />}
+                    </AccentCircle>
                 </TouchableOpacity>
             </View>
         );
     }
 
     return (
-        <View
-            style={[
-                styles.inputContainer,
-                { paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16) },
-            ]}
-        >
+        <View style={[styles.container, { paddingBottom: bottomPadding }]}>
             {showActions && (
                 <View style={styles.actionsRow}>
-                    <TouchableOpacity
-                        style={styles.actionBtn}
-                        onPress={handlePickMedia}
-                        disabled={sendingMedia || isPending}
-                    >
-                        <Ionicons name="image-outline" size={18} color={theme.colors.text.secondary} />
-                        <Text style={styles.actionLabel}>Foto</Text>
+                    <TouchableOpacity onPress={handlePickMedia} disabled={sendingMedia || isPending}>
+                        <Glass style={styles.actionChip} intensity={50}>
+                            <Ionicons name="image-outline" size={17} color={colors.accentBright} />
+                            <Text style={styles.actionLabel}>Foto</Text>
+                        </Glass>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.actionBtn}
-                        onPress={handleShareLocation}
-                        disabled={sendingMedia || isPending}
-                    >
-                        <Ionicons name="location-outline" size={18} color={theme.colors.text.secondary} />
-                        <Text style={styles.actionLabel}>Ubicacion</Text>
+                    <TouchableOpacity onPress={handleShareLocation} disabled={sendingMedia || isPending}>
+                        <Glass style={styles.actionChip} intensity={50}>
+                            <Ionicons name="location-outline" size={17} color={colors.accentBright} />
+                            <Text style={styles.actionLabel}>Ubicación</Text>
+                        </Glass>
                     </TouchableOpacity>
                 </View>
             )}
             <View style={styles.inputBar}>
                 <TouchableOpacity
-                    style={[styles.mediaBtn, showActions && styles.mediaBtnActive]}
                     onPress={() => setShowActions((prev) => !prev)}
                     disabled={sendingMedia || isPending}
+                    accessibilityLabel={showActions ? 'Cerrar adjuntos' : 'Adjuntar'}
                 >
-                    <Ionicons name={showActions ? 'close' : 'add'} size={22} color={theme.colors.text.secondary} />
+                    <Glass style={styles.roundBtn} intensity={50}>
+                        <Ionicons name={showActions ? 'close' : 'add'} size={22} color={colors.text} />
+                    </Glass>
                 </TouchableOpacity>
-                {isRecording ? (
-                    <View style={styles.recordingStatus}>
-                        <View style={styles.recordingPulse}>
-                            <Ionicons name="mic" size={19} color={theme.colors.white} />
+                <Glass style={[styles.field, isRecording && styles.fieldRecording]} intensity={50}>
+                    {isRecording ? (
+                        <View style={styles.recordingStatus}>
+                            <View style={styles.recordingDot} />
+                            <View style={styles.recordingCopy}>
+                                <Text style={styles.recordingTitle}>Grabando audio</Text>
+                                <Text style={styles.recordingHint}>Suelta para terminar</Text>
+                            </View>
+                            <Text style={styles.recordingTime}>
+                                {formatRecordingDuration(recordingDurationMs)}
+                            </Text>
                         </View>
-                        <View style={styles.recordingCopy}>
-                            <Text style={styles.recordingTitle}>Grabando audio</Text>
-                            <Text style={styles.recordingHint}>Suelta para terminar</Text>
-                        </View>
-                        <Text style={styles.recordingTime}>
-                            {formatRecordingDuration(recordingDurationMs)}
-                        </Text>
-                    </View>
-                ) : (
-                    <TextInput
-                        ref={inputRef}
-                        style={styles.input}
-                        placeholder={isSelf ? 'Escribe algo para ti...' : 'Escribe un mensaje...'}
-                        placeholderTextColor={theme.colors.text.muted}
-                        value={text}
-                        onChangeText={onTextChange}
-                        onFocus={onFocus}
-                        multiline
-                        blurOnSubmit={false}
-                        scrollEnabled
-                        textAlignVertical="top"
-                        underlineColorAndroid="transparent"
-                        selectionColor={theme.colors.primary}
-                    />
-                )}
+                    ) : (
+                        <TextInput
+                            ref={inputRef}
+                            style={styles.input}
+                            placeholder={isSelf ? 'Escribe algo para ti...' : 'Escribe un mensaje...'}
+                            placeholderTextColor={colors.textFaint}
+                            value={text}
+                            onChangeText={onTextChange}
+                            onFocus={onFocus}
+                            multiline
+                            blurOnSubmit={false}
+                            scrollEnabled
+                            textAlignVertical="top"
+                            underlineColorAndroid="transparent"
+                            selectionColor={colors.accent}
+                        />
+                    )}
+                </Glass>
                 {text.trim() ? (
-                    <TouchableOpacity 
-                        style={[styles.sendBtn, isPending && styles.sendDisabled]} 
-                        onPress={onSend} 
+                    <TouchableOpacity
+                        style={[styles.sendBtn, isPending && styles.sendDisabled]}
+                        onPress={onSend}
                         disabled={isPending}
+                        accessibilityLabel="Enviar mensaje"
                     >
-                        {isPending ? <ActivityIndicator size="small" color={theme.colors.white} /> : <Ionicons name="send" size={18} color={theme.colors.white} />}
+                        <AccentCircle>
+                            {isPending ? <ActivityIndicator size="small" color={colors.onAccent} /> : <Ionicons name="send" size={18} color={colors.onAccent} />}
+                        </AccentCircle>
                     </TouchableOpacity>
                 ) : sendingMedia ? (
-                    <View style={styles.sendBtn}><ActivityIndicator size="small" color={theme.colors.white} /></View>
+                    <View style={styles.sendBtn}>
+                        <AccentCircle><ActivityIndicator size="small" color={colors.onAccent} /></AccentCircle>
+                    </View>
                 ) : (
-                    <Pressable 
-                        style={[styles.sendBtn, isRecording && styles.recordingBtn]} 
-                        onPressIn={onStartRecording} 
+                    <Pressable
+                        style={styles.sendBtn}
+                        onPressIn={onStartRecording}
                         onPressOut={onStopRecording}
+                        accessibilityLabel="Mantén para grabar audio"
                     >
-                        <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color={theme.colors.white} />
+                        {!isRecording && <Breath />}
+                        <AccentCircle danger={isRecording}>
+                            <Ionicons name={isRecording ? 'radio-button-on' : 'mic'} size={20} color={colors.onAccent} />
+                        </AccentCircle>
                     </Pressable>
                 )}
             </View>
@@ -196,127 +223,107 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
 });
 ChatInput.displayName = 'ChatInput';
 
-const createStyles = (theme: any) => StyleSheet.create({
-    inputContainer: {
-        backgroundColor: theme.isDark ? '#101924' : '#f4f3f2',
-    },
+const FIELD_HEIGHT = 46;
+
+const styles = StyleSheet.create({
+    container: { paddingHorizontal: space.sm + 2, paddingTop: space.xs },
     actionsRow: {
         flexDirection: 'row',
-        gap: 10,
-        paddingHorizontal: 12,
-        paddingTop: 8,
-        paddingBottom: 6,
+        gap: space.sm,
+        paddingTop: space.xs,
+        paddingBottom: space.sm,
     },
-    actionBtn: {
+    actionChip: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 16,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        borderRadius: radius.full,
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
     },
-    actionLabel: { fontSize: 12, fontWeight: '600', color: theme.colors.text.secondary },
+    actionLabel: { fontFamily: fonts.medium, fontSize: 13, color: colors.text },
     inputBar: {
         flexDirection: 'row',
         alignItems: 'flex-end',
-        paddingHorizontal: 10,
-        paddingVertical: 10,
-        gap: 8,
+        gap: space.sm,
+        paddingVertical: space.xs,
     },
-    recordBtn: {
-        width: 44, height: 44, borderRadius: 22,
-        backgroundColor: theme.colors.primary,
-        justifyContent: 'center', alignItems: 'center',
-    },
-    sendBtn: {
-        width: 46, height: 46, borderRadius: 23,
-        backgroundColor: theme.colors.primary,
-        justifyContent: 'center', alignItems: 'center',
-    },
-    mediaBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: theme.colors.surface,
+    roundBtn: {
+        width: FIELD_HEIGHT,
+        height: FIELD_HEIGHT,
+        borderRadius: FIELD_HEIGHT / 2,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
     },
-    mediaBtnActive: {
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+    roundBtnDanger: {
+        backgroundColor: colors.glassDim,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.danger,
     },
-    input: {
+    field: {
         flex: 1,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 20,
-        paddingHorizontal: 14,
-        paddingTop: Platform.OS === 'android' ? 12 : 10,
-        paddingBottom: Platform.OS === 'android' ? 10 : 10,
+        minHeight: FIELD_HEIGHT,
+        borderRadius: FIELD_HEIGHT / 2,
+        justifyContent: 'center',
+    },
+    fieldRecording: { borderColor: colors.danger },
+    input: {
+        fontFamily: fonts.regular,
+        paddingHorizontal: space.lg,
+        paddingTop: Platform.OS === 'android' ? 12 : 13,
+        paddingBottom: Platform.OS === 'android' ? 10 : 12,
         fontSize: 15,
         lineHeight: 20,
-        minHeight: 46,
+        minHeight: FIELD_HEIGHT,
         maxHeight: 120,
         includeFontPadding: false,
-        color: theme.colors.text.primary,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        color: colors.text,
     },
-    sendDisabled: {
-        opacity: 0.4,
-    },
-    recordingBtn: {
-        backgroundColor: theme.colors.danger,
-    },
-    recordingStatus: {
-        flex: 1,
-        minHeight: 46,
-        borderRadius: 23,
-        paddingHorizontal: 10,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 9,
-        backgroundColor: theme.isDark ? '#2b1b20' : '#fff1f2',
-        borderWidth: 1,
-        borderColor: theme.isDark ? '#7f1d1d' : '#fecdd3',
-    },
-    recordingPulse: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+    sendBtn: {
+        width: FIELD_HEIGHT,
+        height: FIELD_HEIGHT,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.colors.danger,
     },
-    recordingCopy: {
-        flex: 1,
+    circleFill: {
+        width: FIELD_HEIGHT,
+        height: FIELD_HEIGHT,
+        borderRadius: FIELD_HEIGHT / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    recordingTitle: {
-        color: theme.colors.text.primary,
-        fontSize: 13,
-        fontWeight: '700',
+    circleDanger: { backgroundColor: colors.danger },
+    breath: {
+        position: 'absolute',
+        width: FIELD_HEIGHT,
+        height: FIELD_HEIGHT,
+        borderRadius: FIELD_HEIGHT / 2,
+        backgroundColor: colors.accent,
     },
-    recordingHint: {
-        color: theme.colors.text.muted,
-        fontSize: 10,
-        marginTop: 1,
+    sendDisabled: { opacity: 0.4 },
+    recordingStatus: {
+        minHeight: FIELD_HEIGHT,
+        paddingHorizontal: space.md,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.sm + 1,
     },
+    recordingDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: colors.danger,
+    },
+    recordingCopy: { flex: 1 },
+    recordingTitle: { fontFamily: fonts.semibold, color: colors.text, fontSize: 13 },
+    recordingHint: { fontFamily: fonts.regular, color: colors.textFaint, fontSize: 10, marginTop: 1 },
     recordingTime: {
+        fontFamily: fonts.bold,
         minWidth: 42,
-        color: theme.colors.danger,
+        color: colors.danger,
         fontSize: 14,
-        fontWeight: '800',
         fontVariant: ['tabular-nums'],
         textAlign: 'right',
     },
-    audioPreviewContainer: {
-        backgroundColor: theme.colors.white,
-        borderRadius: 24,
-        paddingVertical: 4,
-        paddingHorizontal: 12,
-    },
+    audioPreview: { paddingVertical: 4, paddingHorizontal: space.md },
 });

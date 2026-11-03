@@ -17,9 +17,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
-import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { getAgreementParticipantName, getAgreementResponseLabel } from '../utils/agreement';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 interface OperationPanelProps {
     loading?: boolean;
@@ -50,8 +52,6 @@ function CompletionSheet({
     onClose,
     onConfirm,
 }: any) {
-    const { theme } = useAppTheme();
-    const styles = useMemo(() => createStyles(theme), [theme]);
     const outcomes = [
         { key: 'resolved', label: 'Resuelto' },
         { key: 'pending_followup', label: 'Queda pendiente' },
@@ -68,10 +68,11 @@ function CompletionSheet({
                     style={styles.sheetHost}
                 >
                     <View style={styles.sheet}>
+                        <SheetFill />
                         <View style={styles.sheetHeader}>
                             <Text style={styles.sheetTitle}>Cerrar tarea</Text>
                             <TouchableOpacity onPress={onClose}>
-                                <Ionicons name="close" size={24} color="#64748b" />
+                                <Ionicons name="close" size={24} color={colors.textFaint} />
                             </TouchableOpacity>
                         </View>
 
@@ -98,7 +99,7 @@ function CompletionSheet({
                                     onChangeText={setNote}
                                     placeholder="Que paso al cerrar la tarea"
                                     style={[styles.input, styles.textArea]}
-                                    placeholderTextColor="#94a3b8"
+                                    placeholderTextColor={colors.textFaint}
                                     multiline
                                     textAlignVertical="top"
                                 />
@@ -132,11 +133,11 @@ function getOperationState(commitment?: any) {
     const acknowledged = !!operational.acknowledged_at;
     const accepted = normalizeCommitmentStatus(commitment?.status) === 'accepted';
 
-    if (completed) return { key: 'completed', label: 'Terminado', color: '#166534', bg: '#dcfce7' };
-    if (arrived) return { key: 'arrived', label: 'En sitio', color: '#1d4ed8', bg: '#dbeafe' };
-    if (acknowledged) return { key: 'started', label: 'Iniciada', color: '#7c3aed', bg: '#ede9fe' };
-    if (accepted) return { key: 'ready', label: 'Lista', color: '#0f766e', bg: '#ccfbf1' };
-    return { key: 'pending', label: 'Pendiente', color: '#475569', bg: '#e2e8f0' };
+    if (completed) return { key: 'completed', label: 'Terminado', color: colors.success, bg: colors.successTint };
+    if (arrived) return { key: 'arrived', label: 'En sitio', color: colors.accentBright, bg: colors.accentTint };
+    if (acknowledged) return { key: 'started', label: 'Iniciada', color: colors.accentBright, bg: colors.accentTint };
+    if (accepted) return { key: 'ready', label: 'Lista', color: colors.success, bg: colors.successTint };
+    return { key: 'pending', label: 'Pendiente', color: colors.textSoft, bg: colors.glassRaised };
 }
 
 function getCommitmentMeta(commitment?: any) {
@@ -161,25 +162,23 @@ function ChecklistSheet({
     onClose,
     onToggleChecklistItem,
 }: any) {
-    const { theme } = useAppTheme();
-    const styles = useMemo(() => createStyles(theme), [theme]);
     const resultOptionsByType = {
         condition: [
-            { key: 'good', label: 'Bueno', color: '#166534', bg: '#dcfce7' },
-            { key: 'regular', label: 'Regular', color: '#92400e', bg: '#fef3c7' },
-            { key: 'bad', label: 'Malo', color: '#991b1b', bg: '#fee2e2' },
-            { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+            { key: 'good', label: 'Bueno', color: colors.success, bg: colors.successTint },
+            { key: 'regular', label: 'Regular', color: colors.warning, bg: colors.warningTint },
+            { key: 'bad', label: 'Malo', color: colors.danger, bg: colors.dangerTint },
+            { key: 'na', label: 'N/A', color: colors.textSoft, bg: colors.glassRaised },
         ],
         severity: [
-            { key: 'high', label: 'Alto', color: '#991b1b', bg: '#fee2e2' },
-            { key: 'medium', label: 'Medio', color: '#92400e', bg: '#fef3c7' },
-            { key: 'low', label: 'Bajo', color: '#166534', bg: '#dcfce7' },
-            { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+            { key: 'high', label: 'Alto', color: colors.danger, bg: colors.dangerTint },
+            { key: 'medium', label: 'Medio', color: colors.warning, bg: colors.warningTint },
+            { key: 'low', label: 'Bajo', color: colors.success, bg: colors.successTint },
+            { key: 'na', label: 'N/A', color: colors.textSoft, bg: colors.glassRaised },
         ],
         yes_no: [
-            { key: 'yes', label: 'Si', color: '#166534', bg: '#dcfce7' },
-            { key: 'no', label: 'No', color: '#991b1b', bg: '#fee2e2' },
-            { key: 'na', label: 'N/A', color: '#475569', bg: '#e2e8f0' },
+            { key: 'yes', label: 'Si', color: colors.success, bg: colors.successTint },
+            { key: 'no', label: 'No', color: colors.danger, bg: colors.dangerTint },
+            { key: 'na', label: 'N/A', color: colors.textSoft, bg: colors.glassRaised },
         ],
         text: [],
     } as const;
@@ -197,7 +196,7 @@ function ChecklistSheet({
                         <View style={styles.sheetHeader}>
                             <Text style={styles.sheetTitle}>Checklist</Text>
                             <TouchableOpacity onPress={onClose}>
-                                <Ionicons name="close" size={24} color="#64748b" />
+                                <Ionicons name="close" size={24} color={colors.textFaint} />
                             </TouchableOpacity>
                         </View>
 
@@ -233,7 +232,7 @@ function ChecklistSheet({
                                                 <Ionicons
                                                     name={item.result ? 'checkmark-circle' : 'ellipse-outline'}
                                                     size={20}
-                                                    color={item.result ? '#16a34a' : '#64748b'}
+                                                    color={item.result ? colors.success : colors.textFaint}
                                                 />
                                                 <Text style={[styles.sheetCheckText, item.result && styles.sheetCheckTextDone]}>{item.label}</Text>
                                             </View>
@@ -299,9 +298,7 @@ export function OperationPanel({
     pendingAction = null,
     feedbackMessage = null,
 }: OperationPanelProps) {
-    const { theme } = useAppTheme();
     const { user } = useAuth();
-    const styles = useMemo(() => createStyles(theme), [theme]);
     const [showChecklistModal, setShowChecklistModal] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -351,7 +348,7 @@ export function OperationPanel({
     return (
         <>
             <View style={styles.panel}>
-                {loading ? <ActivityIndicator size="small" color="#2563eb" /> : null}
+                {loading ? <ActivityIndicator size="small" color={colors.accentBright} /> : null}
 
                 <View style={styles.heroCard}>
                     <View style={styles.heroHeader}>
@@ -359,11 +356,11 @@ export function OperationPanel({
                         <View style={styles.headerActions}>
                             <TouchableOpacity style={styles.expandButton} onPress={() => setIsExpanded((value) => !value)}>
                                 <Text style={styles.expandButtonText}>{isExpanded ? 'Ocultar' : 'Ver operacion'}</Text>
-                                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#2563eb" />
+                                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.accentBright} />
                             </TouchableOpacity>
                             {activeCommitment ? (
                                 <TouchableOpacity style={styles.headerAction} onPress={onClearActiveCommitment}>
-                                    <Ionicons name="close-circle-outline" size={18} color="#64748b" />
+                                    <Ionicons name="close-circle-outline" size={18} color={colors.textFaint} />
                                 </TouchableOpacity>
                             ) : null}
                         </View>
@@ -431,7 +428,7 @@ export function OperationPanel({
 
                                     {feedbackMessage ? (
                                         <View style={styles.feedbackRow}>
-                                            <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+                                            <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                                             <Text style={styles.feedbackText}>{feedbackMessage}</Text>
                                         </View>
                                     ) : null}
@@ -456,7 +453,7 @@ export function OperationPanel({
                     {isExpanded && pinnedMessage ? (
                         <View style={styles.pinnedRow}>
                             <TouchableOpacity style={styles.pinnedPreview} activeOpacity={0.8} onPress={() => onOpenPinnedMessage(pinnedMessage.id)}>
-                                <Ionicons name="pin" size={14} color="#2563eb" />
+                                <Ionicons name="pin" size={14} color={colors.accentBright} />
                                 <Text style={styles.pinnedText} numberOfLines={1}>{pinnedMessage.text}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity onPress={onClearPinnedMessage}>
@@ -501,7 +498,7 @@ export function OperationPanel({
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
+const styles = StyleSheet.create({
     panel: {
         paddingHorizontal: 12,
         paddingTop: 8,
@@ -509,15 +506,15 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 6,
     },
     heroCard: {
-        backgroundColor: theme.isDark ? '#10243d' : '#eef6ff',
+        backgroundColor: colors.bubbleThem,
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: theme.isDark ? '#294b73' : '#bfdbfe',
+        borderColor: colors.accent,
         padding: 12,
         gap: 8,
-        shadowColor: theme.colors.primary,
+        shadowColor: colors.accent,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: theme.isDark ? 0.18 : 0.08,
+        shadowOpacity: 0.18,
         shadowRadius: 12,
         elevation: 2,
     },
@@ -533,11 +530,11 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     eyebrow: {
         fontSize: 11,
-        fontWeight: '800',
-        color: theme.colors.accent,
+        fontFamily: fonts.extrabold,
+        color: colors.accent,
         textTransform: 'uppercase',
         letterSpacing: 0.4,
-        backgroundColor: theme.colors.accentSoft,
+        backgroundColor: colors.accentTint,
         alignSelf: 'flex-start',
         paddingHorizontal: 8,
         paddingVertical: 4,
@@ -551,8 +548,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     expandButtonText: {
         fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.accent,
+        fontFamily: fonts.bold,
+        color: colors.accent,
     },
     headerAction: {
         padding: 2,
@@ -570,22 +567,22 @@ const createStyles = (theme: any) => StyleSheet.create({
     heroTitle: {
         fontSize: 17,
         lineHeight: 22,
-        fontWeight: '700',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.bold,
+        color: colors.text,
     },
-    helperText: {
+    helperText: { fontFamily: fonts.regular,
         fontSize: 12,
         lineHeight: 17,
-        color: theme.colors.text.secondary,
+        color: colors.textSoft,
     },
-    helperTextCompact: {
+    helperTextCompact: { fontFamily: fonts.regular,
         fontSize: 12,
         lineHeight: 16,
-        color: theme.colors.text.secondary,
+        color: colors.textSoft,
     },
-    commitmentMeta: {
+    commitmentMeta: { fontFamily: fonts.regular,
         fontSize: 13,
-        color: theme.colors.text.secondary,
+        color: colors.textSoft,
         marginTop: 1,
     },
     stateRow: {
@@ -600,21 +597,21 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     statePillText: {
         fontSize: 12,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     participantsSection: {
         gap: 6,
         padding: 10,
         borderRadius: 12,
-        backgroundColor: theme.colors.surface,
+        backgroundColor: colors.bubbleThem,
         borderWidth: 1,
-        borderColor: theme.colors.separator,
+        borderColor: colors.separator,
     },
     participantsTitle: {
         fontSize: 11,
-        fontWeight: '800',
+        fontFamily: fonts.extrabold,
         textTransform: 'uppercase',
-        color: theme.colors.text.muted,
+        color: colors.textFaint,
     },
     participantRow: {
         flexDirection: 'row',
@@ -625,19 +622,19 @@ const createStyles = (theme: any) => StyleSheet.create({
     participantName: {
         flex: 1,
         fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.bold,
+        color: colors.text,
     },
     participantStatus: {
         fontSize: 11,
-        fontWeight: '800',
-        color: '#166534',
+        fontFamily: fonts.extrabold,
+        color: colors.success,
     },
     participantStatusRejected: {
-        color: '#991b1b',
+        color: colors.danger,
     },
     participantStatusPending: {
-        color: '#92400e',
+        color: colors.warning,
     },
     actionsRow: {
         flexDirection: 'row',
@@ -645,24 +642,24 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     actionButton: {
         flex: 1,
-        backgroundColor: theme.colors.surface,
+        backgroundColor: colors.bubbleThem,
         borderRadius: 12,
         paddingVertical: 10,
         alignItems: 'center',
         borderWidth: 1,
-        borderColor: theme.colors.accentSoft,
+        borderColor: colors.accentTint,
     },
     actionButtonPrimary: {
-        backgroundColor: theme.colors.accentSoft,
-        borderColor: theme.colors.accent,
+        backgroundColor: colors.accent,
+        borderColor: colors.accent,
     },
     actionButtonText: {
         fontSize: 13,
-        fontWeight: '700',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.bold,
+        color: colors.text,
     },
     actionButtonTextPrimary: {
-        color: theme.colors.accent,
+        color: colors.onAccent,
     },
     feedbackRow: {
         flexDirection: 'row',
@@ -672,8 +669,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     feedbackText: {
         fontSize: 12,
-        color: theme.colors.success,
-        fontWeight: '600',
+        color: colors.success,
+        fontFamily: fonts.semibold,
     },
     pinnedRow: {
         flexDirection: 'row',
@@ -682,7 +679,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 10,
         paddingTop: 6,
         borderTopWidth: 1,
-        borderTopColor: theme.colors.separator,
+        borderTopColor: colors.separator,
     },
     pinnedPreview: {
         flex: 1,
@@ -693,13 +690,13 @@ const createStyles = (theme: any) => StyleSheet.create({
     pinnedText: {
         flex: 1,
         fontSize: 13,
-        color: theme.colors.text.primary,
-        fontWeight: '600',
+        color: colors.text,
+        fontFamily: fonts.semibold,
     },
     pinnedAction: {
         fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.accent,
+        fontFamily: fonts.bold,
+        color: colors.accent,
     },
     quickActionsRow: {
         flexDirection: 'row',
@@ -707,22 +704,22 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     quickAction: {
         flex: 1,
-        backgroundColor: theme.colors.surface,
+        backgroundColor: colors.bubbleThem,
         borderRadius: 14,
         paddingHorizontal: 12,
         paddingVertical: 10,
         borderWidth: 1,
-        borderColor: theme.colors.accentSoft,
+        borderColor: colors.accentTint,
     },
     quickActionTitle: {
         fontSize: 12,
-        fontWeight: '800',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.extrabold,
+        color: colors.text,
         marginBottom: 3,
     },
-    quickActionSubtitle: {
+    quickActionSubtitle: { fontFamily: fonts.regular,
         fontSize: 12,
-        color: theme.colors.text.secondary,
+        color: colors.textSoft,
     },
     outcomeRow: {
         flexDirection: 'row',
@@ -733,21 +730,21 @@ const createStyles = (theme: any) => StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 999,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: colors.glassRaised,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: colors.glassBorder,
     },
     outcomeChipActive: {
-        backgroundColor: '#dbeafe',
-        borderColor: '#93c5fd',
+        backgroundColor: colors.accentTint,
+        borderColor: colors.accent,
     },
     outcomeChipText: {
         fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
+        fontFamily: fonts.bold,
+        color: colors.textSoft,
     },
     outcomeChipTextActive: {
-        color: '#1d4ed8',
+        color: colors.accentBright,
     },
     templateRow: {
         flexDirection: 'row',
@@ -758,26 +755,26 @@ const createStyles = (theme: any) => StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 999,
-        backgroundColor: '#f8fafc',
+        backgroundColor: colors.glassRaised,
         borderWidth: 1,
-        borderColor: '#dbeafe',
+        borderColor: colors.accent,
         maxWidth: '100%',
     },
     templateChipActive: {
-        backgroundColor: '#dbeafe',
-        borderColor: '#93c5fd',
+        backgroundColor: colors.accentTint,
+        borderColor: colors.accent,
     },
     templateChipText: {
         fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
+        fontFamily: fonts.bold,
+        color: colors.textSoft,
     },
     templateChipTextActive: {
-        color: '#1d4ed8',
+        color: colors.accentBright,
     },
     modalRoot: {
         flex: 1,
-        backgroundColor: theme.colors.overlay,
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     modalBackdrop: {
@@ -788,11 +785,11 @@ const createStyles = (theme: any) => StyleSheet.create({
         justifyContent: 'flex-end',
     },
     sheet: {
-        backgroundColor: theme.colors.surface,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         maxHeight: '82%',
         minHeight: 320,
+        ...sheetSurface,
     },
     sheetHeader: {
         flexDirection: 'row',
@@ -802,12 +799,12 @@ const createStyles = (theme: any) => StyleSheet.create({
         paddingTop: 18,
         paddingBottom: 12,
         borderBottomWidth: 1,
-        borderBottomColor: theme.colors.separator,
+        borderBottomColor: colors.separator,
     },
     sheetTitle: {
         fontSize: 18,
-        fontWeight: '700',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.bold,
+        color: colors.text,
     },
     sheetContent: {
         padding: 20,
@@ -824,40 +821,40 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     sheetSectionTitle: {
         fontSize: 15,
-        fontWeight: '700',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.bold,
+        color: colors.text,
     },
-    sheetHintText: {
+    sheetHintText: { fontFamily: fonts.regular,
         fontSize: 13,
         lineHeight: 19,
-        color: theme.colors.text.secondary,
+        color: colors.textSoft,
     },
     sheetLink: {
         fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.accent,
+        fontFamily: fonts.bold,
+        color: colors.accent,
     },
     sheetCheckCard: {
-        backgroundColor: theme.colors.surfaceMuted,
+        backgroundColor: colors.glassRaised,
         borderRadius: 14,
         padding: 12,
         gap: 10,
         borderWidth: 1,
-        borderColor: theme.colors.border,
+        borderColor: colors.glassBorder,
     },
     sheetCheckRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
     },
-    sheetCheckText: {
+    sheetCheckText: { fontFamily: fonts.regular,
         flex: 1,
         fontSize: 15,
-        color: theme.colors.text.primary,
+        color: colors.text,
     },
     sheetCheckTextDone: {
-        color: theme.colors.text.primary,
-        fontWeight: '700',
+        color: colors.text,
+        fontFamily: fonts.bold,
     },
     sheetResultRow: {
         flexDirection: 'row',
@@ -868,49 +865,49 @@ const createStyles = (theme: any) => StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 999,
-        backgroundColor: theme.colors.surfaceElevated,
+        backgroundColor: colors.surfaceSolid,
         borderWidth: 1,
-        borderColor: theme.colors.accentSoft,
+        borderColor: colors.accentTint,
     },
     resultChipText: {
         fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.text.secondary,
+        fontFamily: fonts.bold,
+        color: colors.textSoft,
     },
-    sheetAuditText: {
+    sheetAuditText: { fontFamily: fonts.regular,
         fontSize: 11,
-        color: theme.colors.text.muted,
+        color: colors.textFaint,
     },
-    latestBody: {
+    latestBody: { fontFamily: fonts.regular,
         fontSize: 14,
         lineHeight: 20,
-        color: '#0f172a',
+        color: colors.text,
     },
-    latestMeta: {
+    latestMeta: { fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#64748b',
+        color: colors.textFaint,
     },
-    input: {
-        backgroundColor: theme.colors.surfaceMuted,
+    input: { fontFamily: fonts.regular,
+        backgroundColor: colors.glassRaised,
         borderRadius: 14,
         paddingHorizontal: 14,
         paddingVertical: 12,
         fontSize: 15,
-        color: theme.colors.text.primary,
+        color: colors.text,
         borderWidth: 1,
-        borderColor: theme.colors.border,
+        borderColor: colors.glassBorder,
     },
     textArea: {
         minHeight: 140,
     },
     primaryButton: {
-        backgroundColor: theme.colors.primary,
+        backgroundColor: colors.accent,
         borderRadius: 14,
         paddingVertical: 14,
         alignItems: 'center',
     },
     primaryButtonText: {
-        color: '#ffffff',
-        fontWeight: '700',
+        color: colors.onAccent,
+        fontFamily: fonts.bold,
     },
 });

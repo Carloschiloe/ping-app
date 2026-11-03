@@ -4,6 +4,8 @@ import {
     ScrollView, SectionList, Modal, RefreshControl, Alert, Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import Reanimated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -12,7 +14,6 @@ import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { useAuth } from '../context/AuthContext';
-import { useAppTheme } from '../theme/ThemeContext';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import {
     useAcceptCommitment, useResolveCommitment, useReopenCommitment,
@@ -32,6 +33,12 @@ import { RescheduleModal } from '../components/compromisos/RescheduleModal';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
 import { WeekStrip } from '../components/hoy/WeekStrip';
 import { buildDayMarks } from '../utils/calendarDays';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
+import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
+
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 // One tab for the day and every commitment: a single list ordered by when
 // things are due, split between what I owe and what others owe me. Finished,
@@ -77,8 +84,6 @@ export function reminderMessage(c: any, personName: string | null): string {
 }
 
 export default function HoyScreen() {
-    const { theme } = useAppTheme();
-    const styles = useMemo(() => createStyles(theme), [theme]);
     const { user } = useAuth();
     const navigation = useNavigation<ChatsTabNavigationProp>();
 
@@ -521,9 +526,9 @@ export default function HoyScreen() {
         setExpanded((e) => ({ ...e, [`${view}:${key}`]: !isOpen }));
     }, [view]);
 
-    const toneColor = (tone: SectionTone) => tone === 'danger' ? theme.colors.danger
-        : tone === 'accent' ? theme.colors.accent
-            : theme.colors.text.secondary;
+    const toneColor = (tone: SectionTone) => tone === 'danger' ? colors.danger
+        : tone === 'accent' ? colors.accentBright
+            : colors.textSoft;
 
     const suggestion = view === 'mine' && !query && !hasFiltersActive ? pingSuggestion(mineData.overdue, mineData.hoy) : null;
     const todayLabel = capitalize(format(new Date(), "EEEE d 'de' MMMM", { locale: es }));
@@ -540,9 +545,9 @@ export default function HoyScreen() {
             <>
             {strip}
             <View style={styles.freeDay}>
-                <Ionicons name="sunny-outline" size={28} color={theme.colors.accent} />
-                <Text style={[styles.freeDayTitle, { color: theme.colors.text.primary }]}>Hoy estás libre</Text>
-                <Text style={[styles.freeDayText, { color: theme.colors.text.secondary }]}>
+                <Ionicons name="sunny-outline" size={28} color={colors.accent} />
+                <Text style={[styles.freeDayTitle, { color: colors.text }]}>Hoy estás libre</Text>
+                <Text style={[styles.freeDayText, { color: colors.textSoft }]}>
                     {mineData.next ? `Lo próximo: «${mineData.next.title}» · ${formatWhen(mineData.next.due_at)}` : 'No tienes nada pendiente.'}
                 </Text>
             </View>
@@ -564,11 +569,11 @@ export default function HoyScreen() {
         if (hasFiltersActive || query) copy = 'No encontré compromisos con esa búsqueda.';
         return (
             <View style={styles.emptyContainer}>
-                <Ionicons name="folder-open-outline" size={40} color={theme.colors.text.muted} />
-                <Text style={[styles.emptyText, { color: theme.colors.text.secondary }]}>{copy}</Text>
+                <Ionicons name="folder-open-outline" size={40} color={colors.textFaint} />
+                <Text style={[styles.emptyText, { color: colors.textSoft }]}>{copy}</Text>
                 {(hasFiltersActive || !!query) && (
-                    <TouchableOpacity style={[styles.clearFiltersBtn, { borderColor: theme.colors.border }]} onPress={clearFilters}>
-                        <Text style={[styles.clearFiltersText, { color: theme.colors.accent }]}>Limpiar búsqueda y filtros</Text>
+                    <TouchableOpacity style={[styles.clearFiltersBtn, { borderColor: colors.glassBorder }]} onPress={clearFilters}>
+                        <Text style={[styles.clearFiltersText, { color: colors.accent }]}>Limpiar búsqueda y filtros</Text>
                     </TouchableOpacity>
                 )}
             </View>
@@ -576,8 +581,8 @@ export default function HoyScreen() {
     };
 
     const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => (
-        <TouchableOpacity style={[styles.filterChip, active && { backgroundColor: theme.colors.accent }]} onPress={onPress}>
-            <Text style={[styles.filterChipText, { color: active ? theme.colors.white : theme.colors.text.secondary }]}>{label}</Text>
+        <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
+            <Text style={[styles.filterChipText, { color: active ? colors.onAccent : colors.textSoft }]}>{label}</Text>
         </TouchableOpacity>
     );
 
@@ -586,36 +591,35 @@ export default function HoyScreen() {
     const renderListFooter = () => {
         if (isSideView) return null;
         return (
-            <TouchableOpacity
-                style={[styles.card, styles.historyLink, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-                onPress={() => openHistory('all')}
-                accessibilityRole="button"
-            >
-                <Ionicons name="time-outline" size={18} color={theme.colors.text.secondary} />
-                <Text style={[styles.historyLinkText, { color: theme.colors.text.primary }]}>Terminados y cancelados</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.text.muted} />
+            <TouchableOpacity onPress={() => openHistory('all')} accessibilityRole="button">
+                <Glass style={styles.historyLink} intensity={22} tint={colors.glassTintLight}>
+                <Ionicons name="time-outline" size={18} color={colors.textSoft} />
+                <Text style={[styles.historyLinkText, { color: colors.text }]}>Terminados y cancelados</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                </Glass>
             </TouchableOpacity>
         );
     };
 
     return (
-        <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.colors.background }]}>
-            <StatusBar barStyle={theme.isDark ? 'light-content' : 'dark-content'} />
+        <SafeAreaView edges={['top']} style={styles.container}>
+            <StatusBar barStyle={'light-content'} />
 
             <Modal visible={filterDrawerVisible} transparent animationType="slide" onRequestClose={() => setFilterDrawerVisible(false)}>
                 <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterDrawerVisible(false)}>
-                    <TouchableOpacity activeOpacity={1} style={[styles.filterSheet, { backgroundColor: theme.colors.surface }]}>
+                    <TouchableOpacity activeOpacity={1} style={styles.filterSheet}>
+                        <SheetFill />
                         <View style={styles.filterSheetHandle} />
-                        <Text style={[styles.filterSheetTitle, { color: theme.colors.text.primary }]}>Filtrar</Text>
+                        <Text style={[styles.filterSheetTitle, { color: colors.text }]}>Filtrar</Text>
 
-                        <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>Tipo</Text>
+                        <Text style={[styles.filterGroupLabel, { color: colors.textFaint }]}>Tipo</Text>
                         <View style={styles.filterChipsRow}>
                             {([['all', 'Todo'], ['tasks', 'Tareas'], ['meetings', 'Reuniones']] as const).map(([v, l]) => (
                                 <FilterChip key={v} label={l} active={draftType === v} onPress={() => setDraftType(v)} />
                             ))}
                         </View>
 
-                        <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>Origen</Text>
+                        <Text style={[styles.filterGroupLabel, { color: colors.textFaint }]}>Origen</Text>
                         <View style={styles.filterChipsRow}>
                             {([['all', 'Todo'], ['chat', 'De un chat'], ['direct', 'Creado directo']] as const).map(([v, l]) => (
                                 <FilterChip key={v} label={l} active={draftOrigin === v} onPress={() => setDraftOrigin(v)} />
@@ -624,7 +628,7 @@ export default function HoyScreen() {
 
                         {teamMembers.length > 0 && (
                             <>
-                                <Text style={[styles.filterGroupLabel, { color: theme.colors.text.muted }]}>Persona</Text>
+                                <Text style={[styles.filterGroupLabel, { color: colors.textFaint }]}>Persona</Text>
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
                                     <FilterChip label="Todos" active={!draftPersonId} onPress={() => setDraftPersonId(null)} />
                                     {teamMembers.map((m: any) => (
@@ -634,23 +638,23 @@ export default function HoyScreen() {
                             </>
                         )}
 
-                        <View style={[styles.sheetLinks, { borderTopColor: theme.colors.border }]}>
+                        <View style={[styles.sheetLinks, { borderTopColor: colors.glassBorder }]}>
                             <TouchableOpacity style={styles.sheetLink} onPress={() => { openHistory('all'); setFilterDrawerVisible(false); }}>
-                                <Ionicons name="time-outline" size={18} color={theme.colors.text.secondary} />
-                                <Text style={[styles.sheetLinkText, { color: theme.colors.text.primary }]}>Terminados y cancelados</Text>
-                                <Ionicons name="chevron-forward" size={16} color={theme.colors.text.muted} />
+                                <Ionicons name="time-outline" size={18} color={colors.textSoft} />
+                                <Text style={[styles.sheetLinkText, { color: colors.text }]}>Terminados y cancelados</Text>
+                                <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
                             </TouchableOpacity>
                         </View>
 
                         <View style={styles.filterSheetFooter}>
                             <TouchableOpacity
-                                style={[styles.filterSecondaryBtn, { borderColor: theme.colors.border }]}
+                                style={[styles.filterSecondaryBtn, { borderColor: colors.glassBorder }]}
                                 onPress={() => { setDraftType('all'); setDraftOrigin('all'); setDraftPersonId(null); }}
                             >
-                                <Text style={{ color: theme.colors.text.secondary, fontWeight: '600', fontSize: 13 }}>Limpiar</Text>
+                                <Text style={{ color: colors.textSoft, fontFamily: fonts.semibold, fontSize: 13 }}>Limpiar</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.filterPrimaryBtn, { backgroundColor: theme.colors.accent }]} onPress={applyFilters}>
-                                <Text style={{ color: theme.colors.white, fontWeight: '700', fontSize: 13 }}>Aplicar</Text>
+                            <TouchableOpacity style={[styles.filterPrimaryBtn, { backgroundColor: colors.accent }]} onPress={applyFilters}>
+                                <Text style={{ color: colors.onAccent, fontFamily: fonts.bold, fontSize: 13 }}>Aplicar</Text>
                             </TouchableOpacity>
                         </View>
                     </TouchableOpacity>
@@ -682,59 +686,64 @@ export default function HoyScreen() {
             <View style={styles.header}>
                 {isSideView && (
                     <TouchableOpacity onPress={() => setView('mine')} style={styles.backRow} accessibilityRole="button">
-                        <Ionicons name="chevron-back" size={16} color={theme.colors.accent} />
-                        <Text style={[styles.backText, { color: theme.colors.accent }]}>Volver a Hoy</Text>
+                        <Ionicons name="chevron-back" size={16} color={colors.accent} />
+                        <Text style={[styles.backText, { color: colors.accent }]}>Volver a Hoy</Text>
                     </TouchableOpacity>
                 )}
                 <View style={styles.headerTop}>
                     <View style={{ flex: 1 }}>
-                        <Text style={[isSideView ? styles.sideTitle : styles.headerTitle, { color: theme.colors.text.primary }]}>
+                        {!isSideView && <Text style={type.overline}>{todayLabel.toUpperCase()}</Text>}
+                        <Text style={isSideView ? styles.sideTitle : styles.headerTitle}>
                             {isSideView ? 'Terminados y cancelados' : 'Hoy'}
                         </Text>
-                        {!isSideView && <Text style={[styles.headerDate, { color: theme.colors.text.secondary }]}>{todayLabel}</Text>}
                     </View>
                     {!isSideView && (
                         <TouchableOpacity
                             onPress={toggleCalendar}
-                            style={[styles.iconBtn, calendarVisible && { backgroundColor: theme.colors.accentSoft }]}
+                            style={[styles.iconBtn, calendarVisible && styles.iconBtnActive]}
                             accessibilityLabel={calendarVisible ? 'Ocultar calendario' : 'Ver calendario'}
                             accessibilityState={{ expanded: calendarVisible }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                            <Ionicons name="calendar-outline" size={21} color={calendarVisible ? theme.colors.accent : theme.colors.text.secondary} />
+                            <Ionicons name="calendar-outline" size={21} color={calendarVisible ? colors.accentBright : colors.text} />
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity onPress={toggleSearch} style={styles.iconBtn} accessibilityLabel="Buscar" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Ionicons name={searchVisible ? 'close' : 'search'} size={21} color={theme.colors.text.secondary} />
+                        <Ionicons name={searchVisible ? 'close' : 'search'} size={21} color={colors.text} />
                     </TouchableOpacity>
                     <TouchableOpacity
                         onPress={openFilterDrawer}
-                        style={[styles.iconBtn, hasFiltersActive && { backgroundColor: theme.colors.accentSoft }]}
+                        style={[styles.iconBtn, hasFiltersActive && styles.iconBtnActive]}
                         accessibilityLabel="Filtros"
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                        <Ionicons name="options-outline" size={21} color={hasFiltersActive ? theme.colors.accent : theme.colors.text.secondary} />
+                        <Ionicons name="options-outline" size={21} color={hasFiltersActive ? colors.accentBright : colors.text} />
                     </TouchableOpacity>
                 </View>
 
                 {searchVisible && (
-                    <View style={[styles.searchBar, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border }]}>
-                        <Ionicons name="search" size={16} color={theme.colors.text.muted} />
+                    <Glass style={styles.searchBar} intensity={40}>
+                        <Ionicons name="search" size={16} color={colors.textFaint} />
                         <TextInput
-                            style={[styles.searchInput, { color: theme.colors.text.primary }]}
+                            style={[styles.searchInput, { color: colors.text }]}
                             placeholder="Buscar compromiso o persona"
-                            placeholderTextColor={theme.colors.text.muted}
+                            placeholderTextColor={colors.textFaint}
                             value={searchQuery}
                             onChangeText={setSearchQuery}
                             autoFocus
                         />
-                    </View>
+                    </Glass>
                 )}
 
                 {!!suggestion && (
-                    <TouchableOpacity onPress={() => openPing()} style={styles.suggestion} accessibilityRole="button">
-                        <Ionicons name="sparkles-outline" size={14} color={theme.colors.accent} />
-                        <Text style={[styles.suggestionText, { color: theme.colors.accent }]} numberOfLines={2}>{suggestion}</Text>
+                    <TouchableOpacity onPress={() => openPing()} accessibilityRole="button">
+                        <Glass style={styles.suggestion} intensity={40} tint={colors.glassDim}>
+                            <View style={styles.suggestionIcon}>
+                                <Ionicons name="sparkles" size={14} color={colors.accentBright} />
+                            </View>
+                            <Text style={styles.suggestionText} numberOfLines={2}>{suggestion}</Text>
+                            <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                        </Glass>
                     </TouchableOpacity>
                 )}
 
@@ -750,13 +759,16 @@ export default function HoyScreen() {
                         ))}
                     </ScrollView>
                 ) : (
-                    <View style={[styles.segmentContainer, { backgroundColor: theme.colors.surfaceMuted }]}>
+                    <Glass style={styles.segmentContainer} intensity={40} tint={colors.glassDim}>
                         {([['mine', 'Yo debo', mineData.pendingCount], ['theirs', 'Me deben', theirsData.pendingCount]] as const).map(([v, label, count]) => (
-                            <TouchableOpacity key={v} style={[styles.segmentBtn, view === v && styles.segmentBtnActive]} onPress={() => setView(v)}>
+                            <TouchableOpacity key={v} style={styles.segmentBtn} onPress={() => setView(v)}>
+                                {view === v && (
+                                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, styles.segmentPill]} />
+                                )}
                                 <Text style={[styles.segmentText, view === v && styles.segmentTextActive]}>{label} · {count}</Text>
                             </TouchableOpacity>
                         ))}
-                    </View>
+                    </Glass>
                 )}
             </View>
 
@@ -770,15 +782,12 @@ export default function HoyScreen() {
                     const isFirst = index === 0;
                     const isLast = index === s.data.length - 1;
                     return (
-                        <View
-                            style={[
-                                styles.cardRow,
-                                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
-                                isFirst && styles.cardRowFirst,
-                                !isFirst && { borderTopColor: theme.colors.border, borderTopWidth: StyleSheet.hairlineWidth },
-                                isLast && styles.cardRowLast,
-                            ]}
+                        <Reanimated.View
+                            entering={index < 8 ? FadeInDown.delay(index * 40).duration(380) : undefined}
+                            style={[isFirst && styles.bandFirst, isLast && styles.bandLast]}
                         >
+                            <Glass style={[StyleSheet.absoluteFill, styles.bandGlass]} intensity={22} tint={colors.glassTintLight} />
+                            {!isFirst && <View pointerEvents="none" style={styles.bandSeparator} />}
                     <CommitmentRow
                         commitment={item}
                         currentUserId={user?.id}
@@ -796,7 +805,7 @@ export default function HoyScreen() {
                         onReceived={view === 'theirs' ? handleReceived : undefined}
                         onReopen={view === 'historial' ? handleReopen : undefined}
                     />
-                        </View>
+                        </Reanimated.View>
                     );
                 }}
                 renderSectionHeader={({ section }) => {
@@ -808,7 +817,7 @@ export default function HoyScreen() {
                         <View style={styles.sectionLabel}>
                             <Ionicons name={s.icon} size={15} color={color} />
                             <Text style={[styles.sectionTitle, { color }]}>{s.title}</Text>
-                            <View style={[styles.countPill, { backgroundColor: s.tone === 'muted' ? theme.colors.surfaceMuted : `${color}26` }]}>
+                            <View style={[styles.countPill, { backgroundColor: s.tone === 'danger' ? colors.dangerTint : s.tone === 'accent' ? colors.accentTint : colors.glassRaised }]}>
                                 <Text style={[styles.countPillText, { color }]}>{s.count}</Text>
                             </View>
                         </View>
@@ -821,7 +830,7 @@ export default function HoyScreen() {
                             accessibilityState={{ expanded: s.isOpen }}
                         >
                             {label}
-                            <Ionicons name={s.isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.text.muted} />
+                            <Ionicons name={s.isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textFaint} />
                         </TouchableOpacity>
                     );
                 }}
@@ -837,108 +846,127 @@ export default function HoyScreen() {
                     <RefreshControl
                         refreshing={showingArchived ? isRefetchingArchived : isRefetching}
                         onRefresh={showingArchived ? refetchArchived : refetch}
-                        tintColor={theme.colors.accent}
+                        tintColor={colors.accent}
                     />
                 }
                 showsVerticalScrollIndicator={false}
             />
 
             {!!undoToast && (
-                <View style={[styles.toast, { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border }]}>
-                    <Text style={[styles.toastText, { color: theme.colors.text.primary }]} numberOfLines={2}>
+                <View style={styles.toast}>
+                    <SheetFill />
+                    <Text style={[styles.toastText, { color: colors.text }]} numberOfLines={2}>
                         Cancelado. Lo verás en Terminados y cancelados.
                     </Text>
                     <TouchableOpacity onPress={handleUndoCancel} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button">
-                        <Text style={[styles.toastAction, { color: theme.colors.accent }]}>Deshacer</Text>
+                        <Text style={[styles.toastAction, { color: colors.accent }]}>Deshacer</Text>
                     </TouchableOpacity>
                 </View>
             )}
 
             {!isSideView && (
                 <TouchableOpacity
-                    style={[styles.fab, { backgroundColor: theme.colors.accent }]}
+                    style={styles.fab}
                     onPress={() => openPing('Recuérdame ')}
                     accessibilityRole="button"
                     accessibilityLabel="Agregar compromiso"
                 >
-                    <Ionicons name="add" size={28} color={theme.colors.white} />
+                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabFill}>
+                        <Ionicons name="add" size={28} color={colors.onAccent} />
+                    </LinearGradient>
                 </TouchableOpacity>
             )}
         </SafeAreaView>
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
+const styles = StyleSheet.create({
     container: { flex: 1 },
-    header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, gap: 10 },
-    headerTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-    headerTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.4 },
-    headerDate: { fontSize: 13, marginTop: 1 },
-    iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    header: { paddingHorizontal: space.xl, paddingTop: space.sm, paddingBottom: space.md, gap: space.md },
+    headerTop: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm },
+    headerTitle: { ...type.display, marginTop: 2 },
+    iconBtn: {
+        width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: colors.glassDim, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
+    },
+    iconBtnActive: { backgroundColor: colors.accentTint, borderColor: colors.accent },
     searchBar: {
-        flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, height: 38,
-        borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, gap: 6,
+        flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md + 2, height: 42,
+        borderRadius: radius.full, gap: space.sm,
     },
-    searchInput: { flex: 1, fontSize: 14, paddingVertical: 0 },
-    suggestion: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-    suggestionText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
-    segmentContainer: { flexDirection: 'row', borderRadius: 20, padding: 3 },
-    segmentBtn: { flex: 1, paddingVertical: 7, alignItems: 'center', borderRadius: 17 },
-    segmentBtnActive: {
-        backgroundColor: theme.colors.surface,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2,
+    searchInput: { fontFamily: fonts.regular, flex: 1, fontSize: 15, color: colors.text, paddingVertical: 0 },
+    // Ping's hint: a glass pill with plain light text, readable over any wave.
+    suggestion: {
+        flexDirection: 'row', alignItems: 'center', gap: space.sm + 2,
+        paddingVertical: space.sm + 2, paddingLeft: space.sm + 2, paddingRight: space.md, borderRadius: radius.lg,
     },
-    segmentText: { fontSize: 13, fontWeight: '600', color: theme.colors.text.muted },
-    segmentTextActive: { color: theme.colors.text.primary, fontWeight: '700' },
+    suggestionIcon: {
+        width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: colors.accentTint,
+    },
+    suggestionText: { flex: 1, fontSize: 14, fontFamily: fonts.medium, lineHeight: 19, color: colors.text },
+    segmentContainer: { flexDirection: 'row', borderRadius: radius.full, padding: 4 },
+    segmentBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: radius.full, overflow: 'hidden' },
+    segmentPill: { borderRadius: radius.full },
+    segmentText: { fontSize: 14, fontFamily: fonts.semibold, color: colors.textSoft },
+    segmentTextActive: { color: colors.onAccent },
     backRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
-    backText: { fontSize: 14, fontWeight: '600' },
+    backText: { fontSize: 14, fontFamily: fonts.semibold },
     weekStrip: { paddingHorizontal: 12, paddingTop: 4 },
-    sideTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
-    // Bottom room so the + button never covers the last row.
-    listContent: { paddingBottom: 120 },
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 18, paddingBottom: 8 },
+    sideTitle: { ...type.title, fontSize: 22 },
+    // Bottom room so the + button and the tab bar never cover the last row.
+    listContent: { paddingBottom: TAB_BAR_CLEARANCE + 80 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.sm },
     sectionLabel: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    sectionTitle: { fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
+    sectionTitle: { fontSize: 12, fontFamily: fonts.semibold, letterSpacing: 1, textTransform: 'uppercase' },
     countPill: { minWidth: 22, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 10, alignItems: 'center' },
-    countPillText: { fontSize: 12, fontWeight: '700' },
-    card: { marginHorizontal: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
-    cardRow: { marginHorizontal: 12, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth },
-    cardRowFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 14, borderTopRightRadius: 14 },
-    cardRowLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
+    countPillText: { fontSize: 12, fontFamily: fonts.bold },
+    bandGlass: { borderWidth: 0 },
+    bandFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.glassBorder },
+    bandLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
+    bandSeparator: { position: 'absolute', top: 0, left: space.xl, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
     historyChips: { flexDirection: 'row', gap: 8 },
-    historyLink: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24, paddingHorizontal: 14, paddingVertical: 14 },
-    historyLinkText: { flex: 1, fontSize: 15, fontWeight: '500' },
+    historyLink: {
+        flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: space.xxl, paddingHorizontal: space.xl, paddingVertical: space.lg,
+        borderWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    historyLinkText: { flex: 1, fontSize: 15, fontFamily: fonts.medium },
     toast: {
-        position: 'absolute', left: 16, right: 16, bottom: 90, flexDirection: 'row', alignItems: 'center', gap: 12,
-        paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
+        position: 'absolute', left: 16, right: 16, bottom: TAB_BAR_CLEARANCE + 72, flexDirection: 'row', alignItems: 'center', gap: 12,
+        paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12,
+        shadowColor: colors.ink, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
+        ...sheetSurface,
     },
-    toastText: { flex: 1, fontSize: 13, lineHeight: 18 },
-    toastAction: { fontSize: 14, fontWeight: '700' },
+    toastText: { fontFamily: fonts.regular, flex: 1, fontSize: 13, lineHeight: 18 },
+    toastAction: { fontSize: 14, fontFamily: fonts.bold },
     freeDay: { alignItems: 'center', paddingVertical: 28, paddingHorizontal: 32, gap: 6 },
-    freeDayTitle: { fontSize: 17, fontWeight: '700' },
-    freeDayText: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+    freeDayTitle: { fontSize: 17, fontFamily: fonts.bold },
+    freeDayText: { fontFamily: fonts.regular, fontSize: 14, textAlign: 'center', lineHeight: 20 },
     emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 32, gap: 10 },
-    emptyText: { fontSize: 14, fontWeight: '500', textAlign: 'center', lineHeight: 20 },
+    emptyText: { fontSize: 14, fontFamily: fonts.medium, textAlign: 'center', lineHeight: 20 },
     clearFiltersBtn: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
-    clearFiltersText: { fontSize: 13, fontWeight: '600' },
+    clearFiltersText: { fontSize: 13, fontFamily: fonts.semibold },
     fab: {
-        position: 'absolute', right: 20, bottom: 20, width: 56, height: 56, borderRadius: 28,
-        alignItems: 'center', justifyContent: 'center',
-        shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
+        position: 'absolute', right: 20, bottom: TAB_BAR_CLEARANCE + 16, width: 58, height: 58, borderRadius: 29,
+        shadowColor: colors.ink, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
     },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-    filterSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12 },
-    filterSheetHandle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: '#d1d5db', marginBottom: 16 },
-    filterSheetTitle: { fontSize: 17, fontWeight: '700', marginBottom: 6 },
-    filterGroupLabel: { fontSize: 12, fontWeight: '700', marginBottom: 8, marginTop: 12 },
+    modalOverlay: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
+    filterSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12, ...sheetSurface },
+    filterSheetHandle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.glassBorder, marginBottom: 16 },
+    filterSheetTitle: { fontSize: 17, fontFamily: fonts.bold, marginBottom: 6 },
+    filterGroupLabel: { fontSize: 12, fontFamily: fonts.bold, marginBottom: 8, marginTop: 12 },
     filterChipsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-    filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted },
-    filterChipText: { fontSize: 13, fontWeight: '600' },
+    filterChip: {
+        paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.full,
+        backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
+    },
+    filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    filterChipText: { fontSize: 13, fontFamily: fonts.semibold },
     sheetLinks: { marginTop: 18, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 6 },
     sheetLink: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11 },
-    sheetLinkText: { flex: 1, fontSize: 15, fontWeight: '500' },
+    sheetLinkText: { flex: 1, fontSize: 15, fontFamily: fonts.medium },
     filterSheetFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
-    filterSecondaryBtn: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 8, borderWidth: 1 },
-    filterPrimaryBtn: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 8 },
+    filterSecondaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.full, borderWidth: StyleSheet.hairlineWidth },
+    filterPrimaryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: radius.full },
+    fabFill: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
 });
