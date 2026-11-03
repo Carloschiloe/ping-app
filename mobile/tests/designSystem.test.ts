@@ -17,12 +17,12 @@ describe('Silver and blue design', () => {
         }
     });
 
-    it('the tab bar is the floating satin bar', () => {
+    it('the tab bar is the floating frosted bar', () => {
         expect(nav).toContain('tabBar={(props) => <FloatingTabBar {...props} />}');
         expect(nav).not.toContain('tabBarStyle');
     });
 
-    it('the app waits for the Manrope font before drawing', () => {
+    it('the app waits for the Inter font before drawing', () => {
         expect(fs.readFileSync(path.join(__dirname, '../App.tsx'), 'utf8')).toContain('if (!fontsLoaded) return null;');
     });
 });

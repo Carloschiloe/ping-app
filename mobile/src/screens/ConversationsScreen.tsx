@@ -21,8 +21,7 @@ import { ConversationRow } from '../components/ConversationRow';
 import { GlobalSearchSection } from '../components/GlobalSearchSection';
 import { deriveIsSelf } from '../utils/conversationCompat';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
-import { Backdrop } from '../design/Backdrop';
-import { Panel } from '../design/Panel';
+import { Glass } from '../design/Glass';
 import { PingOrb } from '../design/PingOrb';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 import { colors, gradients, radius, space } from '../design/tokens';
@@ -212,8 +211,9 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
             outputRange: [-20, 0, 0],
         });
         return (
+            <Animated.View style={[styles.swipeAction, { width: SWIPE_ACTION_WIDTH, opacity: dragX.interpolate({ inputRange: [0, 24], outputRange: [0, 1], extrapolate: 'clamp' }) }]}>
             <TouchableOpacity
-                style={[styles.swipeAction, { width: SWIPE_ACTION_WIDTH }]}
+                style={styles.swipeActionButton}
                 onPress={() => {
                     swipeableRefs.current[item.id]?.close();
                     if (unread) markAsRead(item.id, { onError: handleUnreadMutationError });
@@ -227,6 +227,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                     <Text style={styles.swipeActionLabel}>{unread ? 'Leído' : 'No leído'}</Text>
                 </Animated.View>
             </TouchableOpacity>
+            </Animated.View>
         );
     }, [markAsRead, markAsUnread, handleUnreadMutationError]);
 
@@ -237,8 +238,9 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         });
         const isArchived = item.archived;
         return (
+            <Animated.View style={[styles.swipeAction, { width: SWIPE_ACTION_WIDTH, opacity: dragX.interpolate({ inputRange: [-24, 0], outputRange: [1, 0], extrapolate: 'clamp' }) }]}>
             <TouchableOpacity
-                style={[styles.swipeAction, { width: SWIPE_ACTION_WIDTH }]}
+                style={styles.swipeActionButton}
                 onPress={() => {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     swipeableRefs.current[item.id]?.close();
@@ -252,6 +254,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                     <Text style={styles.swipeActionLabel}>{isArchived ? 'Desarchivar' : 'Archivar'}</Text>
                 </Animated.View>
             </TouchableOpacity>
+            </Animated.View>
         );
     }, [toggleArchive]);
 
@@ -308,7 +311,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         const isPinned = index === undefined;
         const isLast = isPinned || index === restConversations.length - 1;
         return (
-        <Reanimated.View entering={entering} style={[styles.cardRow, (isPinned || index === 0) && styles.cardFirst, isLast && styles.cardLast, isPinned && styles.pinnedCard]}>
+        <RowCard entering={entering} first={isPinned || index === 0} last={isLast}>
             <Swipeable
                 ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
                 renderLeftActions={(progress, dragX) => renderLeftActions(progress, dragX, item)}
@@ -328,7 +331,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                     onPress={() => navigation.navigate('Chat', { conversationId: item.id, otherUser: item.otherUser, isGroup: item.isGroup, isSelf: item.isSelf, groupMetadata: item.groupMetadata, mode: item.mode || 'chat' })}
                 />
             </Swipeable>
-        </Reanimated.View>
+        </RowCard>
         );
     }, [typingUsers, user?.id, navigation, renderLeftActions, renderRightActions, restConversations.length]);
 
@@ -387,7 +390,6 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-                <Backdrop />
                 <View style={[styles.header, { paddingTop: contentPaddingTop }]}>
                     <View style={styles.headerTop}>
                         <View>
@@ -400,9 +402,9 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 accessibilityRole="button"
                                 accessibilityLabel="Crear nuevo chat o grupo"
                             >
-                                <Panel style={styles.iconButton}>
+                                <Glass style={styles.iconButton}>
                                     <Ionicons name="add" size={22} color={colors.text} />
-                                </Panel>
+                                </Glass>
                             </Pressable>
                             <Pressable
                                 style={styles.orbButton}
@@ -414,7 +416,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             </Pressable>
                         </View>
                     </View>
-                    <Panel style={styles.searchBar}>
+                    <Glass style={styles.searchBar}>
                         <Ionicons name="search" size={17} color={colors.textFaint} />
                         <TextInput
                             style={styles.searchInput}
@@ -434,7 +436,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 <Ionicons name="close-circle" size={18} color={colors.textFaint} />
                             </TouchableOpacity>
                         )}
-                    </Panel>
+                    </Glass>
                 </View>
 
                 {isLoading ? (
@@ -498,6 +500,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 </ScrollView>
                                 {pinnedSelf && (
                                     (pinnedSelf as any).isPlaceholder ? (
+                                        <RowCard first last>
                                         <ConversationRow
                                             item={pinnedSelf}
                                             userId={user?.id}
@@ -508,6 +511,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                             previewOverride={SELF_CHAT_PLACEHOLDER_SUBTITLE}
                                             onPress={handleOpenSelfChat}
                                         />
+                                        </RowCard>
                                     ) : (
                                         renderItem({ item: pinnedSelf })
                                     )
@@ -558,6 +562,18 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 </Modal>
             </View>
         </GestureHandlerRootView>
+    );
+}
+
+// One slice of the frosted card that holds the conversation list. Slices
+// stack edge to edge, so the first and last round the card's corners.
+function RowCard({ first, last, entering, children }: { first: boolean; last: boolean; entering?: any; children: React.ReactNode }) {
+    const corners = [first && styles.cardFirst, last && styles.cardLast];
+    return (
+        <Reanimated.View entering={entering} style={[styles.cardRow, ...corners, first && last && styles.cardAlone]}>
+            <Glass style={[StyleSheet.absoluteFill, styles.cardGlass, ...corners]} />
+            {children}
+        </Reanimated.View>
     );
 }
 
@@ -613,11 +629,12 @@ function ConversationSkeleton() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.ink },
-    cardRow: { marginHorizontal: space.lg, overflow: 'hidden', borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.panelBorder },
+    container: { flex: 1 },
+    cardRow: { marginHorizontal: space.lg, overflow: 'hidden', borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
+    cardGlass: { borderWidth: 0 },
     cardFirst: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, borderTopWidth: StyleSheet.hairlineWidth },
     cardLast: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, borderBottomWidth: StyleSheet.hairlineWidth },
-    pinnedCard: { marginBottom: space.md },
+    cardAlone: { marginBottom: space.md },
     header: { paddingHorizontal: space.xl, paddingBottom: space.md },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: space.lg },
     title: { marginTop: 2 },
@@ -628,24 +645,25 @@ const styles = StyleSheet.create({
     searchInput: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
     filterBar: { flexDirection: 'row', paddingHorizontal: space.xl, paddingTop: space.xs, paddingBottom: space.md, gap: space.sm },
     chip: { paddingHorizontal: 14, height: 32, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
-    chipIdle: { backgroundColor: colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.panelBorder },
+    chipIdle: { backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
     chipActive: { shadowColor: colors.accent, shadowOpacity: 0.6, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 6 },
     chipText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textSoft },
     chipTextActive: { fontFamily: fonts.bold, color: colors.onAccent },
-    swipeAction: { justifyContent: 'center', alignItems: 'center', height: '100%', backgroundColor: colors.panelRaised },
+    swipeAction: { height: '100%', backgroundColor: colors.glassRaised },
+    swipeActionButton: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     swipeActionLabel: { fontFamily: fonts.semibold, color: colors.textSoft, fontSize: 11, marginTop: 4 },
     loadingContainer: { flex: 1, paddingTop: space.md },
     skeletonRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.md },
-    skeletonAvatar: { width: 52, height: 52, borderRadius: 18, backgroundColor: colors.panelRaised, marginRight: 14 },
+    skeletonAvatar: { width: 52, height: 52, borderRadius: 18, backgroundColor: colors.glassRaised, marginRight: 14 },
     skeletonInfo: { flex: 1 },
-    skeletonLine: { height: 11, borderRadius: 6, backgroundColor: colors.panelRaised },
+    skeletonLine: { height: 11, borderRadius: 6, backgroundColor: colors.glassRaised },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 90, paddingHorizontal: space.xxl },
     emptyTitle: { ...type.title, color: colors.textSoft, marginTop: space.md, textAlign: 'center' },
     emptySubtitle: { ...type.subhead, color: colors.textFaint, marginTop: space.sm, textAlign: 'center' },
     emptyActions: { flexDirection: 'row', gap: 10, marginTop: space.lg },
     button: { height: 42, paddingHorizontal: 18, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
     buttonGoldText: { fontFamily: fonts.bold, fontSize: 14, color: colors.onAccent },
-    buttonGhost: { backgroundColor: colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.panelBorder },
+    buttonGhost: { backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
     buttonGhostText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.text },
     profileViewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.94)', alignItems: 'center', justifyContent: 'center', padding: space.xl },
     profileViewerImage: { width: '100%', height: '82%' },

@@ -104,7 +104,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
     const press = useSharedValue(0);
     const pressStyle = useAnimatedStyle(() => ({
         transform: [{ scale: 1 - press.value * 0.02 }],
-        backgroundColor: interpolateColor(press.value, [0, 1], [colors.panel, colors.panelPressed]),
+        backgroundColor: interpolateColor(press.value, [0, 1], ['rgba(255,255,255,0)', colors.glassPressed]),
     }));
 
     const ticks = (() => {
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     onlineDot: {
         position: 'absolute', right: -2, bottom: -2,
         width: 14, height: 14, borderRadius: 7,
-        backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.panel,
+        backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.ink,
     },
     info: {
         flex: 1,

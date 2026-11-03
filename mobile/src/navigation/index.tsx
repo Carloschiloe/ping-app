@@ -7,6 +7,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
 import { useAppTheme } from '../theme/ThemeContext';
 import { FloatingTabBar } from '../design/FloatingTabBar';
+import { GlassBackdrop } from '../design/Glass';
 
 import AuthScreen from '../screens/AuthScreen';
 import PasswordRecoveryScreen from '../screens/PasswordRecoveryScreen';
@@ -40,7 +41,7 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="ConversationsList"
             component={ConversationsScreen}
-            options={{ headerShown: false }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="Chat"
@@ -134,14 +135,16 @@ const ConversationsStack = () => {
 };
 
 const MainTabs = () => (
+    <GlassBackdrop>
     <Tab.Navigator
         tabBar={(props) => <FloatingTabBar {...props} />}
-        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true }}
+        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true, sceneStyle: { backgroundColor: 'transparent' } }}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
+    </GlassBackdrop>
 );
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();

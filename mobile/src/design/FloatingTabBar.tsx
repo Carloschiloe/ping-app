@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Panel } from './Panel';
+import { Glass } from './Glass';
 import { colors, gradients, radius } from './tokens';
 import { fonts } from './typography';
 
@@ -45,7 +45,7 @@ function TabButton({ label, focused, onPress }: { label: string; focused: boolea
     );
 }
 
-// Floating satin bar with a blue pill under the active tab.
+// Floating frosted bar with a blue pill under the active tab.
 export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     const insets = useSafeAreaInsets();
     const focusedOptions = state.routes[state.index];
@@ -55,7 +55,7 @@ export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
 
     return (
         <View pointerEvents="box-none" style={[styles.wrap, { bottom: Math.max(insets.bottom, 12) }]}>
-            <Panel style={styles.bar}>
+            <Glass style={styles.bar} intensity={60}>
                 {state.routes.map((route, index) => {
                     const focused = state.index === index;
                     return (
@@ -71,7 +71,7 @@ export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
                         />
                     );
                 })}
-            </Panel>
+            </Glass>
         </View>
     );
 }
