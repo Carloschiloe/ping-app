@@ -34,7 +34,7 @@ export const useReactToMessage = (conversationId: string) => {
                             ...message,
                             message_reactions: mine
                                 ? reactions.filter((r) => r !== mine)
-                                : [...reactions, { id: `local-${emoji}`, message_id: messageId, user_id: user.id, reaction: emoji }],
+                                : [...reactions, { id: `local-${emoji}`, message_id: messageId, user_id: user.id, emoji }],
                         };
                     }),
                 })),

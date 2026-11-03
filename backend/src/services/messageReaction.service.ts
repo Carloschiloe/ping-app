@@ -28,7 +28,7 @@ export async function toggleMessageReaction(
         .select('id')
         .eq('message_id', messageId)
         .eq('user_id', userId)
-        .eq('reaction', reaction)
+        .eq('emoji', reaction)
         .maybeSingle();
     if (existingError) throw new AppError(existingError.message, 500);
 
@@ -40,7 +40,7 @@ export async function toggleMessageReaction(
 
     const { error } = await supabaseAdmin
         .from('message_reactions')
-        .insert({ message_id: messageId, user_id: userId, reaction });
+        .insert({ message_id: messageId, user_id: userId, emoji: reaction });
     if (error) throw new AppError(error.message, 500);
     return { reacted: true };
 }
