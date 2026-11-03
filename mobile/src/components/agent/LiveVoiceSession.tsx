@@ -17,8 +17,11 @@ import { fonts, type } from '../../design/typography';
 interface LiveVoiceSessionProps {
     visible: boolean;
     conversationId?: string;
-    onClose: () => void;
+    /** `write` when the user chose to keep going by text, `leave` otherwise. */
+    onClose: (reason: LiveVoiceCloseReason) => void;
 }
+
+export type LiveVoiceCloseReason = 'leave' | 'write';
 
 type LiveConfig = {
     apiUrl: string;
@@ -31,6 +34,7 @@ type LiveConfig = {
     locale: string;
     timezone: string;
     firstName?: string;
+    canSwitchToText: boolean;
 };
 
 type LiveVoiceWebViewMessage = {
@@ -61,6 +65,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     const [sessionKey, setSessionKey] = useState(0);
     const webViewRef = useRef<WebView>(null);
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const closeReasonRef = useRef<LiveVoiceCloseReason>('leave');
     const config = useMemo<LiveConfig | null>(() => authorization ? {
         apiUrl: API_URL.replace(/\/$/, ''),
         authorization,
@@ -72,6 +77,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         locale: voiceLocale(),
         timezone: getDeviceTimeZone(),
         firstName: profile?.full_name?.trim().split(/\s+/)[0] || undefined,
+        canSwitchToText: true,
     } : null, [authorization, conversationId, profile?.full_name]);
     const injected = useMemo(() => config
         ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
@@ -80,6 +86,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
 
     useEffect(() => {
         if (!visible) return;
+        closeReasonRef.current = 'leave';
         setError(null);
         setAuthorization(null);
         setMicrophoneReady(false);
@@ -125,19 +132,20 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         if (closeTimerRef.current) return;
         closeTimerRef.current = setTimeout(() => {
             closeTimerRef.current = null;
-            onClose();
+            onClose(closeReasonRef.current);
         }, 400);
     }, [onClose]);
     const requestClose = useCallback(() => {
+        closeReasonRef.current = 'leave';
         if (!webViewRef.current) {
-            onClose();
+            onClose('leave');
             return;
         }
         scheduleClose();
         try {
             webViewRef.current.injectJavaScript("document.getElementById('stop')?.click();true;");
         } catch {
-            onClose();
+            onClose('leave');
         }
     }, [onClose, scheduleClose]);
     const androidWebViewProps = useMemo(() => Platform.OS === 'android'
@@ -152,6 +160,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     const handleMessage = useCallback((event: WebViewMessageEvent) => {
         try {
             const message = JSON.parse(event.nativeEvent.data) as LiveVoiceWebViewMessage;
+            if (message.type === 'write') closeReasonRef.current = 'write';
             if (message.type === 'closed') scheduleClose();
             if (message.type === 'config_requested' || message.type === 'webview_ready') injectConfig();
             if (message.type === 'retry') retry();
@@ -173,13 +182,13 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         }
     }, []);
 
-    return <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={requestClose}>
+    return <Modal visible={visible} animationType="fade" statusBarTranslucent onRequestClose={requestClose}>
         <View style={styles.container}>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
-                <Text style={styles.title}>Ping Voz</Text>
-                <TouchableOpacity onPress={requestClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz">
-                    <Ionicons name="close" size={20} color={colors.text} />
+                <TouchableOpacity onPress={requestClose} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz" hitSlop={8}>
+                    <Ionicons name="chevron-back" size={26} color={colors.text} />
                 </TouchableOpacity>
+                <Text style={styles.title}>Ping</Text>
             </View>
             {visible && (error ? <View style={styles.error}>
                 <View style={styles.errorIcon}>
@@ -216,23 +225,14 @@ const styles = StyleSheet.create({
     topbar: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: space.md,
-        paddingHorizontal: space.lg,
+        gap: space.xs,
+        paddingHorizontal: space.md,
         paddingBottom: space.md,
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.glassBorder,
     },
     title: { flex: 1, fontFamily: fonts.semibold, fontSize: 17, color: colors.text },
-    closeBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: colors.glassRaised,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.glassBorder,
-    },
+    backBtn: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
     // Same dark as the frame, so the voice page never flashes white while it loads.
     webview: { backgroundColor: colors.ink },
     loading: { flex: 1 },

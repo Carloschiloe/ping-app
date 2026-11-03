@@ -61,6 +61,8 @@ type AgentCoreRouteParams = {
     /** Text to start the composer with, e.g. from the Hoy "+" button. */
     draft?: string;
     draftAt?: number;
+    /** Open Ping in a live voice conversation instead of the text chat. */
+    startWith?: 'voice';
 };
 
 export type MainTabParamList = {

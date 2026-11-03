@@ -385,7 +385,7 @@ describe('Ping Core entrypoint: el acceso normal usa Agent Core y legacy queda a
     const navigationSource = fs.readFileSync(path.join(__dirname, '../src/navigation/index.tsx'), 'utf-8');
 
     it('the Ping button opens the one Ping screen; there is no hidden test menu', () => {
-        expect(screenSource).toContain("onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface() })}");
+        expect(screenSource).toContain("onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface(), startWith: 'voice' })}");
         expect(screenSource).toContain('accessibilityLabel="Abrir Ping"');
         expect(screenSource).not.toContain('handleOpenAgentMenu');
         expect(screenSource).not.toContain("'Preview interno'");

@@ -238,9 +238,9 @@ describe("Ping's living aura", () => {
         expect(orb).toContain("thinking: 3.8");
     });
 
-    it('sits on the right of the Ping bar and opens Ping Voz there', () => {
-        const voice = ping.indexOf('testID="ping-voice-button"');
-        expect(voice).toBeGreaterThan(ping.indexOf('styles.headerInfo'));
-        expect(ping.indexOf('<PingOrb')).toBeGreaterThan(ping.indexOf('styles.headerInfo'));
+    it('rests while its screen is covered by another one', () => {
+        expect(orb).toContain('frames.setActive(!paused)');
+        expect(ping).toContain('paused={liveVoiceVisible}');
+        expect(read('screens/ConversationsScreen.tsx')).toContain('<PingOrb size={44} paused={!isFocused} />');
     });
 });

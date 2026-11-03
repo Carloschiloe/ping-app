@@ -47,12 +47,21 @@ describe('M8 live voice production surface', () => {
         expect(config).toContain("'./plugins/withRequiredMicrophonePermission'");
     });
 
-    it('keeps the Ping Voice entry point present in the production header', () => {
+    it('keeps a Hablar button beside the composer that opens Ping Voz', () => {
         const screen = read('src/screens/AgentPreviewScreen.tsx');
         expect(screen).toContain('testID="ping-voice-button"');
         expect(screen).toContain('accessibilityLabel="Abrir Ping Voz"');
-        expect(screen).toContain("<PingOrb size={44} state={isPending ? 'thinking' : 'idle'} />");
+        expect(screen).toContain('<Text style={styles.talkText}>Hablar</Text>');
         expect(screen).not.toContain('<Ionicons name="radio"');
+    });
+
+    it('opens straight into voice from the Chats aura and can switch to text', () => {
+        const screen = read('src/screens/AgentPreviewScreen.tsx');
+        const session = read('src/components/agent/LiveVoiceSession.tsx');
+        expect(screen).toContain("route.params?.startWith === 'voice' && liveVoiceEnabled");
+        expect(screen).toContain("if (reason === 'leave' && voiceEntryRef.current) navigation.goBack();");
+        expect(session).toContain("if (message.type === 'write') closeReasonRef.current = 'write';");
+        expect(session).toContain('canSwitchToText: true');
     });
 
     it('uses the canonical self conversation for the main voice entry point', () => {
