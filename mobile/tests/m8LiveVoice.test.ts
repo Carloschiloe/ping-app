@@ -42,7 +42,8 @@ describe('M8 live voice production surface', () => {
         expect(eas).toContain('EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED');
         expect(packageJson).toContain('"update:production": "node scripts/update-production.mjs"');
         expect(updateScript).toContain("EXPO_PUBLIC_M8_LIVE_VOICE_ENABLED: 'true'");
-        expect(config).toContain('versionCode: 17');
+        expect(config).toContain('versionCode: 18');
+        expect(config).toContain("version: '1.0.4'");
         expect(config).toContain("'./plugins/withRequiredMicrophonePermission'");
     });
 
