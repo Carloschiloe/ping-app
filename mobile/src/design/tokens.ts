@@ -4,9 +4,12 @@
 
 export const colors = {
     ink: '#08090B',
-    glassTint: 'rgba(16,18,24,0.42)',
+    glassTint: 'rgba(12,14,20,0.52)',
     // The conversation list: a thin veil that lets the waves show through.
-    glassTintLight: 'rgba(14,16,22,0.16)',
+    glassTintLight: 'rgba(10,12,18,0.38)',
+    // Controls that sit on the waves (filters, secondary buttons): dark enough
+    // that their labels always read.
+    glassDim: 'rgba(10,12,18,0.50)',
     // Where real blur isn't available the glass turns almost solid.
     glassFallback: 'rgba(26,28,34,0.94)',
     glassBorder: 'rgba(255,255,255,0.16)',
@@ -15,8 +18,8 @@ export const colors = {
     separator: 'rgba(255,255,255,0.07)',
 
     text: '#F4F6F9',
-    textSoft: 'rgba(244,246,249,0.70)',
-    textFaint: 'rgba(244,246,249,0.45)',
+    textSoft: 'rgba(244,246,249,0.80)',
+    textFaint: 'rgba(244,246,249,0.60)',
     silver: '#D3D8E0',
 
     accent: '#3B82F6',

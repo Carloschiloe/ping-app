@@ -5,9 +5,9 @@ import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 // Brushed-silver waves: broad satin bands that catch the light in the middle
 // and fall into shadow at their edges. Drawn once, scaled to fill the screen.
 const BANDS = [
-    { d: 'M-80,70 C60,-10 230,210 480,90 L480,300 C250,410 80,190 -80,290 Z', light: '#9AA2B1' },
-    { d: 'M-80,330 C110,240 270,480 480,360 L480,520 C270,640 110,420 -80,540 Z', light: '#7E8797' },
-    { d: 'M-80,600 C130,510 290,730 480,620 L480,780 C290,900 130,690 -80,800 Z', light: '#6C7484' },
+    { d: 'M-80,70 C60,-10 230,210 480,90 L480,300 C250,410 80,190 -80,290 Z', light: '#6A7282' },
+    { d: 'M-80,330 C110,240 270,480 480,360 L480,520 C270,640 110,420 -80,540 Z', light: '#5A6272' },
+    { d: 'M-80,600 C130,510 290,730 480,620 L480,780 C290,900 130,690 -80,800 Z', light: '#4E5665' },
 ];
 
 export function Silk() {
@@ -23,7 +23,7 @@ export function Silk() {
                     <LinearGradient key={i} id={`silk-band-${i}`} x1="0" y1="0" x2="0.15" y2="1">
                         <Stop offset="0" stopColor="#101115" />
                         <Stop offset="0.42" stopColor={band.light} />
-                        <Stop offset="0.5" stopColor="#E3E7EE" />
+                        <Stop offset="0.5" stopColor="#A3ABB8" />
                         <Stop offset="0.6" stopColor={band.light} />
                         <Stop offset="1" stopColor="#0C0D10" />
                     </LinearGradient>
