@@ -434,7 +434,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         <Ionicons name="search" size={17} color={colors.textFaint} />
                         <TextInput
                             style={styles.searchInput}
-                            placeholder="Buscar personas, mensajes o tareas"
+                            placeholder="Buscar"
                             placeholderTextColor={colors.textFaint}
                             selectionColor={colors.accent}
                             value={searchQuery}
@@ -662,7 +662,7 @@ const styles = StyleSheet.create({
     searchBar: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.md, paddingHorizontal: 14, height: 46, gap: 10 },
     searchInput: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
     filterBar: { flexDirection: 'row', paddingHorizontal: space.xl, paddingTop: space.xs, paddingBottom: space.md, gap: space.sm },
-    chip: { paddingHorizontal: 14, height: 32, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+    chip: { paddingHorizontal: 13, height: 30, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
     chipIdle: { backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
     chipActive: { shadowColor: colors.accent, shadowOpacity: 0.6, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 6 },
     chipText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textSoft },

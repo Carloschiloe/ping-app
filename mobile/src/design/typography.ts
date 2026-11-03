@@ -25,7 +25,7 @@ export const type = {
     body: { fontFamily: fonts.regular, fontSize: 15, color: colors.text },
     subhead: { fontFamily: fonts.regular, fontSize: 14, color: colors.textSoft },
     caption: { fontFamily: fonts.medium, fontSize: 12, color: colors.textSoft },
-    overline: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 1.1, color: colors.textFaint },
+    overline: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 1.1, color: colors.textSoft },
 } as const;
 
 export function useDesignFonts() {

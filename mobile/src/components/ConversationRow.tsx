@@ -155,7 +155,6 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
                     <View style={styles.topRow}>
                         <View style={styles.nameRow}>
                             <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
-                            {pinned && <Ionicons name="pin" size={13} color={colors.textFaint} style={styles.pin} />}
                         </View>
                         {lastMsg && <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>}
                     </View>
@@ -203,7 +202,6 @@ const styles = StyleSheet.create({
     nameRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: space.sm },
     name: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text, flexShrink: 1, letterSpacing: -0.2 },
     nameUnread: { fontFamily: fonts.extrabold },
-    pin: { marginLeft: 6 },
     time: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint },
     timeUnread: { fontFamily: fonts.bold, color: colors.accentBright },
     bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

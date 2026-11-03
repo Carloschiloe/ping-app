@@ -36,7 +36,7 @@ export function Silk() {
             </Defs>
             <Rect x="0" y="0" width="400" height="860" fill="url(#silk-base)" />
             {BANDS.map((band, i) => (
-                <Path key={i} d={band.d} fill={`url(#silk-band-${i})`} opacity={0.85 - i * 0.12} />
+                <Path key={i} d={band.d} fill={`url(#silk-band-${i})`} opacity={0.7 - i * 0.1} />
             ))}
             <Rect x="0" y="0" width="400" height="860" fill="url(#silk-blue)" />
         </Svg>
