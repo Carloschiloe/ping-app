@@ -2,7 +2,7 @@ import React from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet,
     ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated,
-    Modal, Image, ActionSheetIOS, Alert, Pressable
+    Modal, Image, Alert, Pressable
 } from 'react-native';
 import Reanimated, { Extrapolation, FadeInDown, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import type { ConversationsListScreenProps } from '../navigation/types';
 import { apiClient } from '../api/client';
 import { ConversationRow } from '../components/ConversationRow';
 import { GlobalSearchSection } from '../components/GlobalSearchSection';
+import { NewConversationSheet } from '../components/NewConversationSheet';
 import { deriveIsSelf } from '../utils/conversationCompat';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { Glass } from '../design/Glass';
@@ -336,29 +337,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         );
     }, [typingUsers, user?.id, navigation, renderLeftActions, renderRightActions, restConversations.length, pinnedSelf]);
 
-    const handleOpenCreateSheet = React.useCallback(() => {
-        // "Para mí" is a first-class pinned row now, not a hidden option here —
-        // this sheet only ever offers Nuevo chat / Nuevo grupo.
-        const items: { label: string; onPress: () => void }[] = [
-            { label: 'Nuevo chat', onPress: () => navigation.navigate('NewChat') },
-            { label: 'Nuevo grupo', onPress: () => navigation.navigate('NewGroup') },
-        ];
-
-        if (Platform.OS === 'ios') {
-            ActionSheetIOS.showActionSheetWithOptions(
-                { options: ['Cancelar', ...items.map(i => i.label)], cancelButtonIndex: 0 },
-                (index) => {
-                    if (index === 0) return;
-                    items[index - 1]?.onPress();
-                }
-            );
-        } else {
-            Alert.alert('Nueva conversación', undefined, [
-                ...items.map(i => ({ text: i.label, onPress: i.onPress })),
-                { text: 'Cancelar', style: 'cancel' as const },
-            ]);
-        }
-    }, [navigation]);
+    // "Para mí" is a first-class pinned row now, not a hidden option here —
+    // this sheet only ever offers Nuevo chat / Nuevo grupo.
+    const [createSheetVisible, setCreateSheetVisible] = React.useState(false);
+    const handleOpenCreateSheet = React.useCallback(() => setCreateSheetVisible(true), []);
 
     // Case B of "Para mí": the self conversation doesn't exist yet. Tapping the
     // pinned placeholder runs the exact same canonical flow the old quick
@@ -555,6 +537,12 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         )}
                     />
                 )}
+                <NewConversationSheet
+                    visible={createSheetVisible}
+                    onClose={() => setCreateSheetVisible(false)}
+                    onNewChat={() => navigation.navigate('NewChat')}
+                    onNewGroup={() => navigation.navigate('NewGroup')}
+                />
                 <Modal
                     visible={!!profileViewerUrl}
                     transparent
