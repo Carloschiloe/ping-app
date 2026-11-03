@@ -13,6 +13,7 @@ import {
     saveSharedContentItemAsync,
     shareSharedContentItemAsync,
 } from '../../utils/sharedContentActions';
+import { sharedContentTitle } from '../../utils/sharedContent';
 
 type Props = {
     visible: boolean;
@@ -91,7 +92,7 @@ export function SharedContentActionSheet({
                 <View style={styles.titleWrap}>
                     <Text style={styles.title}>Acciones del archivo</Text>
                     <Text style={styles.subtitle} numberOfLines={1}>
-                        {item.file?.name || item.link?.domain || 'Contenido compartido'}
+                        {sharedContentTitle(item)}
                     </Text>
                 </View>
                 <TouchableOpacity disabled={busy} onPress={onClose} accessibilityLabel="Cerrar acciones" style={styles.closeButton}>

@@ -51,13 +51,7 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="TaskHistory"
             component={TaskHistoryScreen}
-            options={{
-                headerShown: true,
-                title: 'Historial de tareas',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="NewChat"
@@ -92,7 +86,7 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="PingAI"
             component={AgentPreviewScreen}
-            options={{ headerShown: false }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
     </ConversationsStackNav.Navigator>
     );

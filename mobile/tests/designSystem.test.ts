@@ -182,3 +182,22 @@ describe('Shared content in the new design', () => {
         expect(read('components/shared-content/SharedContentActionSheet.tsx')).toContain('<SheetFill />');
     });
 });
+
+describe('Task history and the Ping screen in the new design', () => {
+    const screens = ['screens/TaskHistoryScreen.tsx', 'screens/AgentPreviewScreen.tsx'];
+    for (const file of screens) {
+        const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf-8');
+        it(`${file} uses the design tokens only`, () => {
+            expect(source).not.toContain('useAppTheme');
+            expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+            expect(source).not.toContain('rgba(');
+        });
+    }
+
+    it('Ping draws its own frosted bar and keeps measuring it for the keyboard', () => {
+        const source = fs.readFileSync(path.join(__dirname, '../src/screens/AgentPreviewScreen.tsx'), 'utf-8');
+        expect(source).toContain('<PingOrb');
+        expect(source).toContain('<SheetFill />');
+        expect(source).not.toContain('SafeAreaView');
+    });
+});
