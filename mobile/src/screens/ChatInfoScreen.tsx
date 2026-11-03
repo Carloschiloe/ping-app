@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ChatInfoScreenProps } from '../navigation/types';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -25,12 +27,14 @@ import {
 import { uploadToSupabase } from '../lib/upload';
 import { GroupMembersSection } from '../components/chat-info/GroupMembersSection';
 import { SharedContentThumbnail } from '../components/shared-content/SharedContentThumbnail';
-import { useAppTheme } from '../theme/ThemeContext';
 import { EMPTY_SHARED_CONTENT_SUMMARY, sharedContentCount } from '../utils/sharedContent';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
+import { ScreenHeader } from '../design/ScreenHeader';
 
 export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProps) {
-    const { theme } = useAppTheme();
-    const styles = useMemo(() => createStyles(theme), [theme]);
+    const insets = useSafeAreaInsets();
     const { user } = useAuth();
     const { conversationId, groupMetadata, otherUser, isGroup, isSelf } = route.params;
     const { data: convData } = useConversations();
@@ -130,107 +134,194 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
     );
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={handlePickGroupImage} disabled={!isAdmin || isUpdatingAvatar} style={styles.avatar} accessibilityLabel={isAdmin ? 'Cambiar imagen del grupo' : undefined}>
-                    {isUpdatingAvatar ? <ActivityIndicator color={theme.colors.white} /> : avatarUrl
-                        ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                        : <Text style={styles.initials}>{initials}</Text>}
-                    {isAdmin && <View style={styles.camera}><Ionicons name="camera" size={16} color={theme.colors.white} /></View>}
-                </TouchableOpacity>
-                {isEditingName ? (
-                    <View style={styles.editRow}>
-                        <TextInput value={tempName} onChangeText={setTempName} onSubmitEditing={saveName} autoFocus style={styles.nameInput} />
-                        <TouchableOpacity onPress={saveName}><Ionicons name="checkmark-circle" size={28} color={theme.colors.success} /></TouchableOpacity>
-                        <TouchableOpacity onPress={() => setIsEditingName(false)}><Ionicons name="close-circle" size={28} color={theme.colors.danger} /></TouchableOpacity>
-                    </View>
-                ) : (
-                    <View style={styles.nameRow}>
-                        <Text style={styles.name}>{name}</Text>
-                        {isAdmin && <TouchableOpacity onPress={() => { setTempName(name); setIsEditingName(true); }}><Ionicons name="pencil" size={17} color={theme.colors.text.secondary} /></TouchableOpacity>}
-                    </View>
+        <View style={styles.container}>
+            <ScreenHeader title={isGroup ? 'Info del grupo' : 'Info del chat'} onBack={() => navigation.goBack()} />
+            <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, space.lg) + space.xl }]}>
+                <View style={styles.heroWrap}>
+                    <Glass style={styles.hero} intensity={30} tint={colors.glassTintLight}>
+                        <TouchableOpacity onPress={handlePickGroupImage} disabled={!isAdmin || isUpdatingAvatar} style={styles.avatarRing} accessibilityLabel={isAdmin ? 'Cambiar imagen del grupo' : undefined}>
+                            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
+                                {isUpdatingAvatar ? <ActivityIndicator color={colors.onAccent} /> : avatarUrl
+                                    ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                                    : <Text style={styles.initials}>{initials}</Text>}
+                            </LinearGradient>
+                            {isAdmin && <View style={styles.camera}><Ionicons name="camera" size={14} color={colors.onAccent} /></View>}
+                        </TouchableOpacity>
+                        {isEditingName ? (
+                            <View style={styles.editRow}>
+                                <TextInput
+                                    value={tempName}
+                                    onChangeText={setTempName}
+                                    onSubmitEditing={saveName}
+                                    autoFocus
+                                    style={styles.nameInput}
+                                    selectionColor={colors.accent}
+                                />
+                                <TouchableOpacity onPress={saveName} accessibilityLabel="Guardar nombre"><Ionicons name="checkmark-circle" size={30} color={colors.success} /></TouchableOpacity>
+                                <TouchableOpacity onPress={() => setIsEditingName(false)} accessibilityLabel="Cancelar"><Ionicons name="close-circle" size={30} color={colors.textFaint} /></TouchableOpacity>
+                            </View>
+                        ) : (
+                            <View style={styles.nameRow}>
+                                <Text style={styles.name} numberOfLines={2}>{name}</Text>
+                                {isAdmin && (
+                                    <TouchableOpacity onPress={() => { setTempName(name); setIsEditingName(true); }} accessibilityLabel="Cambiar nombre del grupo" hitSlop={8}>
+                                        <Ionicons name="pencil" size={16} color={colors.textSoft} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
+                        {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+                        {isAdmin && (
+                            <TouchableOpacity style={styles.compactAction} onPress={() => navigation.navigate('AddParticipants', { conversationId })} activeOpacity={0.85}>
+                                <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                                <Ionicons name="person-add-outline" size={17} color={colors.onAccent} />
+                                <Text style={styles.compactActionText}>Añadir participante</Text>
+                            </TouchableOpacity>
+                        )}
+                    </Glass>
+                </View>
+
+                <Text style={styles.sectionTitle}>ARCHIVOS Y CONTENIDO</Text>
+                <View>
+                    <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+                    {summaryQuery.isError && (
+                        <TouchableOpacity style={styles.errorRow} onPress={() => summaryQuery.refetch()}>
+                            <Ionicons name="refresh" size={15} color={colors.danger} />
+                            <Text style={styles.errorText}>No se pudo cargar. Toca para reintentar.</Text>
+                        </TouchableOpacity>
+                    )}
+                    {categories.map((category, index) => (
+                        <TouchableOpacity key={category.key} style={styles.contentRow} onPress={() => openCategory(category.key)}>
+                            {index > 0 && <View pointerEvents="none" style={styles.divider} />}
+                            <View style={styles.contentIcon}><Ionicons name={category.icon} size={20} color={colors.accentBright} /></View>
+                            <View style={styles.contentInfo}>
+                                <Text style={styles.contentTitle}>{category.title}</Text>
+                                {category.key === 'visual' && recentVisuals.length > 0 ? (
+                                    <View style={styles.previewRow}>{recentVisuals.slice(0, 3).map((item) => <SharedContentThumbnail key={item.id} item={item} size={48} />)}</View>
+                                ) : (
+                                    <Text style={styles.contentEmpty}>{summaryQuery.isLoading ? 'Cargando…' : sharedContentCount(summary, category.key) === 0 ? 'Sin contenido' : 'Ver contenido compartido'}</Text>
+                                )}
+                            </View>
+                            {summaryQuery.isLoading
+                                ? <ActivityIndicator size="small" color={colors.textFaint} />
+                                : <Text style={styles.count}>{sharedContentCount(summary, category.key)}</Text>}
+                            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+                        </TouchableOpacity>
+                    ))}
+                </View>
+
+                {isGroup && (
+                    <GroupMembersSection
+                        members={members}
+                        isAdmin={isAdmin}
+                        currentUserId={user?.id}
+                        isUpdatingParticipantRole={isUpdatingParticipantRole}
+                        onToggleAdmin={toggleAdmin}
+                    />
                 )}
-                <Text style={styles.subtitle}>{subtitle}</Text>
+
                 {isAdmin && (
-                    <TouchableOpacity style={styles.compactAction} onPress={() => navigation.navigate('AddParticipants', { conversationId })}>
-                        <Ionicons name="person-add-outline" size={20} color={theme.colors.accent} />
-                        <Text style={styles.compactActionText}>Añadir participante</Text>
-                    </TouchableOpacity>
+                    <View style={styles.deleteWrap}>
+                        <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+                        <TouchableOpacity style={styles.deleteButton} onPress={confirmDeleteGroup} disabled={isDeleting}>
+                            <Ionicons name="trash-outline" size={19} color={colors.danger} />
+                            <Text style={styles.deleteText}>{isDeleting ? 'Eliminando…' : 'Eliminar grupo'}</Text>
+                        </TouchableOpacity>
+                    </View>
                 )}
-            </View>
-
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Archivos y contenido</Text>
-                {summaryQuery.isError && (
-                    <TouchableOpacity style={styles.errorRow} onPress={() => summaryQuery.refetch()}>
-                        <Text style={styles.errorText}>No se pudo cargar. Toca para reintentar.</Text>
-                    </TouchableOpacity>
-                )}
-                {categories.map((category) => (
-                    <TouchableOpacity key={category.key} style={styles.contentRow} onPress={() => openCategory(category.key)}>
-                        <View style={styles.contentIcon}><Ionicons name={category.icon} size={23} color={theme.colors.accent} /></View>
-                        <View style={styles.contentInfo}>
-                            <Text style={styles.contentTitle}>{category.title}</Text>
-                            {category.key === 'visual' && recentVisuals.length > 0 ? (
-                                <View style={styles.previewRow}>{recentVisuals.slice(0, 3).map((item) => <SharedContentThumbnail key={item.id} item={item} size={48} />)}</View>
-                            ) : (
-                                <Text style={styles.contentEmpty}>{summaryQuery.isLoading ? 'Cargandoâ€¦' : sharedContentCount(summary, category.key) === 0 ? 'Sin contenido' : 'Ver contenido compartido'}</Text>
-                            )}
-                        </View>
-                        {summaryQuery.isLoading
-                            ? <ActivityIndicator size="small" />
-                            : <Text style={styles.count}>{sharedContentCount(summary, category.key)}</Text>}
-                        <Ionicons name="chevron-forward" size={21} color={theme.colors.text.muted} />
-                    </TouchableOpacity>
-                ))}
-            </View>
-
-            {isGroup && (
-                <GroupMembersSection
-                    members={members}
-                    isAdmin={isAdmin}
-                    currentUserId={user?.id}
-                    isUpdatingParticipantRole={isUpdatingParticipantRole}
-                    onToggleAdmin={toggleAdmin}
-                />
-            )}
-
-            {isAdmin && (
-                <TouchableOpacity style={styles.deleteButton} onPress={confirmDeleteGroup} disabled={isDeleting}>
-                    <Ionicons name="trash-outline" size={19} color={theme.colors.danger} />
-                    <Text style={styles.deleteText}>{isDeleting ? 'Eliminandoâ€¦' : 'Eliminar grupo'}</Text>
-                </TouchableOpacity>
-            )}
-        </ScrollView>
+            </ScrollView>
+        </View>
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.colors.background },
-    content: { paddingBottom: theme.spacing.xl },
-    header: { alignItems: 'center', backgroundColor: theme.colors.surface, padding: theme.spacing.lg, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-    avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 12 },
+const AVATAR = 92;
+
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: 'transparent' },
+    content: { paddingTop: space.lg },
+    heroWrap: { paddingHorizontal: space.lg },
+    hero: {
+        borderRadius: radius.xl,
+        borderTopColor: colors.glassEdge,
+        alignItems: 'center',
+        paddingTop: space.xxl,
+        paddingBottom: space.xl,
+        paddingHorizontal: space.xl,
+    },
+    avatarRing: {
+        padding: 3,
+        borderRadius: radius.xl + 3,
+        borderWidth: 1.5,
+        borderColor: colors.accentBright,
+        marginBottom: space.md,
+    },
+    avatar: { width: AVATAR, height: AVATAR, borderRadius: radius.xl, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     avatarImage: { width: '100%', height: '100%' },
-    initials: { color: theme.colors.white, fontSize: 32, fontWeight: '800' },
-    camera: { position: 'absolute', right: 5, bottom: 5, width: 27, height: 27, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.overlay },
-    nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    name: { color: theme.colors.text.primary, fontSize: 23, fontWeight: '800' },
-    subtitle: { color: theme.colors.text.secondary, marginTop: 5 },
-    editRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' },
-    nameInput: { flex: 1, color: theme.colors.text.primary, fontSize: 19, fontWeight: '700', borderBottomWidth: 1, borderBottomColor: theme.colors.accent, paddingVertical: 5 },
-    compactAction: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 16, paddingHorizontal: 13, paddingVertical: 9, borderRadius: theme.borderRadius.full, backgroundColor: theme.colors.accentSoft },
-    compactActionText: { color: theme.colors.accent, fontWeight: '700', fontSize: 13 },
-    section: { marginTop: 9, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.border },
-    sectionTitle: { color: theme.colors.text.primary, fontSize: 16, fontWeight: '800', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-    contentRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.colors.separator, gap: 12 },
-    contentIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentSoft },
+    initials: { fontFamily: fonts.bold, fontSize: 32, color: colors.onAccent },
+    camera: {
+        position: 'absolute',
+        right: -4,
+        bottom: -4,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accent,
+        borderWidth: 2,
+        borderColor: colors.ink,
+    },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, maxWidth: '100%' },
+    name: { ...type.title, fontSize: 23, textAlign: 'center', flexShrink: 1 },
+    subtitle: { ...type.subhead, marginTop: 4, textAlign: 'center' },
+    editRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, width: '100%' },
+    nameInput: {
+        flex: 1,
+        fontFamily: fonts.semibold,
+        fontSize: 19,
+        color: colors.text,
+        borderBottomWidth: 1.5,
+        borderBottomColor: colors.accent,
+        paddingVertical: 5,
+    },
+    compactAction: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+        marginTop: space.lg,
+        paddingHorizontal: space.lg,
+        paddingVertical: 10,
+        borderRadius: radius.full,
+        overflow: 'hidden',
+    },
+    compactActionText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.onAccent },
+    sectionTitle: { ...type.overline, marginTop: space.xxl, marginBottom: space.sm, marginLeft: space.xl },
+    band: { borderLeftWidth: 0, borderRightWidth: 0 },
+    contentRow: {
+        minHeight: 68,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: space.xl,
+        paddingVertical: space.md,
+        gap: space.md,
+    },
+    divider: {
+        position: 'absolute',
+        top: 0,
+        left: space.xl + 40 + space.md,
+        right: 0,
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.separator,
+    },
+    contentIcon: { width: 40, height: 40, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentTint },
     contentInfo: { flex: 1 },
-    contentTitle: { color: theme.colors.text.primary, fontSize: 15, fontWeight: '700' },
-    contentEmpty: { color: theme.colors.text.muted, fontSize: 12, marginTop: 4 },
-    previewRow: { flexDirection: 'row', gap: 5, marginTop: 8 },
-    count: { color: theme.colors.text.secondary, fontWeight: '700', minWidth: 24, textAlign: 'right' },
-    errorRow: { marginHorizontal: 16, marginBottom: 8, padding: 10, borderRadius: theme.borderRadius.md, backgroundColor: theme.colors.surfaceMuted },
-    errorText: { color: theme.colors.danger, fontSize: 12 },
-    deleteButton: { marginTop: 9, backgroundColor: theme.colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 16 },
-    deleteText: { color: theme.colors.danger, fontWeight: '700' },
+    contentTitle: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
+    contentEmpty: { ...type.caption, color: colors.textFaint, marginTop: 3 },
+    previewRow: { flexDirection: 'row', gap: 5, marginTop: space.sm },
+    count: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft, minWidth: 24, textAlign: 'right' },
+    errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: space.xl, marginTop: space.md, padding: 10, borderRadius: radius.md, backgroundColor: colors.dangerTint },
+    errorText: { ...type.caption, color: colors.danger },
+    deleteWrap: { marginTop: space.xxl },
+    deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, paddingVertical: 15 },
+    deleteText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.danger },
 });

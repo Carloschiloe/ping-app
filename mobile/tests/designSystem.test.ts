@@ -137,3 +137,27 @@ describe('New chat and new group in the new design', () => {
         }
     });
 });
+
+describe('Chat info and add participants in the new design', () => {
+    const files = [
+        'screens/ChatInfoScreen.tsx',
+        'screens/AddParticipantsScreen.tsx',
+        'components/chat-info/GroupMembersSection.tsx',
+        'components/shared-content/SharedContentThumbnail.tsx',
+    ];
+
+    it('read every color from the design tokens', () => {
+        for (const file of files) {
+            const source = read(file);
+            expect(source, file).not.toContain('useAppTheme');
+            expect(source, file).not.toMatch(/['"]#[0-9a-fA-F]{3,8}['"]/);
+            expect(source, file).not.toMatch(/rgba\(/);
+        }
+        expect(read('screens/ChatInfoScreen.tsx')).toContain('<ScreenHeader');
+        expect(read('screens/AddParticipantsScreen.tsx')).toContain('<ScreenHeader');
+    });
+
+    it('reads the people list out of the search answer', () => {
+        expect(read('screens/AddParticipantsScreen.tsx')).toContain('searchResults?.users || []');
+    });
+});

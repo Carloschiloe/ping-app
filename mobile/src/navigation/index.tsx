@@ -72,13 +72,7 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="ChatInfo"
             component={ChatInfoScreen}
-            options={{
-                headerShown: true,
-                title: 'Info del Chat',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="SharedContent"
@@ -105,13 +99,7 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="AddParticipants"
             component={AddParticipantsScreen}
-            options={{
-                headerShown: true,
-                title: 'Añadir Integrantes',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="PingAI"

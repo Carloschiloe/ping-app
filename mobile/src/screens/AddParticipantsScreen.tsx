@@ -1,15 +1,22 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useUserSearch, useConversations, useAddGroupParticipants } from '../api/queries';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import type { AddParticipantsScreenProps } from '../navigation/types';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
+import { Glass } from '../design/Glass';
+import { ScreenHeader, avatarGradient } from '../design/ScreenHeader';
 
 export default function AddParticipantsScreen() {
     const route = useRoute<AddParticipantsScreenProps['route']>();
     const navigation = useNavigation<AddParticipantsScreenProps['navigation']>();
     const { user } = useAuth();
+    const insets = useSafeAreaInsets();
 
     const conversationId = route.params?.conversationId;
 
@@ -51,23 +58,26 @@ export default function AddParticipantsScreen() {
         );
     };
 
-    const displayResults = (searchResults || []).filter((u: any) => !excludeIds.has(u.id));
+    const displayResults = (searchResults?.users || []).filter((u: any) => !excludeIds.has(u.id));
 
     return (
         <View style={styles.container}>
-            <View style={styles.searchBox}>
-                <Ionicons name="search" size={20} color="#9ca3af" />
+            <ScreenHeader title="Añadir integrantes" onBack={() => navigation.goBack()} />
+            <Glass style={styles.searchBox}>
+                <Ionicons name="search" size={17} color={colors.textFaint} />
                 <TextInput
                     style={styles.searchInput}
                     placeholder="Buscar por correo..."
+                    placeholderTextColor={colors.textFaint}
+                    selectionColor={colors.accent}
                     value={searchQuery}
                     onChangeText={setSearchQuery}
                     autoCapitalize="none"
                     autoCorrect={false}
                 />
-            </View>
+            </Glass>
 
-            {isSearching && <ActivityIndicator style={{ marginTop: 20 }} color="#1e3a5f" />}
+            {isSearching && <ActivityIndicator style={styles.loading} color={colors.accentBright} />}
 
             {!isSearching && searchQuery.length > 2 && displayResults.length === 0 && (
                 <Text style={styles.emptyText}>No se encontraron usuarios nuevos</Text>
@@ -77,33 +87,43 @@ export default function AddParticipantsScreen() {
                 data={displayResults}
                 keyExtractor={(item) => item.id}
                 style={styles.list}
-                renderItem={({ item }) => {
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item, index }) => {
                     const isSelected = selectedUsers.some(su => su.id === item.id);
                     const displayName = item.full_name || item.email;
+                    const first = index === 0;
+                    const last = index === displayResults.length - 1;
                     return (
-                        <TouchableOpacity style={styles.userRow} activeOpacity={0.7} onPress={() => toggleUser(item)}>
-                            <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>{displayName.substring(0, 2).toUpperCase()}</Text>
-                            </View>
-                            <View style={styles.userIdentity}>
-                                <Text style={styles.nameText}>{displayName}</Text>
-                                {!!item.full_name && <Text style={styles.emailText}>{item.email}</Text>}
-                            </View>
-                            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                                {isSelected && <Ionicons name="checkmark" size={16} color="white" />}
-                            </View>
-                        </TouchableOpacity>
+                        <View style={[first && styles.bandFirst, last && styles.bandLast]}>
+                            <Glass style={[StyleSheet.absoluteFill, styles.bandGlass]} intensity={22} tint={isSelected ? colors.accentTint : colors.glassTintLight} />
+                            <TouchableOpacity style={styles.userRow} activeOpacity={0.7} onPress={() => toggleUser(item)} accessibilityState={{ selected: isSelected }}>
+                                <LinearGradient colors={avatarGradient(displayName)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
+                                    <Text style={styles.avatarText}>{displayName.substring(0, 2).toUpperCase()}</Text>
+                                </LinearGradient>
+                                <View style={styles.userIdentity}>
+                                    <Text style={styles.nameText} numberOfLines={1}>{displayName}</Text>
+                                    {!!item.full_name && <Text style={styles.emailText} numberOfLines={1}>{item.email}</Text>}
+                                </View>
+                                <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                                    {isSelected && <Ionicons name="checkmark" size={15} color={colors.onAccent} />}
+                                </View>
+                            </TouchableOpacity>
+                            {!last && <View pointerEvents="none" style={styles.bandSeparator} />}
+                        </View>
                     );
                 }}
             />
 
             {selectedUsers.length > 0 && (
-                <View style={styles.footer}>
-                    <TouchableOpacity style={[styles.btn, isPending && { opacity: 0.6 }]} onPress={handleAdd} disabled={isPending}>
+                <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
+                    <TouchableOpacity style={[styles.btn, isPending && styles.btnBusy]} onPress={handleAdd} disabled={isPending} activeOpacity={0.85}>
+                        <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                         {isPending ? (
-                            <ActivityIndicator color="white" />
+                            <ActivityIndicator color={colors.onAccent} />
                         ) : (
-                            <Text style={styles.btnText}>Añadir {selectedUsers.length} participante(s)</Text>
+                            <Text style={styles.btnText}>
+                                Añadir {selectedUsers.length} {selectedUsers.length === 1 ? 'participante' : 'participantes'}
+                            </Text>
                         )}
                     </TouchableOpacity>
                 </View>
@@ -113,37 +133,42 @@ export default function AddParticipantsScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: 'white' },
+    container: { flex: 1, backgroundColor: 'transparent' },
     searchBox: {
-        flexDirection: 'row', alignItems: 'center',
-        margin: 16, paddingHorizontal: 16, height: 48,
-        backgroundColor: '#f3f4f6', borderRadius: 24,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        margin: space.lg,
+        paddingHorizontal: 14,
+        height: 46,
+        borderRadius: radius.md,
     },
-    searchInput: { flex: 1, marginLeft: 10, fontSize: 16, color: '#111827' },
+    searchInput: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
+    loading: { marginTop: space.xl },
     list: { flex: 1 },
-    userRow: {
-        flexDirection: 'row', alignItems: 'center', padding: 16,
-        borderBottomWidth: 1, borderBottomColor: '#f3f4f6'
-    },
-    avatar: {
-        width: 44, height: 44, borderRadius: 22, backgroundColor: '#1e3a5f',
-        alignItems: 'center', justifyContent: 'center', marginRight: 12
-    },
-    avatarText: { color: 'white', fontWeight: '700', fontSize: 16 },
-    userIdentity: { flex: 1 },
-    nameText: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
-    emailText: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+    bandGlass: { borderWidth: 0 },
+    bandFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.glassBorder },
+    bandLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
+    bandSeparator: { position: 'absolute', left: 78, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+    userRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.md },
+    avatar: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+    avatarText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.silver },
+    userIdentity: { flex: 1, minWidth: 0 },
+    nameText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
+    emailText: { ...type.caption, color: colors.textFaint, marginTop: 2 },
     checkbox: {
-        width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#d1d5db',
-        alignItems: 'center', justifyContent: 'center'
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: colors.textFaint,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    checkboxSelected: { backgroundColor: '#10b981', borderColor: '#10b981' },
-    emptyText: { textAlign: 'center', marginTop: 20, color: '#6b7280', fontSize: 15 },
-    footer: {
-        padding: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', backgroundColor: 'white'
-    },
-    btn: {
-        backgroundColor: '#1e3a5f', paddingVertical: 14, borderRadius: 25, alignItems: 'center'
-    },
-    btnText: { color: 'white', fontSize: 16, fontWeight: '600' }
+    checkboxSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
+    emptyText: { ...type.subhead, textAlign: 'center', marginTop: space.xl },
+    footer: { paddingHorizontal: space.xl, paddingTop: space.md },
+    btn: { height: 52, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+    btnBusy: { opacity: 0.6 },
+    btnText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.onAccent },
 });
