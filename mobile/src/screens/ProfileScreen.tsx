@@ -550,8 +550,8 @@ const styles = StyleSheet.create({
     rowStatusActive: { color: colors.accentBright },
     chevron: { marginLeft: space.xs },
 
-    hourRow: { paddingTop: space.xs, paddingLeft: space.xl + 34 + space.md },
-    hourChips: { flexDirection: 'row', gap: 6, marginLeft: 'auto' },
+    hourRow: { flexDirection: 'column', alignItems: 'flex-start', gap: space.sm, paddingTop: 0, paddingLeft: space.xl + 34 + space.md },
+    hourChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
     hourChip: {
         minWidth: 34,
         height: 34,
