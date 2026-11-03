@@ -20,7 +20,7 @@ import { EditProfileSheet } from '../components/perfil/EditProfileSheet';
 import { CalendarsSheet } from '../components/perfil/CalendarsSheet';
 import { FocusModeSheet } from '../components/perfil/FocusModeSheet';
 import { MemorySheet } from '../components/perfil/MemorySheet';
-import { TAB_BAR_CLEARANCE } from '../design/GlassTabBar';
+import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 
 export default function ProfileScreen() {
     const { theme } = useAppTheme();

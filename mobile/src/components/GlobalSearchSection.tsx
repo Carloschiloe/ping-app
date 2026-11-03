@@ -48,7 +48,7 @@ export function GlobalSearchSection({ section, searchQuery, styles, onPress }: G
                                 <Ionicons
                                     name={item.type === 'person' ? 'person' : (item.type === 'group' ? 'people' : (section.type === 'tasks' ? 'calendar' : 'chatbubble'))}
                                     size={15}
-                                    color={colors.gold}
+                                    color={colors.accentBright}
                                 />
                             </View>
                         )}

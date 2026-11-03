@@ -6,7 +6,7 @@ import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
 import { useAppTheme } from '../theme/ThemeContext';
-import { GlassTabBar } from '../design/GlassTabBar';
+import { FloatingTabBar } from '../design/FloatingTabBar';
 
 import AuthScreen from '../screens/AuthScreen';
 import PasswordRecoveryScreen from '../screens/PasswordRecoveryScreen';
@@ -135,7 +135,7 @@ const ConversationsStack = () => {
 
 const MainTabs = () => (
     <Tab.Navigator
-        tabBar={(props) => <GlassTabBar {...props} />}
+        tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true }}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />

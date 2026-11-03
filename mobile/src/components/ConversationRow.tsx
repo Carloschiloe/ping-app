@@ -104,7 +104,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
     const press = useSharedValue(0);
     const pressStyle = useAnimatedStyle(() => ({
         transform: [{ scale: 1 - press.value * 0.02 }],
-        backgroundColor: interpolateColor(press.value, [0, 1], [colors.ink, colors.graphiteRaised]),
+        backgroundColor: interpolateColor(press.value, [0, 1], [colors.panel, colors.panelPressed]),
     }));
 
     const ticks = (() => {
@@ -143,7 +143,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
                         ) : (
                             <LinearGradient colors={avatarGradient(colorStr)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarFill}>
                                 {isSelf
-                                    ? <Ionicons name="bookmark" size={20} color={colors.gold} />
+                                    ? <Ionicons name="bookmark" size={20} color={colors.accentBright} />
                                     : <Text style={styles.avatarText}>{initials}</Text>}
                             </LinearGradient>
                         )}
@@ -155,7 +155,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
                     <View style={styles.topRow}>
                         <View style={styles.nameRow}>
                             <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{displayName}</Text>
-                            {pinned && <Ionicons name="pin" size={12} color={colors.gold} style={styles.pin} />}
+                            {pinned && <Ionicons name="pin" size={13} color={colors.textFaint} style={styles.pin} />}
                         </View>
                         {lastMsg && <Text style={[styles.time, isUnread && styles.timeUnread]}>{formatTime(lastMsg.created_at)}</Text>}
                     </View>
@@ -165,7 +165,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
                             <Text style={[styles.preview, isUnread && styles.previewUnread, isTyping && styles.previewTyping]} numberOfLines={1}>{preview}</Text>
                         </View>
                         {unreadCount > 0 ? (
-                            <LinearGradient colors={gradients.gold} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.badge}>
+                            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.badge}>
                                 <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
                             </LinearGradient>
                         ) : isUnread ? <View style={styles.unreadDot} /> : null}
@@ -186,14 +186,14 @@ const styles = StyleSheet.create({
     },
     avatarWrap: { position: 'relative' },
     avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: 18, overflow: 'hidden' },
-    avatarOperation: { borderWidth: 1.5, borderColor: colors.gold },
+    avatarOperation: { borderWidth: 1.5, borderColor: colors.accent },
     avatarFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     avatarImage: { width: '100%', height: '100%' },
-    avatarText: { fontFamily: fonts.bold, fontSize: 17, color: colors.goldBright, letterSpacing: 0.5 },
+    avatarText: { fontFamily: fonts.bold, fontSize: 17, color: colors.silver, letterSpacing: 0.5 },
     onlineDot: {
         position: 'absolute', right: -2, bottom: -2,
         width: 14, height: 14, borderRadius: 7,
-        backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.ink,
+        backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.panel,
     },
     info: {
         flex: 1,
@@ -205,14 +205,14 @@ const styles = StyleSheet.create({
     nameUnread: { fontFamily: fonts.extrabold },
     pin: { marginLeft: 6 },
     time: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint },
-    timeUnread: { fontFamily: fonts.bold, color: colors.gold },
+    timeUnread: { fontFamily: fonts.bold, color: colors.accentBright },
     bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     previewWrap: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: space.md },
     tickGap: { marginRight: 5 },
     preview: { fontFamily: fonts.regular, fontSize: 14, color: colors.textFaint, flexShrink: 1 },
     previewUnread: { fontFamily: fonts.semibold, color: colors.textSoft },
-    previewTyping: { fontFamily: fonts.semibold, color: colors.gold },
+    previewTyping: { fontFamily: fonts.semibold, color: colors.accentBright },
     badge: { minWidth: 22, height: 22, borderRadius: radius.full, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center' },
-    badgeText: { fontFamily: fonts.extrabold, fontSize: 11.5, color: colors.onGold },
-    unreadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.gold },
+    badgeText: { fontFamily: fonts.extrabold, fontSize: 11.5, color: colors.onAccent },
+    unreadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
 });

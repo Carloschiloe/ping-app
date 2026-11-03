@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const read = (file: string) => fs.readFileSync(path.join(__dirname, '../src', file), 'utf8');
 
-describe('Graphite and gold design', () => {
+describe('Silver and blue design', () => {
     const chats = read('screens/ConversationsScreen.tsx');
     const row = read('components/ConversationRow.tsx');
     const nav = read('navigation/index.tsx');
@@ -17,8 +17,8 @@ describe('Graphite and gold design', () => {
         }
     });
 
-    it('the tab bar is the floating glass bar', () => {
-        expect(nav).toContain('tabBar={(props) => <GlassTabBar {...props} />}');
+    it('the tab bar is the floating satin bar', () => {
+        expect(nav).toContain('tabBar={(props) => <FloatingTabBar {...props} />}');
         expect(nav).not.toContain('tabBarStyle');
     });
 

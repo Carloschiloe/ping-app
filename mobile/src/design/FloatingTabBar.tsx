@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Glass } from './Glass';
+import { Panel } from './Panel';
 import { colors, gradients, radius } from './tokens';
 import { fonts } from './typography';
 
@@ -36,17 +36,17 @@ function TabButton({ label, focused, onPress }: { label: string; focused: boolea
         >
             <View style={styles.iconWrap}>
                 <Animated.View style={[StyleSheet.absoluteFill, pill]}>
-                    <LinearGradient colors={gradients.gold} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.pill} />
+                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.pill} />
                 </Animated.View>
-                <Ionicons name={focused ? active : idle} size={21} color={focused ? colors.onGold : colors.textSoft} />
+                <Ionicons name={focused ? active : idle} size={21} color={focused ? colors.onAccent : colors.textSoft} />
             </View>
             <Text style={[styles.label, focused && styles.labelActive]}>{label}</Text>
         </Pressable>
     );
 }
 
-// Floating frosted bar with a gold pill under the active tab.
-export function GlassTabBar({ state, navigation }: BottomTabBarProps) {
+// Floating satin bar with a blue pill under the active tab.
+export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     const insets = useSafeAreaInsets();
     const focusedOptions = state.routes[state.index];
     const nested = (focusedOptions.state as any)?.index ?? 0;
@@ -55,7 +55,7 @@ export function GlassTabBar({ state, navigation }: BottomTabBarProps) {
 
     return (
         <View pointerEvents="box-none" style={[styles.wrap, { bottom: Math.max(insets.bottom, 12) }]}>
-            <Glass style={styles.bar} intensity={50}>
+            <Panel style={styles.bar}>
                 {state.routes.map((route, index) => {
                     const focused = state.index === index;
                     return (
@@ -71,7 +71,7 @@ export function GlassTabBar({ state, navigation }: BottomTabBarProps) {
                         />
                     );
                 })}
-            </Glass>
+            </Panel>
         </View>
     );
 }
@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     bar: { flexDirection: 'row', height: 66, borderRadius: radius.xl, alignItems: 'center', justifyContent: 'space-around' },
     tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
     iconWrap: { width: 54, height: 32, alignItems: 'center', justifyContent: 'center' },
-    pill: { flex: 1, borderRadius: radius.md },
+    pill: { flex: 1, borderRadius: radius.md, shadowColor: colors.accent, shadowOpacity: 0.7, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
     label: { fontFamily: fonts.semibold, fontSize: 10.5, color: colors.textFaint },
-    labelActive: { color: colors.gold },
+    labelActive: { color: colors.text },
 });
