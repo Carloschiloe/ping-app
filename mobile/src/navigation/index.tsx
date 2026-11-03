@@ -1,13 +1,14 @@
-import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { DarkTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
-import { useAppTheme } from '../theme/ThemeContext';
 import { FloatingTabBar } from '../design/FloatingTabBar';
 import { GlassBackdrop } from '../design/Glass';
+import { PingOrb } from '../design/PingOrb';
+import { colors } from '../design/tokens';
 
 import AuthScreen from '../screens/AuthScreen';
 import PasswordRecoveryScreen from '../screens/PasswordRecoveryScreen';
@@ -31,11 +32,22 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 const ConversationsStackNav = createNativeStackNavigator<ConversationsStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const ConversationsStack = () => {
-    const { theme: appTheme } = useAppTheme();
-    const stackHeaderStyle = { backgroundColor: appTheme.colors.primary };
-    const stackTintColor = appTheme.colors.white;
+// Every screen paints its own glass; the navigator only needs to stay dark
+// underneath so nothing flashes white between screens.
+const navigationTheme = {
+    ...DarkTheme,
+    colors: {
+        ...DarkTheme.colors,
+        background: colors.ink,
+        card: colors.surfaceSolid,
+        text: colors.text,
+        border: colors.separator,
+        primary: colors.accent,
+        notification: colors.accent,
+    },
+};
 
+const ConversationsStack = () => {
     return (
     <ConversationsStackNav.Navigator>
         <ConversationsStackNav.Screen
@@ -115,42 +127,20 @@ const PushNotificationHandler = () => {
 
 export const AppNavigator = () => {
     const { session, initialized, profileComplete, passwordRecoveryPending } = useAuth();
-    const { theme: appTheme, isDark } = useAppTheme();
-
     if (!initialized || (session && profileComplete === null)) {
         return (
-            <View style={styles.loading}>
-                <ActivityIndicator size="large" color="#1e3a5f" />
-            </View>
+            <GlassBackdrop>
+                <View style={styles.loading}>
+                    <PingOrb size={72} />
+                </View>
+            </GlassBackdrop>
         );
     }
 
     return (
         <NavigationContainer
             ref={navigationRef}
-            theme={isDark ? {
-                ...DarkTheme,
-                colors: {
-                    ...DarkTheme.colors,
-                    background: appTheme.colors.background,
-                    card: appTheme.colors.surface,
-                    text: appTheme.colors.text.primary,
-                    border: appTheme.colors.border,
-                    primary: appTheme.colors.primary,
-                    notification: appTheme.colors.accent,
-                },
-            } : {
-                ...DefaultTheme,
-                colors: {
-                    ...DefaultTheme.colors,
-                    background: appTheme.colors.background,
-                    card: appTheme.colors.surface,
-                    text: appTheme.colors.text.primary,
-                    border: appTheme.colors.border,
-                    primary: appTheme.colors.primary,
-                    notification: appTheme.colors.accent,
-                },
-            }}
+            theme={navigationTheme}
         >
             {session && profileComplete && !passwordRecoveryPending && <PushNotificationHandler />}
             <RootStack.Navigator screenOptions={{ headerShown: false }}>
@@ -180,5 +170,5 @@ export const AppNavigator = () => {
 };
 
 const styles = StyleSheet.create({
-    loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white' },
+    loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

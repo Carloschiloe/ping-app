@@ -8,7 +8,6 @@ import { StatusBar } from 'expo-status-bar';
 import { Text, StyleSheet, AppState, AppStateStatus, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LockScreen from './src/components/LockScreen';
-import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
 import NetInfo from '@react-native-community/netinfo';
 import { API_URL } from './src/api/client';
 import { getBackendHealthUrl } from './src/utils/backendHealth';
@@ -123,11 +122,9 @@ export default function App() {
     return (
         <SafeAreaProvider>
             <QueryClientProvider client={queryClient}>
-                <ThemeProvider>
-                    <AuthProvider>
-                        <AppContent />
-                    </AuthProvider>
-                </ThemeProvider>
+                <AuthProvider>
+                    <AppContent />
+                </AuthProvider>
             </QueryClientProvider>
         </SafeAreaProvider>
     );
@@ -135,7 +132,6 @@ export default function App() {
 
 const AppContent = () => {
     const appQueryClient = useQueryClient();
-    const { isDark } = useAppTheme();
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
 
@@ -191,7 +187,7 @@ const AppContent = () => {
             <BackendBanner />
             <AppNavigator />
             {/* SDK 57: expo-status-bar ya no acepta backgroundColor (Android es edge-to-edge por defecto ahora) -- sólo el estilo de contenido sigue siendo configurable. */}
-            <StatusBar style={isDark ? 'light' : 'dark'} />
+            <StatusBar style="light" />
             {isLocked && <LockScreen onUnlock={handleUnlock} />}
         </>
     );

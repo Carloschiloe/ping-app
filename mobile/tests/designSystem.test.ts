@@ -201,3 +201,17 @@ describe('Task history and the Ping screen in the new design', () => {
         expect(source).not.toContain('SafeAreaView');
     });
 });
+
+describe('The old light/dark theme is gone', () => {
+    it('only the sign-in palette is left in src/theme', () => {
+        expect(fs.readdirSync(path.join(__dirname, '../src/theme'))).toEqual(['authTheme.ts']);
+    });
+
+    for (const file of ['navigation/index.tsx', 'components/AgreementParticipantsList.tsx']) {
+        it(`${file} uses the design tokens only`, () => {
+            const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf-8');
+            expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+            expect(source).not.toContain("'white'");
+        });
+    }
+});

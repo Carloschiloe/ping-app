@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { darkTheme, lightTheme } from '../src/theme/theme';
 import type { SharedContentItem } from '../src/types/sharedContent';
 import {
     EMPTY_SHARED_CONTENT_SUMMARY,
@@ -60,13 +59,6 @@ describe('Shared Content mobile presentation', () => {
         expect(sharedContentReadTarget(item)).toEqual({ type: 'attachment', id: 'a1' });
         expect(sharedContentReadTarget({ ...item, id: 'legacy:m1', attachmentId: null, source: 'legacy_message' }))
             .toEqual({ type: 'message', id: 'm1' });
-    });
-
-    it('uses theme tokens with distinct light and dark surfaces', () => {
-        expect(lightTheme.colors.surface).not.toBe(darkTheme.colors.surface);
-        expect(lightTheme.colors.text.primary).not.toBe(darkTheme.colors.text.primary);
-        expect(lightTheme.colors.accent).toBeTruthy();
-        expect(darkTheme.colors.accent).toBeTruthy();
     });
 
     it('focuses loaded and remote-window messages once and handles deletion', () => {

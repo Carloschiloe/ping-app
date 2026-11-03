@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authColors, authLayout } from '../../theme/authTheme';
 import type { AuthMode } from '../../utils/authForm';
@@ -67,6 +68,8 @@ export function AuthScaffold({ children, buildLabel, condensedBrand = false }: A
 
     return (
         <LinearGradient colors={['#f8fbff', '#f4f5ff', '#e9edff']} style={styles.background}>
+            {/* The sign-in screens are light, so the clock and battery go dark. */}
+            <StatusBar style="dark" />
             <View style={styles.decorations}>
                 <Animated.View
                     style={[
