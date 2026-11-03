@@ -5,6 +5,8 @@
 export const colors = {
     ink: '#08090B',
     glassTint: 'rgba(16,18,24,0.42)',
+    // The conversation list: a thin veil that lets the waves show through.
+    glassTintLight: 'rgba(14,16,22,0.16)',
     // Where real blur isn't available the glass turns almost solid.
     glassFallback: 'rgba(26,28,34,0.94)',
     glassBorder: 'rgba(255,255,255,0.16)',

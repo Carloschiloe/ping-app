@@ -1,10 +1,10 @@
 import React from 'react';
 import {
-    View, Text, FlatList, TouchableOpacity, StyleSheet,
+    View, Text, TouchableOpacity, StyleSheet,
     ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated,
     Modal, Image, ActionSheetIOS, Alert, Pressable
 } from 'react-native';
-import Reanimated, { FadeInDown } from 'react-native-reanimated';
+import Reanimated, { Extrapolation, FadeInDown, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useConversations, useGetOrCreateSelfConversation, useMarkConversationAsRead, useMarkConversationAsUnread, useToggleArchive, useCreateConversation } from '../api/queries';
@@ -309,9 +309,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
             ? FadeInDown.delay(index * 40).duration(420)
             : undefined;
         const isPinned = index === undefined;
-        const isLast = isPinned || index === restConversations.length - 1;
+        const first = isPinned || (index === 0 && !pinnedSelf);
+        const last = isPinned ? restConversations.length === 0 : index === restConversations.length - 1;
         return (
-        <RowCard entering={entering} first={isPinned || index === 0} last={isLast}>
+        <RowCard entering={entering} first={first} last={last}>
             <Swipeable
                 ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
                 renderLeftActions={(progress, dragX) => renderLeftActions(progress, dragX, item)}
@@ -333,7 +334,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
             </Swipeable>
         </RowCard>
         );
-    }, [typingUsers, user?.id, navigation, renderLeftActions, renderRightActions, restConversations.length]);
+    }, [typingUsers, user?.id, navigation, renderLeftActions, renderRightActions, restConversations.length, pinnedSelf]);
 
     const handleOpenCreateSheet = React.useCallback(() => {
         // "Para mí" is a first-class pinned row now, not a hidden option here —
@@ -381,6 +382,16 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
     }, [openSelf, navigation]);
 
     const contentPaddingTop = Math.max(insets.top, 16) + 8;
+    // The header floats over the list: as the list scrolls, the big title
+    // shrinks and a frosted bar fades in behind it.
+    const [headerHeight, setHeaderHeight] = React.useState(0);
+    const scrollY = useSharedValue(0);
+    const onScroll = useAnimatedScrollHandler((event) => { scrollY.value = event.contentOffset.y; });
+    const barStyle = useAnimatedStyle(() => ({ opacity: interpolate(scrollY.value, [0, 36], [0, 1], Extrapolation.CLAMP) }));
+    const overlineStyle = useAnimatedStyle(() => ({ opacity: interpolate(scrollY.value, [0, 28], [1, 0], Extrapolation.CLAMP) }));
+    const titleStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: interpolate(scrollY.value, [0, 90], [1, 0.74], Extrapolation.CLAMP) }],
+    }));
     const listPaddingBottom = Math.max(insets.bottom, 12) + TAB_BAR_CLEARANCE;
     const todayLabel = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
 
@@ -390,11 +401,14 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
         <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-                <View style={[styles.header, { paddingTop: contentPaddingTop }]}>
+                <View style={[styles.header, { paddingTop: contentPaddingTop }]} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+                    <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, barStyle]}>
+                        <Glass style={[StyleSheet.absoluteFill, styles.headerGlass]} intensity={55} />
+                    </Reanimated.View>
                     <View style={styles.headerTop}>
                         <View>
-                            <Text style={type.overline}>{todayLabel}</Text>
-                            <Text style={[type.display, styles.title]}>Chats</Text>
+                            <Reanimated.Text style={[type.overline, overlineStyle]}>{todayLabel}</Reanimated.Text>
+                            <Reanimated.Text style={[type.display, styles.title, titleStyle]}>Chats</Reanimated.Text>
                         </View>
                         <View style={styles.headerActions}>
                             <Pressable
@@ -440,28 +454,30 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                 </View>
 
                 {isLoading ? (
-                    <View style={styles.loadingContainer}>
+                    <View style={[styles.loadingContainer, { paddingTop: headerHeight + space.md }]}>
                         {[1, 2, 3, 4, 5, 6].map(i => <ConversationSkeleton key={i} />)}
                     </View>
                 ) : isError && !data ? (
-                    <View style={styles.empty}>
+                    <View style={[styles.empty, { paddingTop: headerHeight + 60 }]}>
                         <Ionicons name="cloud-offline-outline" size={52} color={colors.textFaint} />
                         <Text style={styles.emptyTitle}>No se pudieron cargar tus conversaciones</Text>
                         <Text style={styles.emptySubtitle}>Conservamos tus datos locales y reintentamos al recuperar la conexión.</Text>
                         <View style={styles.emptyActions}>
-                            <GoldButton label="Reintentar" onPress={() => void refetch()} />
+                            <AccentButton label="Reintentar" onPress={() => void refetch()} />
                         </View>
                     </View>
                 ) : isGlobalSearchActive ? (
-                    <FlatList
+                    <Reanimated.FlatList
                         data={globalSections}
+                        onScroll={onScroll}
+                        scrollEventThrottle={16}
                         keyExtractor={item => item.title}
                         renderItem={renderGlobalSection}
                         initialNumToRender={6}
                         maxToRenderPerBatch={8}
                         windowSize={8}
                         keyboardShouldPersistTaps="handled"
-                        contentContainerStyle={{ paddingBottom: listPaddingBottom }}
+                        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: listPaddingBottom }}
                         ListEmptyComponent={() => (
                             <View style={styles.empty}>
                                 {isSearchingGlobal ? <ActivityIndicator color={colors.accent} /> : (
@@ -474,8 +490,10 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         )}
                     />
                 ) : (
-                    <FlatList
+                    <Reanimated.FlatList
                         data={restConversations}
+                        onScroll={onScroll}
+                        scrollEventThrottle={16}
                         keyExtractor={item => item.id}
                         renderItem={renderItem}
                         initialNumToRender={10}
@@ -483,7 +501,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         windowSize={8}
                         removeClippedSubviews={Platform.OS === 'android'}
                         showsVerticalScrollIndicator={false}
-                        contentContainerStyle={{ paddingBottom: listPaddingBottom }}
+                        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: listPaddingBottom }}
                         ListHeaderComponent={() => (
                             <View>
                                 <ScrollView
@@ -500,7 +518,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 </ScrollView>
                                 {pinnedSelf && (
                                     (pinnedSelf as any).isPlaceholder ? (
-                                        <RowCard first last>
+                                        <RowCard first last={restConversations.length === 0}>
                                         <ConversationRow
                                             item={pinnedSelf}
                                             userId={user?.id}
@@ -524,7 +542,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 <Text style={styles.emptyTitle}>{emptyStateCopy}</Text>
                                 {filter === 'all' && (
                                     <View style={styles.emptyActions}>
-                                        <GoldButton label="Nuevo chat" onPress={() => navigation.navigate('NewChat')} />
+                                        <AccentButton label="Nuevo chat" onPress={() => navigation.navigate('NewChat')} />
                                         <GhostButton label="Nuevo grupo" onPress={() => navigation.navigate('NewGroup')} />
                                     </View>
                                 )}
@@ -568,11 +586,11 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
 // One slice of the frosted card that holds the conversation list. Slices
 // stack edge to edge, so the first and last round the card's corners.
 function RowCard({ first, last, entering, children }: { first: boolean; last: boolean; entering?: any; children: React.ReactNode }) {
-    const corners = [first && styles.cardFirst, last && styles.cardLast];
     return (
-        <Reanimated.View entering={entering} style={[styles.cardRow, ...corners, first && last && styles.cardAlone]}>
-            <Glass style={[StyleSheet.absoluteFill, styles.cardGlass, ...corners]} />
+        <Reanimated.View entering={entering} style={[first && styles.bandFirst, last && styles.bandLast]}>
+            <Glass style={[StyleSheet.absoluteFill, styles.bandGlass]} intensity={22} tint={colors.glassTintLight} />
             {children}
+            {!last && <View pointerEvents="none" style={styles.bandSeparator} />}
         </Reanimated.View>
     );
 }
@@ -598,11 +616,11 @@ function FilterChip({ label, active, onPress }: { label: string; active: boolean
     );
 }
 
-function GoldButton({ label, onPress }: { label: string; onPress: () => void }) {
+function AccentButton({ label, onPress }: { label: string; onPress: () => void }) {
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label}>
             <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.button}>
-                <Text style={styles.buttonGoldText}>{label}</Text>
+                <Text style={styles.buttonAccentText}>{label}</Text>
             </LinearGradient>
         </Pressable>
     );
@@ -630,14 +648,14 @@ function ConversationSkeleton() {
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    cardRow: { marginHorizontal: space.lg, overflow: 'hidden', borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
-    cardGlass: { borderWidth: 0 },
-    cardFirst: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, borderTopWidth: StyleSheet.hairlineWidth },
-    cardLast: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, borderBottomWidth: StyleSheet.hairlineWidth },
-    cardAlone: { marginBottom: space.md },
-    header: { paddingHorizontal: space.xl, paddingBottom: space.md },
+    bandGlass: { borderWidth: 0 },
+    bandFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.glassBorder },
+    bandLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder },
+    bandSeparator: { position: 'absolute', left: 86, right: 0, bottom: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+    header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingHorizontal: space.xl, paddingBottom: space.md },
+    headerGlass: { borderWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: space.lg },
-    title: { marginTop: 2 },
+    title: { marginTop: 2, transformOrigin: 'left bottom' },
     headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingBottom: 4 },
     iconButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     orbButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
@@ -662,7 +680,7 @@ const styles = StyleSheet.create({
     emptySubtitle: { ...type.subhead, color: colors.textFaint, marginTop: space.sm, textAlign: 'center' },
     emptyActions: { flexDirection: 'row', gap: 10, marginTop: space.lg },
     button: { height: 42, paddingHorizontal: 18, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-    buttonGoldText: { fontFamily: fonts.bold, fontSize: 14, color: colors.onAccent },
+    buttonAccentText: { fontFamily: fonts.bold, fontSize: 14, color: colors.onAccent },
     buttonGhost: { backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
     buttonGhostText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.text },
     profileViewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.94)', alignItems: 'center', justifyContent: 'center', padding: space.xl },

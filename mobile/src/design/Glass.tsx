@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useRef } from 'react';
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { BlurTargetView, BlurView } from 'expo-blur';
+import { NavigationBar } from 'expo-navigation-bar';
 import { Silk } from './Silk';
 import { colors } from './tokens';
 
@@ -12,6 +13,7 @@ export function GlassBackdrop({ children }: { children: React.ReactNode }) {
     const target = useRef<View | null>(null);
     return (
         <View style={styles.root}>
+            <NavigationBar style="dark" />
             <BlurTargetView ref={target} style={StyleSheet.absoluteFill}>
                 <Silk />
             </BlurTargetView>
@@ -24,10 +26,11 @@ type GlassProps = {
     children?: React.ReactNode;
     style?: StyleProp<ViewStyle>;
     intensity?: number;
+    tint?: string;
 };
 
 // Frosted glass with a thin bright edge.
-export function Glass({ children, style, intensity = 45 }: GlassProps) {
+export function Glass({ children, style, intensity = 45, tint = colors.glassTint }: GlassProps) {
     const target = useContext(BlurTargetContext);
     const canBlur = Platform.OS === 'ios' || !!target;
     return (
@@ -41,7 +44,7 @@ export function Glass({ children, style, intensity = 45 }: GlassProps) {
                     style={StyleSheet.absoluteFill}
                 />
             ) : null}
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: canBlur ? colors.glassTint : colors.glassFallback }]} />
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: canBlur ? tint : colors.glassFallback }]} />
             {children}
         </View>
     );
