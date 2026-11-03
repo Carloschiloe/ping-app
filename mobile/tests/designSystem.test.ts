@@ -26,3 +26,35 @@ describe('Silver and blue design', () => {
         expect(fs.readFileSync(path.join(__dirname, '../App.tsx'), 'utf8')).toContain('if (!fontsLoaded) return null;');
     });
 });
+
+describe('Conversation in the new design', () => {
+    const files = [
+        'screens/ChatScreen.tsx',
+        'components/ChatHeader.tsx',
+        'components/ChatInput.tsx',
+        'components/MessageItem.tsx',
+        'components/AudioPlayer.tsx',
+        'components/PingActivityCard.tsx',
+        'components/chat/DeliveryTicks.tsx',
+    ];
+
+    it('the conversation reads every color from the design tokens', () => {
+        for (const file of files) {
+            const source = read(file);
+            expect(source, file).not.toContain('useAppTheme');
+            expect(source, file).not.toContain("theme/theme'");
+            expect(source, file).not.toMatch(/['"]#[0-9a-fA-F]{3,8}['"]/);
+        }
+    });
+
+    it('draws its own glass header over the waves', () => {
+        const chat = read('screens/ChatScreen.tsx');
+        expect(chat).toContain('<GlassBackdrop>');
+        expect(chat).toContain('<ChatHeader');
+        expect(chat).not.toContain('navigation.setOptions');
+    });
+
+    it('my bubbles are the blue gradient', () => {
+        expect(read('components/MessageItem.tsx')).toContain('colors={gradients.accent}');
+    });
+});

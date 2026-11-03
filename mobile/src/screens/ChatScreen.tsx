@@ -41,11 +41,12 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { theme } from '../theme/theme';
 import { ChatCompositeNavigationProp, ChatScreenProps } from '../navigation/types';
 import { useChatOperation } from '../hooks/useChatOperation';
 import LocationConfirmModal from '../components/LocationConfirmModal';
-import { useAppTheme } from '../theme/ThemeContext';
+import { Glass, GlassBackdrop } from '../design/Glass';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
 import { createClientMessageId } from '../utils/synchronization';
 import {
     canDeleteMessages,
@@ -88,7 +89,7 @@ function formatDateDivider(iso: string) {
     return d.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-const COLORS = ['#0a84ff', '#30d158', '#ff6b35', '#bf5af2', '#ff9f0a', '#32ade6'];
+const COLORS = gradients.avatar.map(([top]) => top);
 function avatarColor(str: string) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -99,8 +100,6 @@ function avatarColor(str: string) {
 
 export default function ChatScreen({ route }: ChatScreenProps) {
     const navigation = useNavigation<ChatCompositeNavigationProp>();
-    const { theme: appTheme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(appTheme), [appTheme]);
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
     const [messageWindowTarget, setMessageWindowTarget] = useState(route.params.scrollToMessageId);
     const handledScrollTargetRef = useRef<string | null>(null);
@@ -292,26 +291,6 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             setIsSummarizing(false);
         }
     }, [conversationId]);
-
-    useEffect(() => {
-        navigation.setOptions({
-            headerTitle: () => (
-                <ChatHeader
-                    chatTitle={isSelf ? 'Para mí' : (isGroup ? groupMetadata?.name : otherUser?.full_name)}
-                    avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
-                    profileId={!isGroup && !isSelf ? otherUser?.id : undefined}
-                    isGroup={!!isGroup}
-                    onPing={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
-                    onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
-                    onMenu={() => setHeaderMenuVisible(true)}
-                    onAvatarPress={(url) => setViewerMedia({ url, type: 'image' })}
-                />
-            ),
-            headerStyle: { backgroundColor: theme.colors.primary },
-            headerTintColor: theme.colors.white,
-            headerRight: () => null, // Explicitly clear any right buttons
-        });
-    }, [navigation, isSelf, isGroup, groupMetadata, otherUser, isSummarizing, conversationMode, handleSummarize, conversationId]);
 
     // ─── Handlers ────────────────────────────────────────────────────────────
 
@@ -774,16 +753,39 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 />
             </>
         );
-    }, [activeOperationCommitment?.id, conversationMode, discardPendingMessage, groupParticipants, groupTasks, highlightedMsgId, isGroup, isMultiSelecting, menuAnim, messages, retryPendingMessage, selectedMessageIds, styles, swipeableRowRefs, toggleSelect, user]);
+    }, [activeOperationCommitment?.id, conversationMode, discardPendingMessage, groupParticipants, groupTasks, highlightedMsgId, isGroup, isMultiSelecting, menuAnim, messages, retryPendingMessage, selectedMessageIds, swipeableRowRefs, toggleSelect, user]);
+
+    // The line under the name says what is happening right now.
+    const isOtherOnline = !isGroup && !isSelf && !!otherUser?.last_seen
+        && Date.now() - new Date(otherUser.last_seen).getTime() < 5 * 60 * 1000;
+    const headerSubtitle = activeTypers.length > 0
+        ? (remoteRecorder ? 'grabando audio…' : 'escribiendo…')
+        : isSelf ? 'Solo tú' : isGroup ? 'Grupo' : isOtherOnline ? 'en línea' : null;
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
+            <GlassBackdrop>
+            <View pointerEvents="none" style={styles.veil} />
+            <StatusBar barStyle="light-content" />
+            <ChatHeader
+                chatTitle={isSelf ? 'Para mí' : (isGroup ? groupMetadata?.name : otherUser?.full_name)}
+                subtitle={headerSubtitle}
+                online={isOtherOnline}
+                avatarUrl={isGroup ? groupMetadata?.avatar_url : otherUser?.avatar_url}
+                profileId={!isGroup && !isSelf ? otherUser?.id : undefined}
+                isGroup={!!isGroup}
+                isSelf={!!isSelf}
+                onBack={() => navigation.goBack()}
+                onPing={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
+                onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
+                onMenu={() => setHeaderMenuVisible(true)}
+                onAvatarPress={(url) => setViewerMedia({ url, type: 'image' })}
+            />
             <KeyboardAvoidingView
                 behavior={getChatKeyboardBehavior(Platform.OS)}
                 style={styles.container}
                 keyboardVerticalOffset={getChatKeyboardOffset(Platform.OS, safeAreaInsets.bottom)}
             >
-                <StatusBar barStyle="light-content" />
 
                 <AISuggestionModal
                     visible={suggestionModalVisible}
@@ -853,7 +855,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     )}
 
                     {isMessagesLoading && messages.length === 0 ? (
-                        <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1e3a5f" />
+                        <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.accentBright} />
                     ) : isMessagesError && messages.length === 0 ? (
                         <View style={styles.messageLoadError}>
                             <Text style={styles.messageLoadErrorText}>No se pudieron cargar los mensajes.</Text>
@@ -864,7 +866,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                 accessibilityLabel="Reintentar cargar mensajes"
                             >
                                 {isMessagesFetching ? (
-                                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                                    <ActivityIndicator size="small" color={colors.accentBright} />
                                 ) : (
                                     <Text style={styles.messageLoadRetry}>Reintentar</Text>
                                 )}
@@ -907,7 +909,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                         });
                                     }, 150);
                                 }}
-                                ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color="#999" /> : null}
+                                ListFooterComponent={() => isFetchingNextPage ? <ActivityIndicator size="small" color={colors.textFaint} /> : null}
                                 contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 10 }}
                             />
                         </>
@@ -916,10 +918,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
                 {activeTypers.length > 0 && (
                     <View style={styles.typingIndicatorContainer}>
-                        <View style={styles.typingRow}>
+                        <Glass style={styles.typingRow} intensity={40}>
                             {remoteRecorder ? (
                                 <View style={styles.remoteRecordingIcon}>
-                                    <Ionicons name="mic" size={16} color={appTheme.colors.white} />
+                                    <Ionicons name="mic" size={16} color={colors.onAccent} />
                                 </View>
                             ) : (
                                 <TypingIndicator />
@@ -933,7 +935,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                     )}`
                                     : 'escribiendo'}
                             </Text>
-                        </View>
+                        </Glass>
                     </View>
                 )}
 
@@ -942,7 +944,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 )}
 
                 {replyingToMsg && (
-                    <View style={styles.replyPreview}>
+                    <Glass style={styles.replyPreview} intensity={50}>
                         <View style={styles.replyPreviewContent}>
                             <Text style={styles.replyPreviewName} numberOfLines={1}>
                                 {replyingToMsg.profiles?.full_name || replyingToMsg.profiles?.email?.split('@')[0] || 'Usuario'}
@@ -952,14 +954,14 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             </Text>
                         </View>
                         <TouchableOpacity onPress={() => setReplyingToMsg(null)}>
-                            <Ionicons name="close-circle" size={20} color="#9ca3af" />
+                            <Ionicons name="close-circle" size={20} color={colors.textFaint} />
                         </TouchableOpacity>
-                    </View>
+                    </Glass>
                 )}
 
                 {(isSending || isPendingCommitment || isPendingSharedProposal || sendingMedia) && (
                     <View style={styles.sendStatusBar}>
-                        <ActivityIndicator size="small" color={theme.colors.text.muted} />
+                        <ActivityIndicator size="small" color={colors.textFaint} />
                         <Text style={styles.sendStatusText}>
                             {sendingMedia
                                 ? 'Subiendo archivo...'
@@ -1005,7 +1007,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 />
 
                 <Modal visible={headerMenuVisible} transparent animationType="fade" onRequestClose={() => setHeaderMenuVisible(false)}>
-                    <TouchableOpacity style={styles.headerMenuOverlay} activeOpacity={1} onPress={() => setHeaderMenuVisible(false)}>
+                    <TouchableOpacity style={[styles.headerMenuOverlay, { paddingTop: safeAreaInsets.top + 58 }]} activeOpacity={1} onPress={() => setHeaderMenuVisible(false)}>
                         <View style={styles.headerMenuCard}>
                             <TouchableOpacity
                                 style={styles.headerMenuItem}
@@ -1014,7 +1016,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                     navigation.navigate('TaskHistory', { conversationId, isGroup: !!isGroup });
                                 }}
                             >
-                                <Ionicons name="time-outline" size={18} color={appTheme.colors.text.primary} />
+                                <Ionicons name="time-outline" size={18} color={colors.text} />
                                 <Text style={styles.headerMenuText}>Historial de tareas</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
@@ -1026,9 +1028,9 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                 disabled={isSummarizing}
                             >
                                 {isSummarizing ? (
-                                    <ActivityIndicator size="small" color={appTheme.colors.accent} />
+                                    <ActivityIndicator size="small" color={colors.accentBright} />
                                 ) : (
-                                    <Ionicons name="sparkles" size={18} color={appTheme.colors.text.primary} />
+                                    <Ionicons name="sparkles" size={18} color={colors.text} />
                                 )}
                                 <Text style={styles.headerMenuText}>Resumen</Text>
                             </TouchableOpacity>
@@ -1039,7 +1041,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                     navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode });
                                 }}
                             >
-                                <Ionicons name="information-circle-outline" size={18} color={appTheme.colors.text.primary} />
+                                <Ionicons name="information-circle-outline" size={18} color={colors.text} />
                                 <Text style={styles.headerMenuText}>Info del chat</Text>
                             </TouchableOpacity>
                         </View>
@@ -1049,11 +1051,11 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 {isMultiSelecting && (
                     <View style={styles.selectBar}>
                         <TouchableOpacity onPress={cancelMultiSelect} style={styles.selectBarBtn}>
-                            <Ionicons name="close" size={22} color="white" />
+                            <Ionicons name="close" size={22} color={colors.onAccent} />
                         </TouchableOpacity>
                         <Text style={styles.selectBarText}>{multiSelect.length} seleccionado(s)</Text>
                         <TouchableOpacity onPress={forwardSelected} style={styles.selectBarForward}>
-                            <Ionicons name="arrow-redo" size={18} color="white" />
+                            <Ionicons name="arrow-redo" size={18} color={colors.onAccent} />
                         </TouchableOpacity>
                         <TouchableOpacity
                             disabled={isDeleting || !canDeleteSelection}
@@ -1063,7 +1065,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                 (!canDeleteSelection || isDeleting) && styles.selectBarActionDisabled,
                             ]}
                         >
-                            <Ionicons name="trash" size={20} color="white" />
+                            <Ionicons name="trash" size={20} color={colors.onAccent} />
                             <Text style={styles.selectBarDeleteText}>Eliminar</Text>
                         </TouchableOpacity>
                     </View>
@@ -1080,7 +1082,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>
-                            <Ionicons name="close-circle" size={36} color="white" />
+                            <Ionicons name="close-circle" size={36} color={colors.onAccent} />
                         </TouchableOpacity>
                     </View>
                 </Modal>
@@ -1098,7 +1100,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                 onPress={cancelVideoDraft}
                                 disabled={sendingMedia}
                             >
-                                <Ionicons name="close" size={20} color="white" />
+                                <Ionicons name="close" size={20} color={colors.onAccent} />
                                 <Text style={styles.draftActionText}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
@@ -1106,7 +1108,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                 onPress={confirmVideoDraft}
                                 disabled={sendingMedia}
                             >
-                                <Ionicons name="send" size={18} color="white" />
+                                <Ionicons name="send" size={18} color={colors.onAccent} />
                                 <Text style={styles.draftActionText}>{sendingMedia ? 'Enviando...' : 'Enviar'}</Text>
                             </TouchableOpacity>
                         </View>
@@ -1234,50 +1236,53 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     onClose={() => setViewingReactionsMsg(null)}
                 />
             </KeyboardAvoidingView>
+            </GlassBackdrop>
         </GestureHandlerRootView>
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.colors.chatBackground },
+const styles = StyleSheet.create({
+    // Darkens the waves behind the messages so the bubbles lead.
+    veil: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.chatVeil },
+    container: { flex: 1 },
     chatBg: { flex: 1 },
     messageLoadError: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 24,
-        gap: 12,
+        padding: space.xxl,
+        gap: space.md,
     },
-    messageLoadErrorText: {
-        color: theme.colors.text.secondary,
-        textAlign: 'center',
-        fontSize: 14,
-    },
+    messageLoadErrorText: { fontFamily: fonts.regular, color: colors.textSoft, textAlign: 'center', fontSize: 14 },
     messageLoadWarning: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 10,
-        paddingHorizontal: 12,
+        paddingHorizontal: space.md,
         paddingVertical: 7,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.colors.border,
+        backgroundColor: colors.glassDim,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.glassBorder,
     },
-    messageLoadWarningText: { color: theme.colors.text.muted, fontSize: 12 },
-    messageLoadRetry: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
-    dateDivider: { alignItems: 'center', marginVertical: theme.spacing.sm + 2 },
+    messageLoadWarningText: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 12 },
+    messageLoadRetry: { fontFamily: fonts.semibold, color: colors.accentBright, fontSize: 13 },
+    dateDivider: { alignItems: 'center', marginVertical: space.sm + 2 },
     dateDividerText: {
-        backgroundColor: 'rgba(0,0,0,0.2)', color: theme.colors.white,
-        fontSize: 12, paddingHorizontal: 12, paddingVertical: 4,
-        borderRadius: 10, overflow: 'hidden', fontWeight: '500',
+        fontFamily: fonts.medium,
+        backgroundColor: colors.glassDim,
+        color: colors.textSoft,
+        fontSize: 12,
+        paddingHorizontal: space.md,
+        paddingVertical: 4,
+        borderRadius: radius.sm,
+        overflow: 'hidden',
     },
     typingIndicatorContainer: {
         minHeight: 42,
-        paddingHorizontal: 12,
+        paddingHorizontal: space.md,
         paddingVertical: 5,
         justifyContent: 'center',
-        backgroundColor: theme.colors.chatBackground,
     },
     typingRow: {
         alignSelf: 'flex-start',
@@ -1288,88 +1293,77 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 6,
         paddingHorizontal: 11,
         paddingVertical: 6,
-        borderRadius: 16,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        borderRadius: radius.lg,
     },
-    typingIndicatorText: {
-        flexShrink: 1,
-        fontSize: 12,
-        color: theme.colors.text.secondary,
-        fontWeight: '600',
-    },
+    typingIndicatorText: { flexShrink: 1, fontFamily: fonts.medium, fontSize: 12, color: colors.textSoft },
     remoteRecordingIcon: {
         width: 26,
         height: 26,
         borderRadius: 13,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.colors.danger,
+        backgroundColor: colors.danger,
     },
-    viewerBackdrop: { flex: 1, backgroundColor: theme.colors.black, justifyContent: 'center', alignItems: 'center' },
+    viewerBackdrop: { flex: 1, backgroundColor: colors.ink, justifyContent: 'center', alignItems: 'center' },
     viewerImage: { width: '100%', height: '100%' },
     viewerClose: { position: 'absolute', top: 50, right: 20 },
     draftActionsBar: {
         position: 'absolute', bottom: 40, left: 24, right: 24,
-        flexDirection: 'row', justifyContent: 'space-between', gap: 16,
+        flexDirection: 'row', justifyContent: 'space-between', gap: space.lg,
     },
     draftActionBtn: {
         flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-        paddingVertical: 14, borderRadius: 28, gap: 8,
+        paddingVertical: 14, borderRadius: radius.full, gap: space.sm,
     },
-    draftCancelBtn: { backgroundColor: 'rgba(255,255,255,0.15)' },
-    draftSendBtn: { backgroundColor: theme.colors.accent },
-    draftActionText: { color: 'white', fontSize: 15, fontWeight: '700' },
-    selectBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: theme.colors.primary, height: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 1000 },
+    draftCancelBtn: { backgroundColor: colors.glassRaised },
+    draftSendBtn: { backgroundColor: colors.accent },
+    draftActionText: { fontFamily: fonts.semibold, color: colors.onAccent, fontSize: 15 },
+    selectBar: {
+        position: 'absolute', top: 0, left: 0, right: 0, height: 60, zIndex: 1000,
+        flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15,
+        backgroundColor: colors.surfaceSolid,
+        borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.glassBorder,
+    },
     selectBarBtn: { padding: 8 },
-    selectBarText: { flex: 1, color: theme.colors.white, fontSize: 16, fontWeight: '700', textAlign: 'center' },
+    selectBarText: { flex: 1, fontFamily: fonts.semibold, color: colors.text, fontSize: 16, textAlign: 'center' },
     selectBarForward: { padding: 8 },
-    selectBarDelete: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 8, backgroundColor: 'rgba(239, 68, 68, 0.2)', borderRadius: 8 },
-    selectBarDeleteText: { color: theme.colors.danger, fontWeight: '700' },
+    selectBarDelete: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 8, backgroundColor: colors.glassRaised, borderRadius: radius.sm },
+    selectBarDeleteText: { fontFamily: fonts.semibold, color: colors.danger },
     selectBarActionDisabled: { opacity: 0.4 },
     replyPreview: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 15,
+        marginHorizontal: space.sm + 2,
+        marginTop: space.xs,
+        paddingHorizontal: space.md + 2,
         paddingVertical: 10,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderTopWidth: 1,
-        borderTopColor: theme.colors.border,
+        borderRadius: radius.md,
     },
-    replyPreviewContent: { flex: 1, borderLeftWidth: 3, borderLeftColor: theme.colors.whatsapp.teal, paddingLeft: 10 },
-    replyPreviewName: { fontSize: 13, fontWeight: '700', color: theme.colors.whatsapp.teal, marginBottom: 2 },
-    replyPreviewText: { fontSize: 13, color: theme.colors.text.secondary },
+    replyPreviewContent: { flex: 1, borderLeftWidth: 3, borderLeftColor: colors.accentBright, paddingLeft: 10 },
+    replyPreviewName: { fontFamily: fonts.semibold, fontSize: 13, color: colors.accentBright, marginBottom: 2 },
+    replyPreviewText: { fontFamily: fonts.regular, fontSize: 13, color: colors.textSoft },
     sendStatusBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: space.sm,
         paddingHorizontal: 15,
         paddingVertical: 6,
-        backgroundColor: theme.colors.surfaceMuted,
-        borderTopWidth: 1,
-        borderTopColor: theme.colors.border,
     },
-    sendStatusText: { fontSize: 12, color: theme.colors.text.muted, fontWeight: '600' },
+    sendStatusText: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint },
     headerMenuOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.25)',
+        backgroundColor: colors.glassTintLight,
         justifyContent: 'flex-start',
         alignItems: 'flex-end',
-        paddingTop: 86,
-        paddingRight: 12,
+        paddingRight: space.md,
     },
     headerMenuCard: {
-        backgroundColor: theme.colors.surface,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: theme.colors.separator,
+        backgroundColor: colors.surfaceSolid,
+        borderRadius: radius.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
         paddingVertical: 6,
         minWidth: 210,
-        shadowColor: '#000',
-        shadowOpacity: theme.isDark ? 0.3 : 0.12,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 8 },
         elevation: 6,
     },
     headerMenuItem: {
@@ -1377,35 +1371,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         alignItems: 'center',
         gap: 10,
         paddingHorizontal: 14,
-        paddingVertical: 10,
+        paddingVertical: 11,
     },
-    headerMenuText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: theme.colors.text.primary,
-    },
-    listHeaderSummary: {
-        width: '100%',
-        alignItems: 'center',
-        marginVertical: 10,
-    },
-    floatingSummarizeBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(99, 102, 241, 0.9)',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 20,
-        gap: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 5,
-    },
-    floatingSummarizeText: {
-        color: 'white',
-        fontSize: 14,
-        fontWeight: '600',
-    },
+    headerMenuText: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
 });

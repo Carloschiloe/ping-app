@@ -16,6 +16,13 @@ export const colors = {
     glassPressed: 'rgba(255,255,255,0.08)',
     glassRaised: 'rgba(255,255,255,0.10)',
     separator: 'rgba(255,255,255,0.07)',
+    // Menus and sheets that float over content: almost solid so they read.
+    surfaceSolid: 'rgba(22,24,30,0.98)',
+
+    // Inside a conversation the waves sit behind a darker veil, so the
+    // messages stay the main thing on screen.
+    chatVeil: 'rgba(8,9,11,0.46)',
+    bubbleThem: 'rgba(30,34,44,0.84)',
 
     text: '#F4F6F9',
     textSoft: 'rgba(244,246,249,0.80)',
@@ -27,9 +34,14 @@ export const colors = {
     accentDeep: '#1D4ED8',
     accentTint: 'rgba(59,130,246,0.20)',
     onAccent: '#FFFFFF',
+    onAccentSoft: 'rgba(255,255,255,0.74)',
+    onAccentTint: 'rgba(255,255,255,0.16)',
+    // Read ticks sit on a blue bubble, so they are a light cyan, not blue.
+    readTick: '#9BE7FF',
 
     online: '#4ADE80',
     danger: '#F2735F',
+    warning: '#FBBF24',
 } as const;
 
 export const gradients = {

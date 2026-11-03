@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import { colors } from '../../design/tokens';
 
 export type DeliveryState = 'sent' | 'delivered' | 'read';
 
@@ -9,12 +10,10 @@ interface DeliveryTicksProps {
     onMedia?: boolean;
 }
 
-export const READ_TICK_COLOR = '#1d9bf0';
-
-// One tick = sent, two ticks = delivered, two blue ticks = read. Each tick is
+// One tick = sent, two ticks = delivered, two bright ticks = read. Each tick is
 // a short thick "L" turned 45 degrees, so the marks stay crisp at any size.
 export function DeliveryTicks({ state, onMedia = false }: DeliveryTicksProps) {
-    const color = state === 'read' ? READ_TICK_COLOR : onMedia ? 'white' : '#64748b';
+    const color = state === 'read' ? colors.readTick : onMedia ? colors.onAccent : colors.onAccentSoft;
     const tick = <View style={[styles.tick, { borderColor: color }]} />;
     return (
         <View

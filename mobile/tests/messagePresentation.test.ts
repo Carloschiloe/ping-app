@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lightTheme, darkTheme } from '../src/theme/theme';
+import { colors } from '../src/design/tokens';
 import {
     getQuotedMessagePalette,
     getAudioMessagePalette,
@@ -54,49 +54,29 @@ describe('resolveMediaTapPresentation — video attachment root cause fix', () =
 });
 
 describe('quoted reply presentation', () => {
-    it('usa texto oscuro legible para una respuesta propia en tema claro', () => {
-        const palette = getQuotedMessagePalette(true, false, lightTheme.colors);
-
-        expect(palette.textColor).toBe(lightTheme.colors.text.primary);
-        expect(palette.nameColor).toBe(lightTheme.colors.secondary);
-        expect(palette.backgroundColor).not.toContain('255,255,255');
+    it('on my blue bubble the quote is white', () => {
+        const palette = getQuotedMessagePalette(true);
+        expect(palette.nameColor).toBe(colors.onAccent);
+        expect(palette.textColor).toBe(colors.onAccentSoft);
     });
 
-    it('conserva texto claro para una respuesta propia en tema oscuro', () => {
-        const palette = getQuotedMessagePalette(true, true, darkTheme.colors);
-
-        expect(palette.nameColor).toBe(darkTheme.colors.white);
-        expect(palette.textColor).toContain('255,255,255');
-    });
-
-    it('mantiene la paleta del interlocutor según el tema', () => {
-        const palette = getQuotedMessagePalette(false, false, lightTheme.colors);
-
-        expect(palette.backgroundColor).toBe(lightTheme.colors.background);
-        expect(palette.textColor).toBe(lightTheme.colors.text.secondary);
+    it('on the other person\'s bubble the quote uses the accent', () => {
+        const palette = getQuotedMessagePalette(false);
+        expect(palette.nameColor).toBe(colors.accentBright);
+        expect(palette.textColor).toBe(colors.textSoft);
     });
 });
 
 describe('audio message presentation', () => {
-    it('usa texto oscuro del bubble propio en tema claro', () => {
-        const palette = getAudioMessagePalette(true, lightTheme.colors);
-
-        expect(palette.iconColor).toBe(lightTheme.colors.bubbleTextMe);
-        expect(palette.labelColor).toBe('#111827');
-        expect(palette.waveColor).not.toBe(lightTheme.colors.white);
+    it('my audio is white on the blue bubble', () => {
+        const palette = getAudioMessagePalette(true);
+        expect(palette.iconColor).toBe(colors.onAccent);
+        expect(palette.labelColor).toBe(colors.onAccent);
     });
 
-    it('usa texto claro del bubble propio en tema oscuro', () => {
-        const palette = getAudioMessagePalette(true, darkTheme.colors);
-
-        expect(palette.iconColor).toBe(darkTheme.colors.bubbleTextMe);
-        expect(palette.labelColor).toBe('#f8fafc');
-    });
-
-    it('mantiene acento y texto legible en audio recibido', () => {
-        const palette = getAudioMessagePalette(false, lightTheme.colors);
-
-        expect(palette.iconColor).toBe(lightTheme.colors.accent);
-        expect(palette.labelColor).toBe(lightTheme.colors.bubbleTextThem);
+    it('received audio uses the accent with readable text', () => {
+        const palette = getAudioMessagePalette(false);
+        expect(palette.iconColor).toBe(colors.accentBright);
+        expect(palette.labelColor).toBe(colors.text);
     });
 });

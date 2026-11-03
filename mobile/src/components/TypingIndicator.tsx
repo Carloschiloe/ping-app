@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { View, Animated, StyleSheet } from 'react-native';
+import { colors } from '../design/tokens';
 
 const TypingIndicator = () => {
     const dot1 = useMemo(() => new Animated.Value(0), []);
@@ -66,6 +67,6 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: '#9ca3af',
+        backgroundColor: colors.textSoft,
     },
 });

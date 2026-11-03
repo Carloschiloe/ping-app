@@ -4,13 +4,14 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Reanimated, { FadeInDown } from 'react-native-reanimated';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
 import GroupTaskCard from './GroupTaskCard';
 import { DeliveryTicks } from './chat/DeliveryTicks';
-import { useAppTheme } from '../theme/ThemeContext';
 import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveMessageAttachmentPresentation, resolveReactionEmoji } from '../utils/messageCompat';
 import {
     getPrivateFileRefreshDelay,
@@ -19,6 +20,8 @@ import {
     resolvePrivateFileUrl,
 } from '../lib/privateFiles';
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
 import { latLngToOsmTile } from '../utils/mapTiles';
 import {
     getFreshProfileAvatarUrl,
@@ -114,8 +117,6 @@ const MessageItemComponent = ({
     onAvatarPress,
     formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat', activeCommitmentId = null
 }: MessageItemProps) => {
-    const { theme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
     const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
     const [privateMediaState, setPrivateMediaState] = React.useState<'idle' | 'loading' | 'ready' | 'retrying' | 'unavailable'>('idle');
     const privateMediaUrlRef = React.useRef<string | null>(null);
@@ -230,7 +231,13 @@ const MessageItemComponent = ({
     // para el resto, o simplemente verla para el propio autor).
     const tasksForThisMessage = groupTasks.filter((t: any) => t.message_id === item.id);
     const canInitiateSuggestion = isMe && tasksForThisMessage.length === 0;
-    const quotedPalette = getQuotedMessagePalette(isMe, theme.isDark, theme.colors);
+    const quotedPalette = getQuotedMessagePalette(isMe);
+    // Only a message that just arrived (or was just sent) slides in; older
+    // ones appear in place when the list scrolls back to them.
+    const createdAt = Date.parse(item.created_at);
+    const entering = Number.isFinite(createdAt) && Date.now() - createdAt < 6000
+        ? FadeInDown.duration(280)
+        : undefined;
     const isOperationMode = conversationMode === 'operation';
     const time = formatTime(item.created_at);
     const msgText: string = isTombstoned
@@ -339,8 +346,8 @@ const MessageItemComponent = ({
         });
         return (
             <View style={{ width: 60, justifyContent: 'center', alignItems: 'center' }}>
-                <Animated.View style={{ transform: [{ translateX: trans }], width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.05)', justifyContent: 'center', alignItems: 'center' }}>
-                    <Ionicons name="arrow-undo" size={18} color={theme.colors.text.secondary} />
+                <Animated.View style={{ transform: [{ translateX: trans }], width: 32, height: 32, borderRadius: 16, backgroundColor: colors.glassRaised, justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="arrow-undo" size={18} color={colors.textSoft} />
                 </Animated.View>
             </View>
         );
@@ -363,12 +370,12 @@ const MessageItemComponent = ({
                 closeSwipeable();
             }}
         >
-            <View>
+            <Reanimated.View entering={entering}>
                 <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem, { marginBottom: 2 }]}>
                 {isMultiSelecting && (
                     <TouchableOpacity onPress={() => onToggleSelect(item.id)} style={styles.checkbox}>
                         <View style={[styles.checkCircle, isSelected && styles.checkCircleOn]}>
-                            {isSelected && <Ionicons name="checkmark" size={14} color={theme.colors.white} />}
+                            {isSelected && <Ionicons name="checkmark" size={14} color={colors.onAccent} />}
                         </View>
                     </TouchableOpacity>
                 )}
@@ -427,19 +434,27 @@ const MessageItemComponent = ({
                         style={[
                             styles.bubble,
                             isMe ? styles.bubbleMe : styles.bubbleThem,
-                            isOperationMode && (isMe ? styles.bubbleOperationMe : styles.bubbleOperationThem),
                             (isImage || isVideo) ? styles.bubbleVisual : isAudio && styles.bubbleMedia,
                             isSelected && styles.bubbleSelected,
                             item.id === highlightedMsgId && styles.bubbleHighlighted,
                             { overflow: 'hidden' }
                         ]}
                     >
+                        {isMe && (
+                            <LinearGradient
+                                pointerEvents="none"
+                                colors={gradients.accent}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={StyleSheet.absoluteFill}
+                            />
+                        )}
                         {meta?.forwarded && (
                             <View style={styles.forwardedLabel}>
                                 <Ionicons
                                     name="arrow-redo-outline"
                                     size={12}
-                                    color={isMe ? 'rgba(255,255,255,0.72)' : theme.colors.text.muted}
+                                    color={isMe ? colors.onAccentSoft : colors.textFaint}
                                 />
                                 <Text style={[styles.forwardedText, isMe && styles.forwardedTextMe]}>
                                     Reenviado
@@ -487,7 +502,7 @@ const MessageItemComponent = ({
                                         <Ionicons
                                             name={meta?.attachment?.mimeType?.startsWith('video/') ? 'videocam-outline' : 'document-outline'}
                                             size={28}
-                                            color={theme.colors.text.secondary}
+                                            color={colors.textSoft}
                                         />
                                     </View>
                                 )}
@@ -495,7 +510,7 @@ const MessageItemComponent = ({
                                     <Ionicons
                                         name={pendingFailed ? 'alert-circle' : 'time-outline'}
                                         size={14}
-                                        color={pendingFailed ? '#ef4444' : 'white'}
+                                        color={pendingFailed ? colors.danger : colors.onAccent}
                                     />
                                     <Text style={styles.pendingMediaText}>
                                         {pendingFailed ? 'No se envió · toca para reintentar' : 'Enviando…'}
@@ -507,7 +522,7 @@ const MessageItemComponent = ({
                                 <Ionicons
                                     name="alert-circle-outline"
                                     size={18}
-                                    color={theme.colors.text.secondary}
+                                    color={colors.textSoft}
                                 />
                                 <Text style={styles.privateMediaLoadingText}>
                                     Archivo no disponible
@@ -515,11 +530,11 @@ const MessageItemComponent = ({
                             </View>
                         ) : hasPrivateAttachment && !mediaUrl ? (
                             <View style={styles.privateMediaLoading}>
-                                <ActivityIndicator size="small" color={theme.colors.accent} />
+                                <ActivityIndicator size="small" color={colors.accentBright} />
                                 <Ionicons
                                     name={isAudio ? 'mic-outline' : isImage ? 'image-outline' : 'document-outline'}
                                     size={18}
-                                    color={theme.colors.text.secondary}
+                                    color={colors.textSoft}
                                 />
                                 <Text style={styles.privateMediaLoadingText}>
                                     {privateMediaState === 'retrying'
@@ -543,7 +558,7 @@ const MessageItemComponent = ({
                                 <View style={styles.inlineVideoWrap} pointerEvents="none">
                                     <InlineVideoThumbnail uri={mediaUrl as string} style={styles.msgImage} />
                                     <View style={styles.videoPlayOverlay}>
-                                        <Ionicons name="play-circle" size={48} color={theme.colors.white} />
+                                        <Ionicons name="play-circle" size={48} color={colors.onAccent} />
                                     </View>
                                 </View>
                                 {description ? <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { padding: 8, fontSize: 14 }]}>{description}</Text> : null}
@@ -556,8 +571,8 @@ const MessageItemComponent = ({
                         ) : isDocument && mediaUrl ? (
                             <View>
                                 <View style={styles.documentBubble}>
-                                    <View style={[styles.docIconWrap, isMe ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: theme.colors.background }]}>
-                                        <Ionicons name="document-text" size={24} color={isMe ? theme.colors.white : theme.colors.text.secondary} />
+                                    <View style={[styles.docIconWrap, { backgroundColor: isMe ? colors.onAccentTint : colors.glassRaised }]}>
+                                        <Ionicons name="document-text" size={24} color={isMe ? colors.onAccent : colors.textSoft} />
                                     </View>
                                     <View style={{ flex: 1 }}>
                                         <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '500' }]} numberOfLines={1}>{documentName}</Text>
@@ -587,7 +602,7 @@ const MessageItemComponent = ({
                                     />
                                     <View style={styles.locationMapMarker}>
                                         <View style={styles.locationMapMarkerShadow} />
-                                        <Ionicons name="location-sharp" size={32} color="#ef4444" style={styles.locationMapMarkerIcon} />
+                                        <Ionicons name="location-sharp" size={32} color={colors.danger} style={styles.locationMapMarkerIcon} />
                                     </View>
                                 </TouchableOpacity>
 
@@ -632,20 +647,19 @@ const MessageItemComponent = ({
                                     isMe ? styles.msgTextMe : styles.msgTextThem,
                                     isOperationMode && styles.msgTextOperation,
                                 ]}
-                                linkColor={isMe ? 'rgba(255,255,255,0.9)' : '#2563eb'}
+                                linkColor={isMe ? colors.onAccent : colors.accentBright}
                             />
                         )}
                         <View style={[styles.metaRow, metaOnMedia ? styles.metaOverlay : (isImage || isVideo) && styles.metaInline]}>
-                            {item.reply_to_id && <Text style={{ fontSize: 8, color: isMe ? 'rgba(255,255,255,0.5)' : theme.colors.text.muted, marginRight: 4 }}>R</Text>}
-                            <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, metaOnMedia && { color: 'white' }]}>{time}</Text>
+                                                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, metaOnMedia && { color: colors.onAccent }]}>{time}</Text>
                             {isMe && (
                                 <View style={{ marginLeft: 4 }}>
                             {(item.status === 'sending' || item.status === 'pending_local' || item.status === 'pending_offline') ? (
-                                <Ionicons name="time-outline" size={TICK_SIZE} color={metaOnMedia ? 'white' : theme.colors.text.muted} />
+                                <Ionicons name="time-outline" size={TICK_SIZE} color={metaOnMedia ? colors.onAccent : colors.onAccentSoft} />
                             ) : item.status === 'result_unknown' ? (
-                                <Ionicons name="help-circle-outline" size={TICK_SIZE} color="#f59e0b" />
+                                <Ionicons name="help-circle-outline" size={TICK_SIZE} color={colors.warning} />
                             ) : item.status === 'rejected_offline' ? (
-                                <Ionicons name="alert-circle-outline" size={TICK_SIZE} color="#ef4444" />
+                                <Ionicons name="alert-circle-outline" size={TICK_SIZE} color={colors.danger} />
                             ) : (
                                 <DeliveryTicks
                                     state={item.status === 'read' ? 'read' : (item.status === 'delivered' || item.status === 'received') ? 'delivered' : 'sent'}
@@ -686,7 +700,7 @@ const MessageItemComponent = ({
                             }}
                             activeOpacity={0.7}
                         >
-                            <Text style={styles.suggestionIcon}>✨</Text>
+                            <Ionicons name="sparkles" size={12} color={colors.accentBright} style={styles.suggestionIcon} />
                             <Text style={styles.suggestionText} numberOfLines={1}>
                                 Agendar
                             </Text>
@@ -694,7 +708,7 @@ const MessageItemComponent = ({
                     )}
                 </View>
                 {highlightedMsgId === item.id && (
-                    <Animated.View style={{ ...StyleSheet.absoluteFill, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderRadius: 12 }} />
+                    <Animated.View style={{ ...StyleSheet.absoluteFill, backgroundColor: colors.accentTint, borderRadius: radius.sm }} />
                 )}
             </View>{(() => {
                 const tasks = tasksForThisMessage;
@@ -717,7 +731,7 @@ const MessageItemComponent = ({
                     />
                 );
             })()}
-            </View>
+            </Reanimated.View>
         </Swipeable>
     );
 };
@@ -748,43 +762,47 @@ export const MessageItem = memo(MessageItemComponent, (prev, next) => {
 
 export default MessageItem;
 
-const createStyles = (theme: any) => StyleSheet.create({
-    dateDivider: { alignItems: 'center', marginVertical: theme.spacing.sm + 2 },
+const styles = StyleSheet.create({
+    dateDivider: { alignItems: 'center', marginVertical: space.sm + 2 },
     dateDividerText: {
-        backgroundColor: theme.colors.surfaceMuted,
-        color: theme.colors.text.muted,
+        fontFamily: fonts.medium,
+        backgroundColor: colors.glassDim,
+        color: colors.textSoft,
         fontSize: 11,
         paddingHorizontal: 10,
         paddingVertical: 4,
-        borderRadius: 10,
+        borderRadius: radius.sm,
         overflow: 'hidden',
-        fontWeight: '600',
     },
     msgRow: { marginVertical: 4, flexDirection: 'row' },
     msgRowMe: { justifyContent: 'flex-end' },
     msgRowThem: { justifyContent: 'flex-start' },
     bubble: {
-        borderRadius: 16,
-        paddingHorizontal: 12,
+        borderRadius: radius.lg,
+        paddingHorizontal: 13,
         paddingTop: 9,
         paddingBottom: 8,
     },
-    bubbleMe: { backgroundColor: theme.colors.bubbleMe, borderBottomRightRadius: 4, borderWidth: theme.isDark ? 0 : 1, borderColor: theme.colors.separator },
-    bubbleThem: { backgroundColor: theme.colors.bubbleThem, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: theme.colors.separator },
-    bubbleOperationMe: { backgroundColor: theme.isDark ? '#123b2b' : '#eef6ff', borderColor: theme.isDark ? '#1f3f35' : '#dbeafe' },
-    bubbleOperationThem: { backgroundColor: theme.isDark ? '#121c2a' : '#f8fafc', borderColor: theme.isDark ? '#1e2a3a' : '#e2e8f0' },
-    bubbleHighlighted: { backgroundColor: theme.isDark ? '#183b63' : '#bfdbfe' },
-    senderAvatarContainer: {
-        width: 32, height: 32, marginRight: 8, alignSelf: 'flex-end', marginBottom: 2,
+    // Mine: the blue gradient drawn inside the bubble. Theirs: dark glass.
+    bubbleMe: { borderBottomRightRadius: 6 },
+    bubbleThem: {
+        backgroundColor: colors.bubbleThem,
+        borderBottomLeftRadius: 6,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
-    senderAvatar: { width: 32, height: 32, borderRadius: 16 },
-    senderAvatarText: { color: theme.colors.white, fontSize: 12, fontWeight: '700' },
+    bubbleHighlighted: { borderWidth: 1, borderColor: colors.accentBright },
+    senderAvatarContainer: {
+        width: 30, height: 30, marginRight: space.sm, alignSelf: 'flex-end', marginBottom: 2,
+    },
+    senderAvatar: { width: 30, height: 30, borderRadius: 11 },
+    senderAvatarText: { fontFamily: fonts.semibold, color: colors.onAccent, fontSize: 11 },
     bubbleMedia: { padding: 3, overflow: 'hidden' },
     // Photos and videos fill the whole bubble, edge to edge.
     bubbleVisual: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' },
     metaOverlay: {
         position: 'absolute', right: 6, bottom: 6, marginTop: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.55)', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2,
+        backgroundColor: colors.glassTint, borderRadius: radius.sm, paddingHorizontal: 7, paddingVertical: 2,
     },
     metaInline: { paddingHorizontal: 8, paddingBottom: 4 },
     privateMediaLoading: {
@@ -796,37 +814,33 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 8,
         paddingHorizontal: 12,
     },
-    pendingMedia: { width: 250, height: 180, overflow: 'hidden', backgroundColor: theme.colors.surfaceMuted },
+    pendingMedia: { width: 250, height: 180, overflow: 'hidden', backgroundColor: colors.glassRaised },
     pendingMediaThumb: { width: '100%', height: '100%' },
     pendingMediaIcon: { alignItems: 'center', justifyContent: 'center' },
     pendingMediaLabel: {
         position: 'absolute', left: 0, right: 0, top: 0,
         flexDirection: 'row', alignItems: 'center', gap: 6,
-        paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.glassTint,
     },
-    pendingMediaText: { color: 'white', fontSize: 12, fontWeight: '700' },
-    privateMediaLoadingText: {
-        color: theme.colors.text.secondary,
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    senderName: { fontSize: 12, fontWeight: '700', color: theme.colors.success, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
-    msgText: { fontSize: 15, lineHeight: 24 },
-    msgTextMe: { color: theme.colors.bubbleTextMe },
-    msgTextThem: { color: theme.colors.bubbleTextThem },
+    pendingMediaText: { fontFamily: fonts.semibold, color: colors.onAccent, fontSize: 12 },
+    privateMediaLoadingText: { fontFamily: fonts.medium, color: colors.textSoft, fontSize: 12 },
+    senderName: { fontFamily: fonts.semibold, fontSize: 12, color: colors.accentBright, marginBottom: 2, paddingHorizontal: 8, paddingTop: 4 },
+    msgText: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22 },
+    msgTextMe: { color: colors.onAccent },
+    msgTextThem: { color: colors.text },
     forwardedLabel: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
-    forwardedText: { color: theme.colors.text.muted, fontSize: 11, fontStyle: 'italic' },
-    forwardedTextMe: { color: 'rgba(255,255,255,0.72)' },
+    forwardedText: { fontFamily: fonts.regular, color: colors.textFaint, fontSize: 11, fontStyle: 'italic' },
+    forwardedTextMe: { color: colors.onAccentSoft },
     msgTextOperation: { letterSpacing: 0.1 },
     metaRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 3, paddingHorizontal: 4 },
-    timeText: { fontSize: 11 },
-    timeMe: { color: 'rgba(0,0,0,0.5)' },
-    timeThem: { color: theme.colors.text.muted },
+    timeText: { fontFamily: fonts.medium, fontSize: 11 },
+    timeMe: { color: colors.onAccentSoft },
+    timeThem: { color: colors.textFaint },
     msgImage: { width: 250, height: 250 },
     inlineVideoWrap: { position: 'relative', width: 250, height: 250, overflow: 'hidden' },
     videoPlayOverlay: {
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: colors.glassTintLight,
         justifyContent: 'center', alignItems: 'center',
     },
     documentBubble: { flexDirection: 'row', alignItems: 'center', minWidth: 200, maxWidth: 260, paddingVertical: 4, paddingRight: 8 },
@@ -836,9 +850,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     locationMapWrapper: {
         height: 120,
-        backgroundColor: '#e5e7eb',
+        backgroundColor: colors.glassRaised,
         position: 'relative',
-        borderRadius: 8,
+        borderRadius: radius.sm,
         overflow: 'hidden',
     },
     locationMapImage: {
@@ -860,65 +874,55 @@ const createStyles = (theme: any) => StyleSheet.create({
         width: 10,
         height: 5,
         borderRadius: 5,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: colors.glassTint,
         transform: [{ scaleX: 2 }],
     },
     locationMapMarkerIcon: {
-        textShadowColor: 'rgba(0,0,0,0.2)',
+        textShadowColor: colors.glassTint,
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 2,
     },
     locationCardBody: {
         paddingTop: 8,
     },
-    docIconWrap: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+    docIconWrap: { width: 44, height: 44, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
     checkbox: { justifyContent: 'center', paddingRight: 8, paddingLeft: 2 },
     checkCircle: {
         width: 22,
         height: 22,
         borderRadius: 11,
         borderWidth: 2,
-        borderColor: theme.colors.separator,
+        borderColor: colors.glassBorder,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.colors.surface,
+        backgroundColor: colors.glassDim,
     },
-    checkCircleOn: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
+    checkCircleOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     bubbleSelected: { opacity: 0.9 },
-    quotedContainer: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3 },
-    quotedName: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
-    quotedText: { fontSize: 12 },
+    quotedContainer: { padding: 8, borderRadius: radius.sm, marginBottom: 6, borderLeftWidth: 3 },
+    quotedName: { fontFamily: fonts.semibold, fontSize: 12, marginBottom: 2 },
+    quotedText: { fontFamily: fonts.regular, fontSize: 12 },
     // Reactions sit on the bubble's bottom edge, right under the message.
     reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: -8, marginBottom: 2, zIndex: 2 },
     reactionsMe: { alignSelf: 'flex-end', marginRight: 10 },
     reactionsThem: { alignSelf: 'flex-start', marginLeft: 10 },
-    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceMuted, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: theme.colors.separator, gap: 2 },
-    reactionCount: { fontSize: 11, fontWeight: '700', color: theme.colors.text.secondary },
+    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSolid, borderRadius: radius.md, paddingHorizontal: 6, paddingVertical: 2, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder, gap: 2 },
+    reactionCount: { fontFamily: fonts.semibold, fontSize: 11, color: colors.textSoft },
+    // "Agendar": a small quiet pill under the message, not a big button.
     suggestionChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: theme.colors.accentSoft,
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+        backgroundColor: colors.accentTint,
+        borderRadius: radius.full,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
         marginTop: 6,
         marginBottom: 4,
-        borderWidth: 1.5,
-        borderColor: theme.colors.accent,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.accent,
         alignSelf: 'flex-start',
         maxWidth: '100%',
-        shadowColor: theme.colors.accent,
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 3,
     },
-    suggestionIcon: {
-        fontSize: 14,
-        marginRight: 6,
-    },
-    suggestionText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: theme.isDark ? '#dbe7ff' : '#312e81',
-    },
+    suggestionIcon: { marginRight: 5 },
+    suggestionText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.accentBright },
 });
