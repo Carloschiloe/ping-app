@@ -527,7 +527,7 @@ export default function HoyScreen() {
     }, [view]);
 
     const toneColor = (tone: SectionTone) => tone === 'danger' ? colors.danger
-        : tone === 'accent' ? colors.accent
+        : tone === 'accent' ? colors.accentBright
             : colors.textSoft;
 
     const suggestion = view === 'mine' && !query && !hasFiltersActive ? pingSuggestion(mineData.overdue, mineData.hoy) : null;
@@ -736,9 +736,14 @@ export default function HoyScreen() {
                 )}
 
                 {!!suggestion && (
-                    <TouchableOpacity onPress={() => openPing()} style={styles.suggestion} accessibilityRole="button">
-                        <Ionicons name="sparkles-outline" size={14} color={colors.accent} />
-                        <Text style={[styles.suggestionText, { color: colors.accent }]} numberOfLines={2}>{suggestion}</Text>
+                    <TouchableOpacity onPress={() => openPing()} accessibilityRole="button">
+                        <Glass style={styles.suggestion} intensity={40} tint={colors.glassDim}>
+                            <View style={styles.suggestionIcon}>
+                                <Ionicons name="sparkles" size={14} color={colors.accentBright} />
+                            </View>
+                            <Text style={styles.suggestionText} numberOfLines={2}>{suggestion}</Text>
+                            <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                        </Glass>
                     </TouchableOpacity>
                 )}
 
@@ -890,8 +895,16 @@ const styles = StyleSheet.create({
         borderRadius: radius.full, gap: space.sm,
     },
     searchInput: { fontFamily: fonts.regular, flex: 1, fontSize: 15, color: colors.text, paddingVertical: 0 },
-    suggestion: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-    suggestionText: { flex: 1, fontSize: 13, fontFamily: fonts.semibold, lineHeight: 18 },
+    // Ping's hint: a glass pill with plain light text, readable over any wave.
+    suggestion: {
+        flexDirection: 'row', alignItems: 'center', gap: space.sm + 2,
+        paddingVertical: space.sm + 2, paddingLeft: space.sm + 2, paddingRight: space.md, borderRadius: radius.lg,
+    },
+    suggestionIcon: {
+        width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: colors.accentTint,
+    },
+    suggestionText: { flex: 1, fontSize: 14, fontFamily: fonts.medium, lineHeight: 19, color: colors.text },
     segmentContainer: { flexDirection: 'row', borderRadius: radius.full, padding: 4 },
     segmentBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: radius.full, overflow: 'hidden' },
     segmentPill: { borderRadius: radius.full },
@@ -934,7 +947,7 @@ const styles = StyleSheet.create({
     clearFiltersBtn: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
     clearFiltersText: { fontSize: 13, fontFamily: fonts.semibold },
     fab: {
-        position: 'absolute', right: 20, bottom: TAB_BAR_CLEARANCE + 8, width: 58, height: 58, borderRadius: 29,
+        position: 'absolute', right: 20, bottom: TAB_BAR_CLEARANCE + 16, width: 58, height: 58, borderRadius: 29,
         shadowColor: colors.ink, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
     },
     modalOverlay: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
