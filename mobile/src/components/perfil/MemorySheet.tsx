@@ -2,9 +2,11 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAppTheme } from '../../theme/ThemeContext';
 import { useForgetFact, useRememberedFacts, type RememberedFact } from '../../api/queries';
 
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 interface MemorySheetProps {
     visible: boolean;
     onClose: () => void;
@@ -12,7 +14,6 @@ interface MemorySheetProps {
 
 /** What Ping remembers about the user; each fact can be forgotten. */
 export function MemorySheet({ visible, onClose }: MemorySheetProps) {
-    const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
     const { data: facts, isLoading, isError } = useRememberedFacts(visible);
     const forgetFact = useForgetFact();
@@ -38,29 +39,29 @@ export function MemorySheet({ visible, onClose }: MemorySheetProps) {
                     style={[
                         styles.sheet,
                         {
-                            backgroundColor: theme.colors.surface,
                             paddingBottom: Math.max(insets.bottom, 24) + 12,
                         },
                     ]}
                 >
+                    <SheetFill />
                     <View style={styles.handle} />
                     <View style={styles.header}>
-                        <Text style={[styles.title, { color: theme.colors.text.primary }]}>Lo que Ping recuerda</Text>
+                        <Text style={[styles.title, { color: colors.text }]}>Lo que Ping recuerda</Text>
                         <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Ionicons name="close-circle" size={24} color={theme.colors.text.muted} />
+                            <Ionicons name="close-circle" size={24} color={colors.textFaint} />
                         </TouchableOpacity>
                     </View>
 
-                    <Text style={[styles.description, { color: theme.colors.text.secondary }]}>
+                    <Text style={[styles.description, { color: colors.textSoft }]}>
                         Ping usa esto para entenderte mejor. Para agregar algo, dile «recuerda que…».
                     </Text>
 
                     {isLoading ? (
-                        <ActivityIndicator color={theme.colors.accent} style={styles.state} />
+                        <ActivityIndicator color={colors.accentBright} style={styles.state} />
                     ) : isError ? (
-                        <Text style={[styles.state, { color: theme.colors.text.muted }]}>No pude cargar tus recuerdos. Inténtalo de nuevo.</Text>
+                        <Text style={[styles.state, { color: colors.textFaint }]}>No pude cargar tus recuerdos. Inténtalo de nuevo.</Text>
                     ) : !facts || facts.length === 0 ? (
-                        <Text style={[styles.state, { color: theme.colors.text.muted }]}>Todavía no me has pedido que recuerde nada.</Text>
+                        <Text style={[styles.state, { color: colors.textFaint }]}>Todavía no me has pedido que recuerde nada.</Text>
                     ) : (
                         <ScrollView style={styles.list}>
                             {facts.map((fact, index) => (
@@ -68,17 +69,17 @@ export function MemorySheet({ visible, onClose }: MemorySheetProps) {
                                     key={fact.id}
                                     style={[
                                         styles.factRow,
-                                        index < facts.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator },
+                                        index < facts.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
                                     ]}
                                 >
-                                    <Text style={[styles.factText, { color: theme.colors.text.primary }]}>{fact.text}</Text>
+                                    <Text style={[styles.factText, { color: colors.text }]}>{fact.text}</Text>
                                     <TouchableOpacity
                                         onPress={() => confirmForget(fact)}
                                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                         accessibilityLabel={`Olvidar: ${fact.text}`}
                                         disabled={forgetFact.isPending}
                                     >
-                                        <Ionicons name="trash-outline" size={20} color={theme.colors.danger} />
+                                        <Ionicons name="trash-outline" size={20} color={colors.danger} />
                                     </TouchableOpacity>
                                 </View>
                             ))}
@@ -93,7 +94,7 @@ export function MemorySheet({ visible, onClose }: MemorySheetProps) {
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     sheet: {
@@ -102,13 +103,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingTop: 12,
         maxHeight: '80%',
+        ...sheetSurface,
     },
     handle: {
         alignSelf: 'center',
         width: 36,
         height: 4,
         borderRadius: 2,
-        backgroundColor: '#d1d5db',
+        backgroundColor: colors.glassRaised,
         marginBottom: 16,
     },
     header: {
@@ -119,17 +121,17 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 18,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     closeBtn: {
         padding: 4,
     },
-    description: {
+    description: { fontFamily: fonts.regular,
         fontSize: 14,
         lineHeight: 20,
         marginBottom: 12,
     },
-    state: {
+    state: { fontFamily: fonts.regular,
         fontSize: 14,
         paddingVertical: 24,
         textAlign: 'center',
@@ -143,7 +145,7 @@ const styles = StyleSheet.create({
         gap: 12,
         paddingVertical: 14,
     },
-    factText: {
+    factText: { fontFamily: fonts.regular,
         flex: 1,
         fontSize: 15,
         lineHeight: 21,

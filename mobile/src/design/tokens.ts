@@ -51,6 +51,9 @@ export const colors = {
     successTint: 'rgba(74,222,128,0.16)',
     // Dims the screen behind a sheet or menu.
     scrim: 'rgba(8,9,11,0.40)',
+    // Provider logos keep their own colors.
+    brandGoogle: '#4285F4',
+    brandMicrosoft: '#00A4EF',
 } as const;
 
 export const gradients = {

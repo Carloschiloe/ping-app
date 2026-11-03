@@ -95,3 +95,31 @@ describe('Hoy in the new design', () => {
         expect(hoy).toContain('TAB_BAR_CLEARANCE');
     });
 });
+
+describe('Perfil in the new design', () => {
+    const files = [
+        'screens/ProfileScreen.tsx',
+        'components/perfil/CalendarsSheet.tsx',
+        'components/perfil/EditProfileSheet.tsx',
+        'components/perfil/FocusModeSheet.tsx',
+        'components/perfil/MemorySheet.tsx',
+    ];
+
+    it('reads every color from the design tokens', () => {
+        for (const file of files) {
+            const source = read(file);
+            expect(source, file).not.toContain('useAppTheme');
+            expect(source, file).not.toMatch(/['"]#[0-9a-fA-F]{3,8}['"]/);
+            expect(source, file).not.toMatch(/rgba\(/);
+        }
+    });
+
+    it('shows settings on full-width glass bands and its sheets as lit glass', () => {
+        const profile = read('screens/ProfileScreen.tsx');
+        expect(profile).toContain('<Glass style={[StyleSheet.absoluteFill, styles.band]}');
+        expect(profile).toContain('TAB_BAR_CLEARANCE');
+        for (const file of files.slice(1)) {
+            expect(read(file), file).toContain('<SheetFill />');
+        }
+    });
+});

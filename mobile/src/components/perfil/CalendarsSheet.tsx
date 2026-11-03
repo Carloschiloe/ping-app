@@ -2,7 +2,6 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIndicator, Switch, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAppTheme } from '../../theme/ThemeContext';
 // SDK 57: la API funcional clásica (getCalendarsAsync/EntityTypes/Calendar
 // type) se movió al subpath /legacy -- el import raíz ahora expone la
 // "Next API" basada en clases. Sin cambio de comportamiento, sólo de ruta.
@@ -11,6 +10,9 @@ import { API_URL } from '../../api/client';
 import { supabase } from '../../lib/supabase';
 import { useUpdateCalendarAccount, useDisconnectCalendarAccount } from '../../api/queries';
 
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 interface CalendarsSheetProps {
     visible: boolean;
     onClose: () => void;
@@ -32,7 +34,6 @@ export function CalendarsSheet({
     onRefreshCalendars,
     onToggleCalendarVisibility,
 }: CalendarsSheetProps) {
-    const { theme } = useAppTheme();
     const insets = useSafeAreaInsets();
     const { mutate: updateAccount } = useUpdateCalendarAccount();
     const { mutate: disconnectAccount } = useDisconnectCalendarAccount();
@@ -67,16 +68,16 @@ export function CalendarsSheet({
                     style={[
                         styles.sheet,
                         {
-                            backgroundColor: theme.colors.background,
                             paddingTop: 12,
                         },
                     ]}
                 >
+                    <SheetFill />
                     <View style={styles.handle} />
                     <View style={styles.header}>
-                        <Text style={[styles.title, { color: theme.colors.text.primary }]}>Cuentas y Calendarios</Text>
+                        <Text style={[styles.title, { color: colors.text }]}>Cuentas y Calendarios</Text>
                         <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Ionicons name="close-circle" size={24} color={theme.colors.text.muted} />
+                            <Ionicons name="close-circle" size={24} color={colors.textFaint} />
                         </TouchableOpacity>
                     </View>
 
@@ -87,42 +88,42 @@ export function CalendarsSheet({
                             { paddingBottom: Math.max(insets.bottom, 24) + 20 },
                         ]}
                     >
-                        <Text style={[styles.sectionTitle, { color: theme.colors.text.muted }]}>CUENTAS CLOUD</Text>
-                        <Text style={[styles.hint, { color: theme.colors.text.secondary }]}>
+                        <Text style={[styles.sectionTitle, { color: colors.textFaint }]}>CUENTAS CLOUD</Text>
+                        <Text style={[styles.hint, { color: colors.textSoft }]}>
                             Conecta tus cuentas para que Ping sincronice compromisos automáticamente.
                         </Text>
 
                         {cloudAccounts.length > 0 && (
                             <View style={styles.cloudAccountsList}>
                                 {cloudAccounts.map((acc: any) => (
-                                    <View key={acc.id} style={[styles.cloudAccCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
+                                    <View key={acc.id} style={[styles.cloudAccCard, { backgroundColor: colors.glassRaised, borderColor: colors.glassBorder }]}>
                                         <View style={styles.cloudAccRow}>
                                             <Ionicons
                                                 name={acc.provider === 'google' ? "logo-google" : "logo-microsoft"}
                                                 size={20}
-                                                color={acc.provider === 'google' ? "#ea4335" : "#00a4ef"}
+                                                color={acc.provider === 'google' ? colors.brandGoogle : colors.brandMicrosoft}
                                             />
                                             <View style={{ flex: 1, marginLeft: 10 }}>
-                                                <Text style={[styles.cloudAccEmail, { color: theme.colors.text.primary }]}>{acc.email}</Text>
-                                                <Text style={[styles.cloudAccMeta, { color: theme.colors.text.secondary }]}>Sincronización Cloud</Text>
+                                                <Text style={[styles.cloudAccEmail, { color: colors.text }]}>{acc.email}</Text>
+                                                <Text style={[styles.cloudAccMeta, { color: colors.textSoft }]}>Sincronización Cloud</Text>
                                             </View>
                                             <TouchableOpacity onPress={() => handleDisconnectCloud(acc.id, acc.email)}>
-                                                <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+                                                <Ionicons name="trash-outline" size={18} color={colors.danger} />
                                             </TouchableOpacity>
                                         </View>
 
-                                        <View style={[styles.autoSyncRow, { borderTopColor: theme.colors.separator }]}>
+                                        <View style={[styles.autoSyncRow, { borderTopColor: colors.separator }]}>
                                             <View style={{ flex: 1 }}>
-                                                <Text style={[styles.autoSyncTitle, { color: theme.colors.text.primary }]}>Sincronización Automática</Text>
-                                                <Text style={[styles.autoSyncDesc, { color: theme.colors.text.muted }]}>
+                                                <Text style={[styles.autoSyncTitle, { color: colors.text }]}>Sincronización Automática</Text>
+                                                <Text style={[styles.autoSyncDesc, { color: colors.textFaint }]}>
                                                     Agenda, completa o elimina eventos en tu nube automáticamente.
                                                 </Text>
                                             </View>
                                             <Switch
                                                 value={!!acc.is_auto_sync_enabled}
                                                 onValueChange={() => handleToggleAutoSync(acc.id, !!acc.is_auto_sync_enabled)}
-                                                trackColor={{ false: theme.colors.separator, true: theme.colors.accent }}
-                                                thumbColor={theme.colors.white}
+                                                trackColor={{ false: colors.glassRaised, true: colors.accent }}
+                                                thumbColor={colors.onAccent}
                                             />
                                         </View>
                                     </View>
@@ -133,39 +134,39 @@ export function CalendarsSheet({
                         <View style={styles.cloudActions}>
                             {!cloudAccounts.find((a: any) => a.provider === 'google') && (
                                 <TouchableOpacity
-                                    style={[styles.connectCloudBtn, { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' }]}
+                                    style={styles.connectCloudBtn}
                                     onPress={() => handleConnectCloud('google')}
                                 >
-                                    <Ionicons name="logo-google" size={20} color="#4285F4" />
-                                    <Text style={[styles.connectCloudBtnText, { color: '#444' }]}>Conectar Google Calendar</Text>
+                                    <Ionicons name="logo-google" size={20} color={colors.brandGoogle} />
+                                    <Text style={styles.connectCloudBtnText}>Conectar Google Calendar</Text>
                                 </TouchableOpacity>
                             )}
 
                             {!cloudAccounts.find((a: any) => a.provider === 'outlook') && (
                                 <TouchableOpacity
-                                    style={[styles.connectCloudBtn, { backgroundColor: '#0078d4' }]}
+                                    style={styles.connectCloudBtn}
                                     onPress={() => handleConnectCloud('outlook')}
                                 >
-                                    <Ionicons name="logo-microsoft" size={20} color="white" />
-                                    <Text style={[styles.connectCloudBtnText, { color: 'white' }]}>Conectar Outlook (365)</Text>
+                                    <Ionicons name="logo-microsoft" size={20} color={colors.brandMicrosoft} />
+                                    <Text style={styles.connectCloudBtnText}>Conectar Outlook (365)</Text>
                                 </TouchableOpacity>
                             )}
                         </View>
 
                         <View style={[styles.sectionHeader, { marginTop: 32 }]}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.text.muted, marginBottom: 0 }]}>CALENDARIOS DEL DISPOSITIVO</Text>
+                            <Text style={[styles.sectionTitle, { color: colors.textFaint, marginBottom: 0 }]}>CALENDARIOS DEL DISPOSITIVO</Text>
                             <TouchableOpacity onPress={onRefreshCalendars}>
-                                <Ionicons name="refresh" size={18} color={theme.colors.accent} />
+                                <Ionicons name="refresh" size={18} color={colors.accentBright} />
                             </TouchableOpacity>
                         </View>
-                        <Text style={[styles.hint, { color: theme.colors.text.secondary, marginBottom: 12 }]}>
+                        <Text style={[styles.hint, { color: colors.textSoft, marginBottom: 12 }]}>
                             Eventos de tu teléfono para considerarlos en tus propuestas de agenda.
                         </Text>
 
                         {loadingCals ? (
-                            <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginTop: 20 }} />
+                            <ActivityIndicator size="small" color={colors.accentBright} style={{ marginTop: 20 }} />
                         ) : calendars.length > 0 ? (
-                            <View style={[styles.calsContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.separator }]}>
+                            <View style={[styles.calsContainer, { backgroundColor: colors.glassRaised, borderColor: colors.glassBorder }]}>
                                 {calendars.map((cal: any, index) => {
                                     const isVisible = !hiddenCalendars.includes(cal.id);
                                     return (
@@ -173,31 +174,31 @@ export function CalendarsSheet({
                                             key={cal.id}
                                             style={[
                                                 styles.calRow,
-                                                index < calendars.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.separator },
+                                                index < calendars.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
                                                 !isVisible && { opacity: 0.6 }
                                             ]}
                                             onPress={() => onToggleCalendarVisibility(cal.id)}
                                         >
                                             <View style={[styles.calDot, { backgroundColor: cal.color }]} />
                                             <View style={{ flex: 1 }}>
-                                                <Text style={[styles.calTitle, { color: theme.colors.text.primary }, !isVisible && { textDecorationLine: 'line-through' }]}>
+                                                <Text style={[styles.calTitle, { color: colors.text }, !isVisible && { textDecorationLine: 'line-through' }]}>
                                                     {cal.title}
                                                 </Text>
-                                                <Text style={[styles.calSource, { color: theme.colors.text.secondary }]}>{cal.source.name}</Text>
+                                                <Text style={[styles.calSource, { color: colors.textSoft }]}>{cal.source.name}</Text>
                                             </View>
                                             <Switch
                                                 value={isVisible}
                                                 onValueChange={() => onToggleCalendarVisibility(cal.id)}
-                                                trackColor={{ false: theme.colors.separator, true: theme.colors.success }}
-                                                thumbColor={theme.colors.white}
+                                                trackColor={{ false: colors.separator, true: colors.success }}
+                                                thumbColor={colors.onAccent}
                                             />
                                         </TouchableOpacity>
                                     );
                                 })}
                             </View>
                         ) : (
-                            <TouchableOpacity style={[styles.permissionBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={onRefreshCalendars}>
-                                <Text style={[styles.permissionBtnText, { color: theme.colors.accent }]}>Habilitar Calendarios</Text>
+                            <TouchableOpacity style={[styles.permissionBtn, { backgroundColor: colors.glassRaised }]} onPress={onRefreshCalendars}>
+                                <Text style={[styles.permissionBtnText, { color: colors.accentBright }]}>Habilitar Calendarios</Text>
                             </TouchableOpacity>
                         )}
                     </ScrollView>
@@ -210,20 +211,21 @@ export function CalendarsSheet({
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     sheet: {
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         height: '85%',
+        ...sheetSurface,
     },
     handle: {
         alignSelf: 'center',
         width: 36,
         height: 4,
         borderRadius: 2,
-        backgroundColor: '#d1d5db',
+        backgroundColor: colors.glassRaised,
         marginTop: 12,
         marginBottom: 16,
     },
@@ -236,7 +238,7 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 20,
-        fontWeight: '800',
+        fontFamily: fonts.extrabold,
     },
     closeBtn: {
         padding: 4,
@@ -246,7 +248,7 @@ const styles = StyleSheet.create({
     },
     sectionTitle: {
         fontSize: 11,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         marginBottom: 8,
         textTransform: 'uppercase',
         letterSpacing: 0.6,
@@ -257,7 +259,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginBottom: 8,
     },
-    hint: {
+    hint: { fontFamily: fonts.regular,
         fontSize: 13,
         marginBottom: 16,
     },
@@ -277,9 +279,9 @@ const styles = StyleSheet.create({
     },
     cloudAccEmail: {
         fontSize: 14,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
-    cloudAccMeta: {
+    cloudAccMeta: { fontFamily: fonts.regular,
         fontSize: 12,
     },
     autoSyncRow: {
@@ -290,9 +292,9 @@ const styles = StyleSheet.create({
     },
     autoSyncTitle: {
         fontSize: 13,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
-    autoSyncDesc: {
+    autoSyncDesc: { fontFamily: fonts.regular,
         fontSize: 11,
     },
     cloudActions: {
@@ -305,10 +307,14 @@ const styles = StyleSheet.create({
         padding: 14,
         borderRadius: 12,
         gap: 10,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
     connectCloudBtnText: {
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         fontSize: 14,
+        color: colors.text,
     },
     calsContainer: {
         borderRadius: 12,
@@ -329,9 +335,9 @@ const styles = StyleSheet.create({
     },
     calTitle: {
         fontSize: 15,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
-    calSource: {
+    calSource: { fontFamily: fonts.regular,
         fontSize: 12,
         marginTop: 2,
     },
@@ -341,7 +347,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     permissionBtnText: {
-        fontWeight: '700',
+        fontFamily: fonts.bold,
         fontSize: 14,
     },
 });
