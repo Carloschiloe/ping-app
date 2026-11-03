@@ -408,7 +408,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 accessibilityRole="button"
                                 accessibilityLabel="Abrir Ping"
                             >
-                                <PingOrb size={34} />
+                                <PingOrb size={44} />
                             </Pressable>
                         </View>
                     </View>
@@ -646,7 +646,7 @@ const styles = StyleSheet.create({
     title: { marginTop: 2, transformOrigin: 'left bottom' },
     headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingBottom: 4 },
     iconButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-    orbButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    orbButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     searchBar: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.md, paddingHorizontal: 14, height: 46, gap: 10 },
     searchInput: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
     filterBar: { flexDirection: 'row', paddingHorizontal: space.xl, paddingTop: space.xs, paddingBottom: space.md, gap: space.sm },

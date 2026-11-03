@@ -131,7 +131,7 @@ export const AppNavigator = () => {
         return (
             <GlassBackdrop>
                 <View style={styles.loading}>
-                    <PingOrb size={72} />
+                    <PingOrb size={120} state="thinking" />
                 </View>
             </GlassBackdrop>
         );

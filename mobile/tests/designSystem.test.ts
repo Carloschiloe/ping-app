@@ -226,3 +226,21 @@ describe('Lock screen, Ping Voz and calls in the new design', () => {
         });
     }
 });
+
+describe("Ping's living aura", () => {
+    const orb = read('design/PingOrb.tsx');
+    const ping = read('screens/AgentPreviewScreen.tsx');
+
+    it('turns every frame, with arcs orbiting a core of drifting light', () => {
+        expect(orb).toContain('useFrameCallback');
+        expect(orb).toContain('const ARCS');
+        expect(orb).toContain('const BLOBS');
+        expect(orb).toContain("thinking: 3.8");
+    });
+
+    it('sits on the right of the Ping bar and opens Ping Voz there', () => {
+        const voice = ping.indexOf('testID="ping-voice-button"');
+        expect(voice).toBeGreaterThan(ping.indexOf('styles.headerInfo'));
+        expect(ping.indexOf('<PingOrb')).toBeGreaterThan(ping.indexOf('styles.headerInfo'));
+    });
+});

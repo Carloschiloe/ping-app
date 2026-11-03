@@ -173,7 +173,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     return <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={requestClose}>
         <View style={styles.container}>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
-                <PingOrb size={30} />
+                <PingOrb size={40} state="listening" />
                 <Text style={styles.title}>Ping Voz</Text>
                 <TouchableOpacity onPress={requestClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz">
                     <Ionicons name="close" size={20} color={colors.text} />

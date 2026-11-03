@@ -394,21 +394,24 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Volver" hitSlop={8}>
                         <Ionicons name="chevron-back" size={26} color={colors.text} />
                     </TouchableOpacity>
-                    <PingOrb size={30} />
                     <View style={styles.headerInfo}>
                         <Text style={styles.title} numberOfLines={1}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
                         <Text style={styles.subtitle} numberOfLines={1}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
                     </View>
-                    {liveVoiceEnabled && (
+                    {liveVoiceEnabled ? (
                         <TouchableOpacity
                             onPress={() => setLiveVoiceVisible(true)}
-                            style={styles.headerBtn}
+                            style={styles.headerAura}
                             testID="ping-voice-button"
                             accessibilityRole="button"
                             accessibilityLabel="Abrir Ping Voz"
                         >
-                            <Ionicons name="radio" size={19} color={colors.accentBright} />
+                            <PingOrb size={44} state={isPending ? 'thinking' : 'idle'} />
                         </TouchableOpacity>
+                    ) : (
+                        <View style={styles.headerAura}>
+                            <PingOrb size={44} state={isPending ? 'thinking' : 'idle'} />
+                        </View>
                     )}
                     <TouchableOpacity
                         onPress={handleClearHistory}
@@ -435,7 +438,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 {messages.length === 0 ? (
                     <View style={styles.emptyState}>
                         <View style={styles.emptyOrb}>
-                            <PingOrb size={64} />
+                            <PingOrb size={120} state={isPending ? 'thinking' : 'idle'} />
                         </View>
                         <Text style={styles.emptyTitle}>Pregúntale a Ping</Text>
                         <Text style={styles.emptySubtitle}>
@@ -657,6 +660,7 @@ const styles = StyleSheet.create({
         borderColor: colors.glassBorder,
     },
     headerBtnDisabled: { opacity: 0.5 },
+    headerAura: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 
     keyboardArea: { flex: 1 },
     messageList: { flex: 1 },
@@ -725,7 +729,7 @@ const styles = StyleSheet.create({
     retryText: { fontFamily: fonts.bold, fontSize: 13, color: colors.danger },
 
     emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
-    emptyOrb: { marginBottom: space.xl },
+    emptyOrb: { marginBottom: space.md },
     emptyTitle: { ...type.title, marginBottom: space.sm },
     emptySubtitle: { ...type.subhead, textAlign: 'center', marginBottom: space.xl },
     startersWrap: { width: '100%', gap: space.sm },

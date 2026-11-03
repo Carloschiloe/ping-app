@@ -51,7 +51,8 @@ describe('M8 live voice production surface', () => {
         const screen = read('src/screens/AgentPreviewScreen.tsx');
         expect(screen).toContain('testID="ping-voice-button"');
         expect(screen).toContain('accessibilityLabel="Abrir Ping Voz"');
-        expect(screen).toContain('<Ionicons name="radio"');
+        expect(screen).toContain("<PingOrb size={44} state={isPending ? 'thinking' : 'idle'} />");
+        expect(screen).not.toContain('<Ionicons name="radio"');
     });
 
     it('uses the canonical self conversation for the main voice entry point', () => {
