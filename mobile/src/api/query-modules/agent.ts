@@ -20,11 +20,12 @@ export type { AgentActionDecision, AgentAdapterChannel, AgentAdapterSurface, Age
 // M-1H: 'commitment_proposal' — un compromiso todavía no confirmado (tabla
 // commitment_proposals, distinta de commitments) — ver backend
 // types/retrieval.ts#RetrievalSourceType, misma unión.
-export type AgentCitationSourceType = 'commitment' | 'commitment_proposal' | 'commitment_event' | 'message' | 'transcription' | 'attachment' | 'person';
+export type AgentCitationSourceType = 'commitment' | 'commitment_proposal' | 'commitment_event' | 'message' | 'memory' | 'transcription' | 'attachment' | 'person';
 
 export interface AgentCitation {
     sourceType: AgentCitationSourceType;
     sourceId: string;
+    label?: string;
 }
 
 export interface AgentFollowUpOption {
@@ -181,9 +182,13 @@ export function parseAgentResponse(raw: unknown): AgentRespondResult {
     if (typeof obj.answer !== 'string') throw new Error('invalid_agent_response_shape');
     if (!Array.isArray(obj.citations)) throw new Error('invalid_agent_response_shape');
 
-    const citations: AgentCitation[] = obj.citations.filter(
-        (c: any): c is AgentCitation => !!c && typeof c.sourceType === 'string' && typeof c.sourceId === 'string'
-    );
+    const citations: AgentCitation[] = obj.citations
+        .filter((c: any) => !!c && typeof c.sourceType === 'string' && typeof c.sourceId === 'string')
+        .map((c: any): AgentCitation => ({
+            sourceType: c.sourceType,
+            sourceId: c.sourceId,
+            ...(typeof c.label === 'string' && c.label.trim() ? { label: c.label.trim() } : {}),
+        }));
 
     let followUp: AgentFollowUp | undefined;
     if (obj.followUp && typeof obj.followUp === 'object') {

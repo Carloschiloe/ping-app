@@ -127,7 +127,8 @@ export interface AssistantToolTrace {
 
 export interface AssistantTurnOutput {
     answer: string;
-    citations: Array<{ sourceType: 'commitment' | 'commitment_proposal' | 'message' | 'memory'; sourceId: string }>;
+    // label is what the person reads in "Fuentes de esta respuesta".
+    citations: Array<{ sourceType: 'commitment' | 'commitment_proposal' | 'message' | 'memory'; sourceId: string; label?: string }>;
     memory: AssistantMemory;
     trace: AssistantToolTrace[];
 }

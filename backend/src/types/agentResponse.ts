@@ -28,6 +28,7 @@ export type AgentResponseStatus = 'answered' | 'needs_clarification' | 'no_evide
 export interface AgentCitation {
     sourceType: RetrievalSourceType;
     sourceId: string;
+    label?: string; // human name of the source, e.g. the commitment title
 }
 
 export interface AgentClaim {

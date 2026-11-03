@@ -119,12 +119,18 @@ function relationLabel(item: AssistantCommitment, actorUserId: string, names: Re
     return `entre ${names[owner] ?? 'otra persona'} y ${names[assignee] ?? 'otra persona'}`;
 }
 
+// One line the person can recognise in the sources list.
+function citationLabel(text: string): string {
+    const line = text.replace(/\s+/g, ' ').trim();
+    return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+}
+
 async function projectCommitments(items: AssistantCommitment[], ctx: AssistantToolContext) {
     const ids = [...new Set(items.flatMap((item) => [item.ownerUserId, item.assignedToUserId ?? item.ownerUserId]))]
         .filter((id) => id !== ctx.actorUserId);
     const names = ids.length ? await ctx.data.personNames(ids) : {};
     return items.map((item) => {
-        ctx.citations.set(item.id, { sourceType: item.entityType, sourceId: item.id });
+        ctx.citations.set(item.id, { sourceType: item.entityType, sourceId: item.id, label: item.title });
         return {
             ref: ctx.refs.refFor('commitment', item.id, item.title),
             title: item.title,
@@ -280,7 +286,7 @@ const handlers: Record<string, ToolHandler> = {
         const hits = await ctx.data.searchMessages({ text: args.text?.trim() || undefined, conversationId });
         return {
             messages: hits.slice(0, 10).map((hit) => {
-                ctx.citations.set(hit.id, { sourceType: 'message', sourceId: hit.id });
+                ctx.citations.set(hit.id, { sourceType: 'message', sourceId: hit.id, label: citationLabel(`${hit.senderName}: ${hit.content}`) });
                 return { from: hit.senderName, when: formatLocal(hit.createdAt, ctx.timezone), text: hit.content.slice(0, 500) };
             }),
         };
@@ -290,7 +296,7 @@ const handlers: Record<string, ToolHandler> = {
         const hits = await ctx.data.searchMemory(String(args.query ?? '').trim());
         return {
             facts: hits.slice(0, 10).map((hit) => {
-                ctx.citations.set(hit.id, { sourceType: 'memory', sourceId: hit.id });
+                ctx.citations.set(hit.id, { sourceType: 'memory', sourceId: hit.id, label: citationLabel(hit.content) });
                 return { ref: ctx.refs.refFor('memory', hit.id, hit.content.slice(0, 80)), fact: hit.content.slice(0, 500) };
             }),
         };
