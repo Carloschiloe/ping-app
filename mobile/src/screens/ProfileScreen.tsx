@@ -20,6 +20,7 @@ import { EditProfileSheet } from '../components/perfil/EditProfileSheet';
 import { CalendarsSheet } from '../components/perfil/CalendarsSheet';
 import { FocusModeSheet } from '../components/perfil/FocusModeSheet';
 import { MemorySheet } from '../components/perfil/MemorySheet';
+import { TAB_BAR_CLEARANCE } from '../design/GlassTabBar';
 
 export default function ProfileScreen() {
     const { theme } = useAppTheme();
@@ -255,7 +256,7 @@ export default function ProfileScreen() {
                 styles.content,
                 {
                     paddingTop: contentPaddingTop,
-                    paddingBottom: Math.max(insets.bottom, 20) + 20,
+                    paddingBottom: Math.max(insets.bottom, 12) + TAB_BAR_CLEARANCE,
                 },
             ]}
         >

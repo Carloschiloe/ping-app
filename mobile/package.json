@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@expo-google-fonts/manrope": "^0.4.3",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.1.0",
@@ -27,6 +28,7 @@
     "expo": "^57.0.0",
     "expo-asset": "~57.0.16",
     "expo-audio": "~57.0.4",
+    "expo-blur": "~57.0.3",
     "expo-calendar": "~57.0.2",
     "expo-camera": "~57.0.4",
     "expo-clipboard": "~57.0.1",
@@ -65,6 +67,7 @@
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-web": "~0.21.0",
     "react-native-webview": "13.16.1",

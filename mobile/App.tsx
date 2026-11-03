@@ -12,6 +12,7 @@ import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
 import NetInfo from '@react-native-community/netinfo';
 import { API_URL } from './src/api/client';
 import { getBackendHealthUrl } from './src/utils/backendHealth';
+import { useDesignFonts } from './src/design/typography';
 
 const queryClient = new QueryClient();
 const BACKEND_HEALTH_URL = getBackendHealthUrl(API_URL);
@@ -117,6 +118,8 @@ const BackendBanner = () => {
 };
 
 export default function App() {
+    const fontsLoaded = useDesignFonts();
+    if (!fontsLoaded) return null;
     return (
         <SafeAreaProvider>
             <QueryClientProvider client={queryClient}>

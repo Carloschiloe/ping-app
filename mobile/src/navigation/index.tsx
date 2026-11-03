@@ -3,11 +3,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
 import { useAppTheme } from '../theme/ThemeContext';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GlassTabBar } from '../design/GlassTabBar';
 
 import AuthScreen from '../screens/AuthScreen';
 import PasswordRecoveryScreen from '../screens/PasswordRecoveryScreen';
@@ -134,51 +133,16 @@ const ConversationsStack = () => {
     );
 };
 
-const MainTabs = () => {
-    const { theme: appTheme } = useAppTheme();
-    const insets = useSafeAreaInsets();
-    const bottomInset = Math.max(insets.bottom, 10);
-
-    return (
+const MainTabs = () => (
     <Tab.Navigator
-        screenOptions={({ route }) => ({
-            headerShown: false,
-            tabBarHideOnKeyboard: true,
-            tabBarActiveTintColor: appTheme.isDark ? appTheme.colors.accent : appTheme.colors.primary,
-            tabBarInactiveTintColor: appTheme.isDark ? appTheme.colors.text.secondary : appTheme.colors.text.muted,
-            tabBarStyle: {
-                backgroundColor: appTheme.isDark ? appTheme.colors.surfaceElevated : appTheme.colors.surface,
-                borderTopColor: appTheme.isDark ? appTheme.colors.border : appTheme.colors.separator,
-                borderTopWidth: 1,
-                height: 54 + bottomInset,
-                paddingBottom: bottomInset,
-                paddingTop: 6,
-                shadowColor: '#000',
-                shadowOpacity: appTheme.isDark ? 0.2 : 0.08,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: -6 },
-                elevation: 8,
-            },
-            tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
-            tabBarIcon: ({ focused, color, size }) => {
-                let iconName: any;
-                if (route.name === 'Chats') {
-                    iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-                } else if (route.name === 'Hoy') {
-                    iconName = focused ? 'today' : 'today-outline';
-                } else if (route.name === 'Perfil') {
-                    iconName = focused ? 'person-circle' : 'person-circle-outline';
-                }
-                return <Ionicons name={iconName} size={24} color={color} />;
-            },
-        })}
+        tabBar={(props) => <GlassTabBar {...props} />}
+        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true }}
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
         <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
-    );
-};
+);
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
