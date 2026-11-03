@@ -11,8 +11,9 @@ import {
     View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppTheme } from '../theme/ThemeContext';
 import { latLngToOsmTile } from '../utils/mapTiles';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 export interface LocationPreview {
     latitude: number;
@@ -59,8 +60,6 @@ export default function LocationConfirmModal({
     onConfirm,
     onCancel,
 }: LocationConfirmModalProps) {
-    const { theme } = useAppTheme();
-
     return (
         <Modal
             visible={visible}
@@ -69,23 +68,23 @@ export default function LocationConfirmModal({
             onRequestClose={onCancel}
         >
             <View style={styles.overlay}>
-                <View style={[styles.sheet, { backgroundColor: theme.colors.surface }]}>
+                <View style={[styles.sheet, { backgroundColor: colors.surfaceSolid }]}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <Text style={[styles.title, { color: theme.colors.text.primary }]}>
+                        <Text style={[styles.title, { color: colors.text }]}>
                             Compartir ubicación
                         </Text>
                         <TouchableOpacity onPress={onCancel} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Ionicons name="close" size={24} color={theme.colors.text.secondary} />
+                            <Ionicons name="close" size={24} color={colors.textSoft} />
                         </TouchableOpacity>
                     </View>
 
                     {/* Body */}
-                    <View style={[styles.mapContainer, { backgroundColor: theme.colors.surfaceMuted }]}>
+                    <View style={[styles.mapContainer, { backgroundColor: colors.glassRaised }]}>
                         {loading ? (
                             <View style={styles.loadingOverlay}>
-                                <ActivityIndicator color={theme.colors.accent} />
-                                <Text style={{ marginTop: 8, color: theme.colors.text.secondary }}>
+                                <ActivityIndicator color={colors.accent} />
+                                <Text style={{ marginTop: 8, color: colors.textSoft }}>
                                     Obteniendo ubicación...
                                 </Text>
                             </View>
@@ -104,24 +103,24 @@ export default function LocationConfirmModal({
                                     {/* Center Marker */}
                                     <View style={styles.markerContainer}>
                                         <View style={styles.markerShadow} />
-                                        <Ionicons name="location-sharp" size={36} color="#ef4444" style={styles.markerIcon} />
+                                        <Ionicons name="location-sharp" size={36} color={colors.danger} style={styles.markerIcon} />
                                     </View>
                                 </TouchableOpacity>
 
                                 <View style={styles.mapActionsOverlay}>
                                     <TouchableOpacity
-                                        style={[styles.mapActionBtn, { backgroundColor: theme.colors.surface }]}
+                                        style={[styles.mapActionBtn, { backgroundColor: colors.surfaceSolid }]}
                                         onPress={() => openDirections(location.latitude, location.longitude)}
                                     >
-                                        <Ionicons name="navigate-outline" size={16} color={theme.colors.accent} />
-                                        <Text style={[styles.mapActionText, { color: theme.colors.accent }]}>Cómo llegar</Text>
+                                        <Ionicons name="navigate-outline" size={16} color={colors.accent} />
+                                        <Text style={[styles.mapActionText, { color: colors.accent }]}>Cómo llegar</Text>
                                     </TouchableOpacity>
                                 </View>
                             </>
                         ) : (
                             <View style={styles.errorContainer}>
-                                <Ionicons name="location-outline" size={32} color={theme.colors.danger} />
-                                <Text style={{ marginTop: 8, color: theme.colors.danger, textAlign: 'center' }}>
+                                <Ionicons name="location-outline" size={32} color={colors.danger} />
+                                <Text style={{ marginTop: 8, color: colors.danger, textAlign: 'center' }}>
                                     {error || 'No se pudo cargar el mapa'}
                                 </Text>
                             </View>
@@ -131,17 +130,17 @@ export default function LocationConfirmModal({
                     {/* Location info */}
                     {location && (
                         <View style={styles.info}>
-                            <Ionicons name="location" size={18} color={theme.colors.accent} />
+                            <Ionicons name="location" size={18} color={colors.accent} />
                             <View style={{ flex: 1 }}>
                                 <Text
-                                    style={[styles.locationLabel, { color: theme.colors.text.primary }]}
+                                    style={[styles.locationLabel, { color: colors.text }]}
                                     numberOfLines={2}
                                 >
                                     {location.label}
                                 </Text>
                                 {location.address ? (
                                     <Text
-                                        style={[styles.locationAddress, { color: theme.colors.text.secondary }]}
+                                        style={[styles.locationAddress, { color: colors.textSoft }]}
                                         numberOfLines={1}
                                     >
                                         {location.address}
@@ -152,12 +151,12 @@ export default function LocationConfirmModal({
                     )}
 
                     {/* Actions */}
-                    <View style={[styles.actions, { borderTopColor: theme.colors.border }]}>
+                    <View style={[styles.actions, { borderTopColor: colors.glassBorder }]}>
                         <TouchableOpacity
-                            style={[styles.btn, styles.btnCancel, { borderColor: theme.colors.border }]}
+                            style={[styles.btn, styles.btnCancel, { borderColor: colors.glassBorder }]}
                             onPress={onCancel}
                         >
-                            <Text style={{ color: theme.colors.text.secondary, fontWeight: '600' }}>
+                            <Text style={{ color: colors.textSoft, fontFamily: fonts.semibold }}>
                                 Cancelar
                             </Text>
                         </TouchableOpacity>
@@ -165,14 +164,14 @@ export default function LocationConfirmModal({
                             style={[
                                 styles.btn,
                                 styles.btnConfirm,
-                                { backgroundColor: theme.colors.accent },
+                                { backgroundColor: colors.accent },
                                 (!location || loading || !!error) && { opacity: 0.4 },
                             ]}
                             onPress={onConfirm}
                             disabled={!location || loading || !!error}
                         >
-                            <Ionicons name="location" size={16} color={theme.colors.white} />
-                            <Text style={{ color: theme.colors.white, fontWeight: '700' }}>
+                            <Ionicons name="location" size={16} color={colors.onAccent} />
+                            <Text style={{ color: colors.onAccent, fontFamily: fonts.bold }}>
                                 Enviar ubicación
                             </Text>
                         </TouchableOpacity>
@@ -186,7 +185,7 @@ export default function LocationConfirmModal({
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
         justifyContent: 'flex-end',
     },
     sheet: {
@@ -201,7 +200,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         padding: 18,
     },
-    title: { fontSize: 17, fontWeight: '700' },
+    title: { fontSize: 17, fontFamily: fonts.bold },
     mapContainer: {
         height: 200,
         width: '100%',
@@ -218,7 +217,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         padding: 20,
     },
-    hint: { fontSize: 14, marginTop: 4 },
+    hint: { fontFamily: fonts.regular, fontSize: 14, marginTop: 4 },
     mapImage: {
         width: '100%',
         height: '100%',
@@ -238,11 +237,11 @@ const styles = StyleSheet.create({
         width: 12,
         height: 6,
         borderRadius: 6,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: colors.scrim,
         transform: [{ scaleX: 2 }],
     },
     markerIcon: {
-        textShadowColor: 'rgba(0,0,0,0.2)',
+        textShadowColor: colors.ink,
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 2,
     },
@@ -260,7 +259,7 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         borderRadius: 20,
         gap: 6,
-        shadowColor: '#000',
+        shadowColor: colors.ink,
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
         shadowRadius: 2,
@@ -268,7 +267,7 @@ const styles = StyleSheet.create({
     },
     mapActionText: {
         fontSize: 12,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     mapBadge: {
         position: 'absolute',
@@ -282,15 +281,15 @@ const styles = StyleSheet.create({
         borderRadius: 14,
         opacity: 0.9,
     },
-    mapBadgeText: { fontSize: 11, fontWeight: '700' },
+    mapBadgeText: { fontSize: 11, fontFamily: fonts.bold },
     info: {
         flexDirection: 'row',
         alignItems: 'flex-start',
         gap: 10,
         padding: 16,
     },
-    locationLabel: { fontSize: 15, fontWeight: '600' },
-    locationAddress: { fontSize: 12, marginTop: 2 },
+    locationLabel: { fontSize: 15, fontFamily: fonts.semibold },
+    locationAddress: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
     actions: {
         flexDirection: 'row',
         gap: 10,

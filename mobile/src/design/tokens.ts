@@ -41,7 +41,13 @@ export const colors = {
 
     online: '#4ADE80',
     danger: '#F2735F',
+    dangerTint: 'rgba(242,115,95,0.16)',
     warning: '#FBBF24',
+    warningTint: 'rgba(251,191,36,0.16)',
+    success: '#4ADE80',
+    successTint: 'rgba(74,222,128,0.16)',
+    // Dims the screen behind a sheet or menu.
+    scrim: 'rgba(0,0,0,0.55)',
 } as const;
 
 export const gradients = {

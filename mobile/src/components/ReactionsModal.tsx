@@ -1,7 +1,8 @@
 import React from 'react';
 import { Modal, TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppTheme } from '../theme/ThemeContext';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 type ReactionGroup = {
     emoji: string;
@@ -15,9 +16,6 @@ type ReactionsModalProps = {
 };
 
 export function ReactionsModal({ visible, reactions, onClose }: ReactionsModalProps) {
-    const { theme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
-
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose}>
@@ -25,7 +23,7 @@ export function ReactionsModal({ visible, reactions, onClose }: ReactionsModalPr
                     <View style={styles.header}>
                         <Text style={styles.title}>Reacciones</Text>
                         <TouchableOpacity onPress={onClose}>
-                            <Ionicons name="close" size={22} color={theme.colors.text.secondary} />
+                            <Ionicons name="close" size={22} color={colors.textSoft} />
                         </TouchableOpacity>
                     </View>
                     {reactions.length === 0 ? (
@@ -44,13 +42,13 @@ export function ReactionsModal({ visible, reactions, onClose }: ReactionsModalPr
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
-    backdrop: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
-    sheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+const styles = StyleSheet.create({
+    backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
+    sheet: { backgroundColor: colors.surfaceSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-    title: { fontSize: 16, fontWeight: '700', color: theme.colors.text.primary },
-    empty: { color: theme.colors.text.muted, paddingVertical: 8 },
+    title: { fontSize: 16, fontFamily: fonts.bold, color: colors.text },
+    empty: { color: colors.textFaint, paddingVertical: 8 },
     row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
-    emoji: { fontSize: 18 },
-    count: { fontSize: 14, fontWeight: '700', color: theme.colors.text.primary },
+    emoji: { fontFamily: fonts.regular, fontSize: 18 },
+    count: { fontSize: 14, fontFamily: fonts.bold, color: colors.text },
 });

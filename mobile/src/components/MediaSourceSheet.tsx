@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppTheme } from '../theme/ThemeContext';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 // Canonical media-source chooser for chat. Deliberately NOT a native
 // Alert.alert/Modal — both are real native presentations (UIAlertController
@@ -42,9 +43,6 @@ export function MediaSourceSheet({
     onPickGallery,
     onPickDocument,
 }: MediaSourceSheetProps) {
-    const { theme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
-
     if (!visible) return null;
 
     return (
@@ -53,19 +51,19 @@ export function MediaSourceSheet({
             <View style={styles.sheet}>
                 <Text style={styles.title}>Enviar archivo</Text>
                 <TouchableOpacity style={styles.row} onPress={onPickPhoto}>
-                    <Ionicons name="camera-outline" size={22} color={theme.colors.text.secondary} />
+                    <Ionicons name="camera-outline" size={22} color={colors.textSoft} />
                     <Text style={styles.rowLabel}>Tomar foto</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.row} onPress={onPickVideo}>
-                    <Ionicons name="videocam-outline" size={22} color={theme.colors.text.secondary} />
+                    <Ionicons name="videocam-outline" size={22} color={colors.textSoft} />
                     <Text style={styles.rowLabel}>Grabar video</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.row} onPress={onPickGallery}>
-                    <Ionicons name="image-outline" size={22} color={theme.colors.text.secondary} />
+                    <Ionicons name="image-outline" size={22} color={colors.textSoft} />
                     <Text style={styles.rowLabel}>Galería (Foto o Video)</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.row} onPress={onPickDocument}>
-                    <Ionicons name="document-outline" size={22} color={theme.colors.text.secondary} />
+                    <Ionicons name="document-outline" size={22} color={colors.textSoft} />
                     <Text style={styles.rowLabel}>Documento PDF</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.cancel} onPress={onClose}>
@@ -78,7 +76,7 @@ export function MediaSourceSheet({
 
 export default MediaSourceSheet;
 
-const createStyles = (theme: any) => StyleSheet.create({
+const styles = StyleSheet.create({
     overlay: {
         ...StyleSheet.absoluteFill,
         zIndex: 1000,
@@ -86,10 +84,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     backdrop: {
         ...StyleSheet.absoluteFill,
-        backgroundColor: theme.colors.overlay,
+        backgroundColor: colors.scrim,
     },
     sheet: {
-        backgroundColor: theme.colors.surface,
+        backgroundColor: colors.surfaceSolid,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         paddingTop: 8,
@@ -99,8 +97,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     title: {
         textAlign: 'center',
         fontSize: 13,
-        fontWeight: '600',
-        color: theme.colors.text.muted,
+        fontFamily: fonts.semibold,
+        color: colors.textFaint,
         paddingVertical: 10,
     },
     row: {
@@ -113,8 +111,8 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     rowLabel: {
         fontSize: 16,
-        fontWeight: '500',
-        color: theme.colors.text.primary,
+        fontFamily: fonts.medium,
+        color: colors.text,
     },
     cancel: {
         alignItems: 'center',
@@ -123,7 +121,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     },
     cancelText: {
         fontSize: 16,
-        fontWeight: '600',
-        color: theme.colors.secondary,
+        fontFamily: fonts.semibold,
+        color: colors.accentBright,
     },
 });

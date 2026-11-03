@@ -9,7 +9,8 @@ import {
     View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppTheme } from '../theme/ThemeContext';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 type ForwardMessagesModalProps = {
     visible: boolean;
@@ -39,8 +40,6 @@ export function ForwardMessagesModal({
     onClose,
     onSelectConversation,
 }: ForwardMessagesModalProps) {
-    const { theme } = useAppTheme();
-    const styles = React.useMemo(() => createStyles(theme), [theme]);
     const destinations = conversations.filter((conversation) => conversation.id !== currentConversationId);
 
     return (
@@ -60,13 +59,13 @@ export function ForwardMessagesModal({
                             onPress={onClose}
                             style={styles.closeButton}
                         >
-                            <Ionicons name="close" size={24} color={theme.colors.text.primary} />
+                            <Ionicons name="close" size={24} color={colors.text} />
                         </TouchableOpacity>
                     </View>
 
                     {destinations.length === 0 ? (
                         <View style={styles.empty}>
-                            <Ionicons name="chatbubbles-outline" size={32} color={theme.colors.text.muted} />
+                            <Ionicons name="chatbubbles-outline" size={32} color={colors.textFaint} />
                             <Text style={styles.emptyText}>No hay otra conversación disponible.</Text>
                         </View>
                     ) : (
@@ -83,16 +82,16 @@ export function ForwardMessagesModal({
                                         <Ionicons
                                             name={item.isGroup ? 'people' : 'person'}
                                             size={21}
-                                            color={theme.colors.primary}
+                                            color={colors.accent}
                                         />
                                     </View>
                                     <Text style={styles.conversationName} numberOfLines={1}>
                                         {conversationLabel(item)}
                                     </Text>
                                     {isForwarding ? (
-                                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                                        <ActivityIndicator size="small" color={colors.accent} />
                                     ) : (
-                                        <Ionicons name="arrow-redo" size={20} color={theme.colors.primary} />
+                                        <Ionicons name="arrow-redo" size={20} color={colors.accent} />
                                     )}
                                 </TouchableOpacity>
                             )}
@@ -104,11 +103,11 @@ export function ForwardMessagesModal({
     );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
+const styles = StyleSheet.create({
     backdrop: {
         flex: 1,
         justifyContent: 'flex-end',
-        backgroundColor: theme.colors.overlay,
+        backgroundColor: colors.scrim,
     },
     sheet: {
         maxHeight: '72%',
@@ -118,7 +117,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         paddingBottom: 28,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
-        backgroundColor: theme.colors.surface,
+        backgroundColor: colors.surfaceSolid,
     },
     header: {
         flexDirection: 'row',
@@ -127,13 +126,13 @@ const createStyles = (theme: any) => StyleSheet.create({
         marginBottom: 12,
     },
     title: {
-        color: theme.colors.text.primary,
+        color: colors.text,
         fontSize: 21,
-        fontWeight: '800',
+        fontFamily: fonts.extrabold,
     },
-    subtitle: {
+    subtitle: { fontFamily: fonts.regular,
         marginTop: 2,
-        color: theme.colors.text.secondary,
+        color: colors.textSoft,
         fontSize: 13,
     },
     closeButton: {
@@ -145,7 +144,7 @@ const createStyles = (theme: any) => StyleSheet.create({
         alignItems: 'center',
         gap: 12,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: theme.colors.border,
+        borderBottomColor: colors.glassBorder,
     },
     avatar: {
         width: 40,
@@ -153,13 +152,13 @@ const createStyles = (theme: any) => StyleSheet.create({
         borderRadius: 20,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.colors.surfaceMuted,
+        backgroundColor: colors.glassRaised,
     },
     conversationName: {
         flex: 1,
-        color: theme.colors.text.primary,
+        color: colors.text,
         fontSize: 16,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     empty: {
         flex: 1,
@@ -168,8 +167,8 @@ const createStyles = (theme: any) => StyleSheet.create({
         gap: 10,
         paddingVertical: 40,
     },
-    emptyText: {
-        color: theme.colors.text.secondary,
+    emptyText: { fontFamily: fonts.regular,
+        color: colors.textSoft,
         fontSize: 15,
         textAlign: 'center',
     },

@@ -36,6 +36,16 @@ describe('Conversation in the new design', () => {
         'components/AudioPlayer.tsx',
         'components/PingActivityCard.tsx',
         'components/chat/DeliveryTicks.tsx',
+        'components/GroupTaskCard.tsx',
+        'components/OperationPanel.tsx',
+        'components/MessageActionsModal.tsx',
+        'components/ReactionsModal.tsx',
+        'components/AISuggestionModal.tsx',
+        'components/SummaryModal.tsx',
+        'components/MediaSourceSheet.tsx',
+        'components/ForwardMessagesModal.tsx',
+        'components/MentionPopup.tsx',
+        'components/LocationConfirmModal.tsx',
     ];
 
     it('the conversation reads every color from the design tokens', () => {

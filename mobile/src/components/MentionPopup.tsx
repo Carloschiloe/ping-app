@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 interface Participant {
     id: string;
@@ -42,12 +44,12 @@ export default MentionPopup;
 
 const styles = StyleSheet.create({
     mentionPopup: {
-        backgroundColor: 'white',
+        backgroundColor: colors.surfaceSolid,
         marginHorizontal: 8,
         marginBottom: 4,
         borderRadius: 16,
-        shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 5,
-        borderWidth: 1, borderColor: '#e5e7eb',
+        shadowColor: colors.ink, shadowOpacity: 0.12, shadowRadius: 8, elevation: 5,
+        borderWidth: 1, borderColor: colors.glassBorder,
         overflow: 'hidden',
         maxHeight: 200,
     },
@@ -58,14 +60,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         gap: 10,
         borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
+        borderBottomColor: colors.glassBorder,
     },
     mentionAvatar: {
         width: 36, height: 36, borderRadius: 18,
-        backgroundColor: '#6366f1',
+        backgroundColor: colors.accentTint,
         alignItems: 'center', justifyContent: 'center',
     },
-    mentionAvatarLetter: { color: 'white', fontWeight: '700', fontSize: 15 },
-    mentionName: { fontSize: 14, fontWeight: '700', color: '#111827' },
-    mentionEmail: { fontSize: 12, color: '#6b7280' },
+    mentionAvatarLetter: { color: colors.onAccent, fontFamily: fonts.bold, fontSize: 15 },
+    mentionName: { fontSize: 14, fontFamily: fonts.bold, color: colors.text },
+    mentionEmail: { fontFamily: fonts.regular, fontSize: 12, color: colors.textFaint },
 });
