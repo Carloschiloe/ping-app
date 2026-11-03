@@ -72,6 +72,7 @@ export default function TaskHistoryScreen() {
         const normalized = normalizeCommitmentStatus(item.status);
         const isCompleted = normalized === 'resolved';
         const isRejected = normalized === 'rejected';
+        const isCancelled = normalized === 'cancelled';
         const assigneeName = item.assignee?.full_name || 'Sin responsable';
         const completedAt = item.meta?.operational?.completed_at || item.updated_at || item.created_at;
         const completedBy = item.meta?.operational?.completed_by_name || assigneeName;
@@ -85,8 +86,8 @@ export default function TaskHistoryScreen() {
                 {!last && <View pointerEvents="none" style={styles.bandSeparator} />}
                 <View style={styles.rowHeader}>
                     <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
-                    <View style={[styles.statusPill, isCompleted && styles.statusPillDone, isRejected && styles.statusPillRejected]}>
-                        <Text style={[styles.statusPillText, isCompleted && styles.statusPillTextDone, isRejected && styles.statusPillTextRejected]}>
+                    <View style={[styles.statusPill, isCompleted && styles.statusPillDone, isRejected && styles.statusPillRejected, isCancelled && styles.statusPillQuiet]}>
+                        <Text style={[styles.statusPillText, isCompleted && styles.statusPillTextDone, isRejected && styles.statusPillTextRejected, isCancelled && styles.statusPillTextQuiet]}>
                             {getStatusLabel(normalized)}
                         </Text>
                     </View>
@@ -202,6 +203,9 @@ const styles = StyleSheet.create({
     statusPillTextDone: { color: colors.success },
     statusPillRejected: { backgroundColor: colors.dangerTint },
     statusPillTextRejected: { color: colors.danger },
+    // Cancelled is over and needs nothing, so it reads quiet instead of blue.
+    statusPillQuiet: { backgroundColor: colors.glassRaised },
+    statusPillTextQuiet: { color: colors.textFaint },
     rowMeta: { ...type.caption, color: colors.textFaint },
     loadingWrap: { paddingTop: space.xl, alignItems: 'center' },
     emptyWrap: { paddingTop: 48, alignItems: 'center' },
