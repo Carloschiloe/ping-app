@@ -170,7 +170,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         }
     }, []);
 
-    return <Modal visible={visible} animationType="slide" onRequestClose={requestClose}>
+    return <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={requestClose}>
         <View style={styles.container}>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
                 <PingOrb size={30} />
@@ -217,7 +217,6 @@ const styles = StyleSheet.create({
         gap: space.md,
         paddingHorizontal: space.lg,
         paddingBottom: space.md,
-        backgroundColor: colors.surfaceSolid,
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.glassBorder,
     },
