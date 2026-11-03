@@ -5,6 +5,10 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { GlassBackdrop } from '../design/Glass';
+import { avatarGradient } from '../design/ScreenHeader';
+import { colors, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
 
@@ -124,16 +128,13 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
     const pulseOpacity3 = pulseAnim3.interpolate({ inputRange: [1, 2.5], outputRange: [0.2, 0] });
 
     return (
+        <GlassBackdrop>
         <View style={styles.container}>
-            <LinearGradient
-                colors={isVideo ? ['#0f172a', '#1e1b4b', '#0f172a'] : ['#0d2137', '#0f4c75', '#0d2137']}
-                style={StyleSheet.absoluteFill}
-            />
 
             <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 {/* Call type label */}
                 <View style={styles.callTypeBadge}>
-                    <Ionicons name={isVideo ? 'videocam' : 'call'} size={14} color="rgba(255,255,255,0.8)" />
+                    <Ionicons name={isVideo ? 'videocam' : 'call'} size={14} color={colors.accentBright} />
                     <Text style={styles.callTypeText}>
                         {isVideo ? 'Videollamada entrante' : 'Llamada de voz entrante'}
                     </Text>
@@ -141,17 +142,19 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
 
                 {/* Avatar with pulse rings */}
                 <View style={styles.avatarSection}>
-                    <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim }], opacity: pulseOpacity1, borderColor: isVideo ? '#6366f1' : '#3b82f6' }]} />
-                    <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim2 }], opacity: pulseOpacity2, borderColor: isVideo ? '#6366f1' : '#3b82f6' }]} />
-                    <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim3 }], opacity: pulseOpacity3, borderColor: isVideo ? '#6366f1' : '#3b82f6' }]} />
+                    <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim }], opacity: pulseOpacity1}]} />
+                    <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim2 }], opacity: pulseOpacity2}]} />
+                    <Animated.View style={[styles.ring, { transform: [{ scale: pulseAnim3 }], opacity: pulseOpacity3}]} />
 
-                    <View style={[styles.avatarCircle, { borderColor: isVideo ? '#6366f1' : '#3b82f6' }]}>
+                    <View style={styles.avatarCircle}>
                         {callerAvatar ? (
                             <Image source={{ uri: callerAvatar }} style={styles.avatarImage} />
                         ) : (
-                            <Text style={styles.avatarInitial}>
-                                {callerName.charAt(0).toUpperCase()}
-                            </Text>
+                            <LinearGradient colors={avatarGradient(callerName)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarFill}>
+                                <Text style={styles.avatarInitial}>
+                                    {callerName.charAt(0).toUpperCase()}
+                                </Text>
+                            </LinearGradient>
                         )}
                     </View>
                 </View>
@@ -165,7 +168,7 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
                     {/* Decline */}
                     <View style={styles.actionCol}>
                         <TouchableOpacity style={[styles.actionBtn, styles.declineBtn]} onPress={handleDecline}>
-                            <Ionicons name="call" size={30} color="white" style={{ transform: [{ rotate: '135deg' }] }} />
+                            <Ionicons name="call" size={30} color={colors.text} style={{ transform: [{ rotate: '135deg' }] }} />
                         </TouchableOpacity>
                         <Text style={styles.actionLabel}>Rechazar</Text>
                     </View>
@@ -173,13 +176,14 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
                     {/* Accept */}
                     <View style={styles.actionCol}>
                         <TouchableOpacity style={[styles.actionBtn, styles.acceptBtn]} onPress={handleAccept}>
-                            <Ionicons name={isVideo ? 'videocam' : 'call'} size={30} color="white" />
+                            <Ionicons name={isVideo ? 'videocam' : 'call'} size={30} color={colors.text} />
                         </TouchableOpacity>
                         <Text style={styles.actionLabel}>Aceptar</Text>
                     </View>
                 </View>
             </Animated.View>
         </View>
+        </GlassBackdrop>
     );
 };
 
@@ -190,38 +194,40 @@ const styles = StyleSheet.create({
     content: { alignItems: 'center', width: '100%', paddingHorizontal: 40 },
     callTypeBadge: {
         flexDirection: 'row', alignItems: 'center', gap: 6,
-        backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 16, paddingVertical: 8,
-        borderRadius: 20, marginBottom: 60,
+        backgroundColor: colors.glassRaised, paddingHorizontal: space.lg, paddingVertical: space.sm,
+        borderRadius: radius.full, marginBottom: 60,
+        borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
     },
-    callTypeText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
+    callTypeText: { fontFamily: fonts.semibold, color: colors.text, fontSize: 13, letterSpacing: 0.3 },
     avatarSection: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
     ring: {
         position: 'absolute', width: RING_SIZE, height: RING_SIZE,
-        borderRadius: RING_SIZE / 2, borderWidth: 2,
+        borderRadius: RING_SIZE / 2, borderWidth: 2, borderColor: colors.accentBright,
     },
     avatarCircle: {
         width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2,
-        backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 2,
+        backgroundColor: colors.glassRaised, borderWidth: 2, borderColor: colors.accentBright,
         alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
     },
-    avatarInitial: { fontSize: 64, fontWeight: '700', color: 'white' },
+    avatarFill: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+    avatarInitial: { fontFamily: fonts.bold, fontSize: 64, color: colors.silver },
     avatarImage: { width: '100%', height: '100%', resizeMode: 'cover' },
     callerName: {
-        fontSize: 34, fontWeight: '800', color: 'white', textAlign: 'center',
-        letterSpacing: -0.5, marginBottom: 8,
+        fontFamily: fonts.extrabold, fontSize: 34, color: colors.text, textAlign: 'center',
+        letterSpacing: -0.5, marginBottom: space.sm,
     },
-    callerSub: { fontSize: 16, color: 'rgba(255,255,255,0.55)', marginBottom: 80, fontWeight: '500' },
+    callerSub: { fontFamily: fonts.medium, fontSize: 16, color: colors.textSoft, marginBottom: 80 },
     actions: { flexDirection: 'row', gap: 80, alignItems: 'center' },
-    actionCol: { alignItems: 'center', gap: 12 },
+    actionCol: { alignItems: 'center', gap: space.md },
     actionBtn: {
         width: 80, height: 80, borderRadius: 40,
         alignItems: 'center', justifyContent: 'center',
-        shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+        shadowColor: colors.ink, shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.4, shadowRadius: 12, elevation: 10,
     },
-    declineBtn: { backgroundColor: '#ef4444' },
-    acceptBtn: { backgroundColor: '#22c55e' },
-    actionLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' },
+    declineBtn: { backgroundColor: colors.danger },
+    acceptBtn: { backgroundColor: colors.success },
+    actionLabel: { fontFamily: fonts.semibold, color: colors.textSoft, fontSize: 13 },
 });
 
 export default IncomingCallScreen;

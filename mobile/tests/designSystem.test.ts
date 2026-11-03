@@ -215,3 +215,14 @@ describe('The old light/dark theme is gone', () => {
         });
     }
 });
+
+describe('Lock screen, Ping Voz and calls in the new design', () => {
+    for (const file of ['components/LockScreen.tsx', 'components/agent/LiveVoiceSession.tsx', 'screens/CallScreen.tsx', 'screens/IncomingCallScreen.tsx']) {
+        it(`${file} uses the design tokens only`, () => {
+            const source = fs.readFileSync(path.join(__dirname, '../src', file), 'utf-8');
+            expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+            expect(source).not.toContain('rgba(');
+            expect(source).not.toContain('"white"');
+        });
+    }
+});

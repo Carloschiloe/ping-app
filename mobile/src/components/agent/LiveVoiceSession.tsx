@@ -7,6 +7,12 @@ import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import { createEphemeralUuid } from '../../utils/voiceSession';
 import { buildCallPageOriginWhitelist } from '../../utils/callBridge';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { PingOrb } from '../../design/PingOrb';
+import { colors, gradients, radius, space } from '../../design/tokens';
+import { fonts, type } from '../../design/typography';
 
 interface LiveVoiceSessionProps {
     visible: boolean;
@@ -45,6 +51,7 @@ function voiceLocale(): string {
 }
 
 export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoiceSessionProps) {
+    const insets = useSafeAreaInsets();
     const [authorization, setAuthorization] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [microphoneCanAskAgain, setMicrophoneCanAskAgain] = useState(true);
@@ -165,15 +172,20 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
 
     return <Modal visible={visible} animationType="slide" onRequestClose={requestClose}>
         <View style={styles.container}>
-            <View style={styles.topbar}>
+            <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
+                <PingOrb size={30} />
                 <Text style={styles.title}>Ping Voz</Text>
-                <TouchableOpacity onPress={requestClose} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz">
-                    <Text style={styles.close}>Cerrar</Text>
+                <TouchableOpacity onPress={requestClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz">
+                    <Ionicons name="close" size={20} color={colors.text} />
                 </TouchableOpacity>
             </View>
             {visible && (error ? <View style={styles.error}>
+                <View style={styles.errorIcon}>
+                    <Ionicons name="mic-off-outline" size={28} color={colors.danger} />
+                </View>
                 <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity onPress={retry} accessibilityRole="button" accessibilityLabel="Reintentar Ping Voz">
+                <TouchableOpacity onPress={retry} style={styles.retryBtn} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Reintentar Ping Voz">
+                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                     <Text style={styles.retry}>{microphoneCanAskAgain ? 'Reintentar' : 'Abrir configuración'}</Text>
                 </TouchableOpacity>
             </View> : microphoneReady && config ? <WebView
@@ -191,18 +203,57 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
                 mediaPlaybackRequiresUserAction={false}
                 allowsInlineMediaPlayback
                 originWhitelist={buildCallPageOriginWhitelist(API_URL)}
-            /> : <ActivityIndicator style={styles.loading} />)}
+                style={styles.webview}
+            /> : <ActivityIndicator style={styles.loading} color={colors.accentBright} />)}
         </View>
     </Modal>;
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#091426' },
-    topbar: { paddingTop: 54, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: '#122c52', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    title: { color: '#fff', fontSize: 18, fontWeight: '700' },
-    close: { color: '#b8d3ff', fontSize: 15, fontWeight: '600' },
+    container: { flex: 1, backgroundColor: colors.ink },
+    topbar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
+        paddingHorizontal: space.lg,
+        paddingBottom: space.md,
+        backgroundColor: colors.surfaceSolid,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.glassBorder,
+    },
+    title: { flex: 1, fontFamily: fonts.semibold, fontSize: 17, color: colors.text },
+    closeBtn: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    // Same dark as the frame, so the voice page never flashes white while it loads.
+    webview: { backgroundColor: colors.ink },
     loading: { flex: 1 },
-    error: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-    errorText: { color: '#fff', textAlign: 'center', fontSize: 16 },
-    retry: { color: '#8bb8ff', marginTop: 20, fontWeight: '700' },
+    error: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: space.xxl },
+    errorIcon: {
+        width: 64,
+        height: 64,
+        borderRadius: radius.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.dangerTint,
+        marginBottom: space.lg,
+    },
+    errorText: { ...type.body, textAlign: 'center' },
+    retryBtn: {
+        marginTop: space.xl,
+        height: 48,
+        paddingHorizontal: space.xxl,
+        borderRadius: radius.full,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+    },
+    retry: { fontFamily: fonts.semibold, fontSize: 15, color: colors.onAccent },
 });

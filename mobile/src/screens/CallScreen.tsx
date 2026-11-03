@@ -6,6 +6,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
+import { colors, radius, space } from '../design/tokens';
+import { fonts } from '../design/typography';
 import * as Haptics from 'expo-haptics';
 // SDK 57 hotfix: expo-av retirado de Expo Go -- sólo se usaba aquí para el
 // permiso de micrófono, migrado a expo-audio.
@@ -164,7 +166,7 @@ const CallScreen = ({ route, navigation }: any) => {
     if (loading || !callUrl) {
         return (
             <View style={styles.center}>
-                <ActivityIndicator size="large" color="#3b82f6" />
+                <ActivityIndicator size="large" color={colors.accentBright} />
                 <Text style={styles.loadingText}>Conectando...</Text>
             </View>
         );
@@ -249,7 +251,7 @@ const CallScreen = ({ route, navigation }: any) => {
                 {/* Top bar */}
                 <View style={styles.header} pointerEvents="box-none">
                     <View style={styles.encryptedHeader}>
-                        <Ionicons name="lock-closed" size={11} color="rgba(255,255,255,0.7)" />
+                        <Ionicons name="lock-closed" size={11} color={colors.textSoft} />
                         <Text style={styles.encryptedText}>Conexión segura</Text>
                     </View>
                 </View>
@@ -265,14 +267,14 @@ const CallScreen = ({ route, navigation }: any) => {
                                 style={[styles.controlBtn, isMuted && styles.controlBtnActive]}
                                 onPress={toggleMute}
                             >
-                                <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color="white" />
+                                <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color={colors.text} />
                             </TouchableOpacity>
                             <Text style={styles.controlLabel}>{isMuted ? 'Silenciado' : 'Micrófono'}</Text>
                         </View>
 
                         <View style={styles.controlCol}>
                             <TouchableOpacity style={[styles.controlBtn, styles.hangupBtn]} onPress={hangup}>
-                                <Ionicons name="call" size={28} color="white" style={{ transform: [{ rotate: '135deg' }] }} />
+                                <Ionicons name="call" size={28} color={colors.text} style={{ transform: [{ rotate: '135deg' }] }} />
                             </TouchableOpacity>
                             <Text style={styles.controlLabel}>Colgar</Text>
                         </View>
@@ -283,7 +285,7 @@ const CallScreen = ({ route, navigation }: any) => {
                                     style={[styles.controlBtn, isVideoOff && styles.controlBtnActive]}
                                     onPress={toggleVideo}
                                 >
-                                    <Ionicons name={isVideoOff ? 'videocam-off' : 'videocam'} size={24} color="white" />
+                                    <Ionicons name={isVideoOff ? 'videocam-off' : 'videocam'} size={24} color={colors.text} />
                                 </TouchableOpacity>
                                 <Text style={styles.controlLabel}>{isVideoOff ? 'Cámara off' : 'Cámara'}</Text>
                             </View>
@@ -296,7 +298,7 @@ const CallScreen = ({ route, navigation }: any) => {
                                     onPress={switchCamera}
                                     disabled={isVideoOff}
                                 >
-                                    <Ionicons name="camera-reverse" size={25} color="white" />
+                                    <Ionicons name="camera-reverse" size={25} color={colors.text} />
                                 </TouchableOpacity>
                                 <Text style={styles.controlLabel}>Voltear</Text>
                             </View>
@@ -309,42 +311,44 @@ const CallScreen = ({ route, navigation }: any) => {
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0f172a' },
-    center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' },
-    loadingText: { marginTop: 16, fontSize: 16, color: '#94a3b8', fontWeight: '600' },
+    container: { flex: 1, backgroundColor: colors.ink },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.ink },
+    loadingText: { marginTop: space.lg, fontFamily: fonts.semibold, fontSize: 16, color: colors.textSoft },
     overlay: { flex: 1, justifyContent: 'space-between' },
-    header: { paddingTop: 12, paddingHorizontal: 20, alignItems: 'center' },
+    header: { paddingTop: space.md, paddingHorizontal: space.xl, alignItems: 'center' },
     encryptedHeader: {
         flexDirection: 'row', alignItems: 'center', gap: 5,
-        backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 12, paddingVertical: 5,
-        borderRadius: 20,
+        backgroundColor: colors.scrim, paddingHorizontal: space.md, paddingVertical: 5,
+        borderRadius: radius.full,
+        borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
     },
     encryptedText: {
-        color: 'rgba(255,255,255,0.7)', fontSize: 10,
-        fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase',
+        fontFamily: fonts.bold, color: colors.textSoft, fontSize: 10,
+        letterSpacing: 0.5, textTransform: 'uppercase',
     },
-    footer: { paddingBottom: 48, alignItems: 'center', gap: 16 },
+    footer: { paddingBottom: 48, alignItems: 'center', gap: space.lg },
     callerName: {
-        color: 'white', fontSize: 20, fontWeight: '700',
-        textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+        fontFamily: fonts.bold, color: colors.text, fontSize: 22,
+        textShadowColor: colors.scrim, textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
     },
     connectionLabel: {
-        color: 'rgba(255,255,255,0.78)',
+        fontFamily: fonts.semibold,
+        color: colors.textSoft,
         fontSize: 13,
-        fontWeight: '600',
         marginTop: -10,
     },
-    controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 24 },
-    controlCol: { alignItems: 'center', gap: 8 },
+    controlsRow: { flexDirection: 'row', alignItems: 'center', gap: space.xl },
+    controlCol: { alignItems: 'center', gap: space.sm },
     controlBtn: {
         width: 58, height: 58, borderRadius: 29,
-        backgroundColor: 'rgba(255,255,255,0.18)',
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
         alignItems: 'center', justifyContent: 'center',
     },
-    controlBtnActive: { backgroundColor: '#3b82f6' },
+    controlBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     controlBtnDisabled: { opacity: 0.4 },
-    hangupBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#ef4444' },
-    controlLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: '600' },
+    hangupBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.danger, borderColor: colors.danger },
+    controlLabel: { fontFamily: fonts.semibold, color: colors.textSoft, fontSize: 11 },
 });
 
 export default CallScreen;
