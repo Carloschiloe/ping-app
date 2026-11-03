@@ -21,6 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { getAgreementParticipantName, getAgreementResponseLabel } from '../utils/agreement';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 interface OperationPanelProps {
     loading?: boolean;
@@ -67,6 +68,7 @@ function CompletionSheet({
                     style={styles.sheetHost}
                 >
                     <View style={styles.sheet}>
+                        <SheetFill />
                         <View style={styles.sheetHeader}>
                             <Text style={styles.sheetTitle}>Cerrar tarea</Text>
                             <TouchableOpacity onPress={onClose}>
@@ -783,11 +785,11 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     sheet: {
-        backgroundColor: colors.surfaceSolid,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         maxHeight: '82%',
         minHeight: 320,
+        ...sheetSurface,
     },
     sheetHeader: {
         flexDirection: 'row',

@@ -3,6 +3,7 @@ import { Modal, TouchableOpacity, View, Text, StyleSheet, Animated } from 'react
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 type MessageActionsModalProps = {
     visible: boolean;
@@ -48,7 +49,8 @@ export function MessageActionsModal({
     return (
         <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
             <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose}>
-                <Animated.View style={[styles.sheet, { transform: [{ translateY: menuAnim }] }]}> 
+                <Animated.View style={[styles.sheet, { transform: [{ translateY: menuAnim }] }]}>
+                    <SheetFill />
                     <View style={styles.emojiRow}>
                         {EMOJIS.map((emoji) => (
                             <TouchableOpacity key={emoji} style={styles.emojiBtn} onPress={() => onReact(emoji)}>
@@ -111,7 +113,7 @@ export function MessageActionsModal({
 
 const styles = StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
-    sheet: { backgroundColor: colors.surfaceSolid, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
+    sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, ...sheetSurface },
     emojiRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, paddingHorizontal: 10 },
     emojiBtn: { padding: 8 },
     emojiText: { fontFamily: fonts.regular, fontSize: 26 },

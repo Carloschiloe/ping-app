@@ -3,6 +3,7 @@ import { Modal, TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 type ReactionGroup = {
     emoji: string;
@@ -20,6 +21,7 @@ export function ReactionsModal({ visible, reactions, onClose }: ReactionsModalPr
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose}>
                 <View style={styles.sheet}>
+                    <SheetFill />
                     <View style={styles.header}>
                         <Text style={styles.title}>Reacciones</Text>
                         <TouchableOpacity onPress={onClose}>
@@ -44,7 +46,7 @@ export function ReactionsModal({ visible, reactions, onClose }: ReactionsModalPr
 
 const styles = StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
-    sheet: { backgroundColor: colors.surfaceSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+    sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, ...sheetSurface },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
     title: { fontSize: 16, fontFamily: fonts.bold, color: colors.text },
     empty: { color: colors.textFaint, paddingVertical: 8 },

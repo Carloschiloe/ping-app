@@ -3,6 +3,7 @@ import { Modal, TouchableOpacity, View, Text, ScrollView, StyleSheet } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 type SummaryModalProps = {
     visible: boolean;
@@ -15,6 +16,7 @@ export function SummaryModal({ visible, summary, onClose }: SummaryModalProps) {
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.backdrop}>
                 <View style={styles.sheet}>
+                    <SheetFill />
                     <View style={styles.header}>
                         <Ionicons name="sparkles" size={20} color={colors.accentBright} />
                         <Text style={styles.title}>Resumen</Text>
@@ -36,7 +38,7 @@ export function SummaryModal({ visible, summary, onClose }: SummaryModalProps) {
 
 const styles = StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
-    sheet: { backgroundColor: colors.surfaceSolid, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' },
+    sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%', ...sheetSurface },
     header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
     title: { fontSize: 18, fontFamily: fonts.bold, flex: 1 },
     scroll: { marginBottom: 20 },

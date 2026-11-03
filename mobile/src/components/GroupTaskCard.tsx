@@ -25,6 +25,7 @@ import { AgreementParticipantsList } from './AgreementParticipantsList';
 import { dayBadge } from './compromisos/dayBadge';
 import { colors, gradients } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 interface GroupTaskCardProps {
     commitment: any;
@@ -440,7 +441,8 @@ export default function GroupTaskCard({
                     onRequestClose={() => setShowActions(false)}
                 >
                     <Pressable style={styles.modalOverlay} onPress={() => setShowActions(false)}>
-                        <View style={[styles.actionMenu]}>
+                        <View style={styles.actionMenu}>
+                            <SheetFill />
                             <Text style={[styles.actionMenuTitle]}>{commitment.title}</Text>
 
                         {((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && isAssignee && (isProposed || isCounter))) && (
@@ -632,7 +634,8 @@ export default function GroupTaskCard({
             )}
             <Modal visible={showDetails} transparent animationType="slide" onRequestClose={() => setShowDetails(false)}>
                 <Pressable style={styles.detailOverlay} onPress={() => setShowDetails(false)} />
-                <View style={[styles.detailSheet]}>
+                <View style={styles.detailSheet}>
+                    <SheetFill />
                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
                     <View style={styles.detailHeader}>
                         <Text style={[styles.detailTitle]} numberOfLines={2}>{commitment.title}</Text>
@@ -795,10 +798,10 @@ const styles = StyleSheet.create({
     },
     actionMenu: {
         width: '100%',
-        backgroundColor: colors.surfaceSolid,
         borderRadius: 24,
         padding: 24,
         alignItems: 'stretch',
+        ...sheetSurface,
     },
     actionMenuTitle: {
         fontSize: 18,
@@ -835,11 +838,9 @@ const styles = StyleSheet.create({
     detailSheet: {
         maxHeight: '82%',
         padding: 16,
-        borderTopLeftRadius: 18,
-        borderTopRightRadius: 18,
-        backgroundColor: colors.surfaceSolid,
-        borderTopWidth: 1,
-        borderTopColor: colors.glassBorder,
+        borderTopLeftRadius: 26,
+        borderTopRightRadius: 26,
+        ...sheetSurface,
     },
     detailContent: {
         paddingBottom: 8,

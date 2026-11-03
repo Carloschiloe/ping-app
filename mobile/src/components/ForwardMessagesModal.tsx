@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 type ForwardMessagesModalProps = {
     visible: boolean;
@@ -46,6 +47,7 @@ export function ForwardMessagesModal({
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.backdrop}>
                 <View style={styles.sheet}>
+                    <SheetFill />
                     <View style={styles.header}>
                         <View>
                             <Text style={styles.title}>Reenviar</Text>
@@ -117,7 +119,7 @@ const styles = StyleSheet.create({
         paddingBottom: 28,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
-        backgroundColor: colors.surfaceSolid,
+        ...sheetSurface,
     },
     header: {
         flexDirection: 'row',

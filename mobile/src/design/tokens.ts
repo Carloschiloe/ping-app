@@ -19,6 +19,8 @@ export const colors = {
     // Menus and sheets that float over content: a soft graphite, solid
     // enough to read but lighter than the screen behind it.
     surfaceSolid: 'rgba(50,54,64,0.97)',
+    // The lit top edge of a sheet.
+    glassEdge: 'rgba(255,255,255,0.30)',
 
     // Inside a conversation the waves sit behind a darker veil, so the
     // messages stay the main thing on screen.
@@ -53,6 +55,9 @@ export const colors = {
 
 export const gradients = {
     accent: ['#5B9BFF', '#2563EB'] as const,
+    // Sheets: light graphite at the top falling into a deeper one.
+    sheet: ['rgba(70,76,92,0.98)', 'rgba(36,40,50,0.98)'] as const,
+    sheetGlow: ['rgba(91,155,255,0.20)', 'rgba(91,155,255,0)'] as const,
     // Avatars without a photo: cool metallic tones.
     avatar: [
         ['#4A5263', '#262B35'],

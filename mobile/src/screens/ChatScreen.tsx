@@ -47,6 +47,7 @@ import LocationConfirmModal from '../components/LocationConfirmModal';
 import { Glass, GlassBackdrop } from '../design/Glass';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 import { createClientMessageId } from '../utils/synchronization';
 import {
     canDeleteMessages,
@@ -1009,6 +1010,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 <Modal visible={headerMenuVisible} transparent animationType="fade" onRequestClose={() => setHeaderMenuVisible(false)}>
                     <TouchableOpacity style={[styles.headerMenuOverlay, { paddingTop: safeAreaInsets.top + 58 }]} activeOpacity={1} onPress={() => setHeaderMenuVisible(false)}>
                         <View style={styles.headerMenuCard}>
+                            <SheetFill />
                             <TouchableOpacity
                                 style={styles.headerMenuItem}
                                 onPress={() => {
@@ -1358,13 +1360,11 @@ const styles = StyleSheet.create({
         paddingRight: space.md,
     },
     headerMenuCard: {
-        backgroundColor: colors.surfaceSolid,
         borderRadius: radius.md,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.glassBorder,
         paddingVertical: 6,
         minWidth: 210,
         elevation: 6,
+        ...sheetSurface,
     },
     headerMenuItem: {
         flexDirection: 'row',

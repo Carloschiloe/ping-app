@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { apiClient } from '../api/client';
 import { useContacts, useCreateContact } from '../api/queries';
 import { formatSuggestionDueAt } from '../utils/timeZone';
-import { colors } from '../design/tokens';
+import { colors, gradients } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 interface AISuggestionModalProps {
     visible: boolean;
@@ -158,6 +160,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
         <Modal transparent visible={visible} animationType="slide">
             <View style={styles.modalOverlay}>
                 <View style={styles.suggestionModal}>
+                    <SheetFill />
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>
                             {isCounterProposal
@@ -197,7 +200,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                     setShowPicker(true);
                                 }}
                             >
-                                <Ionicons name={isMeeting ? "calendar" : "list"} size={20} color={isMeeting ? colors.accentBright : colors.accentBright} />
+                                <Ionicons name={isMeeting ? "calendar" : "list"} size={20} color={colors.accentBright} />
                                 <Text style={[styles.dateText, isMeeting && { color: colors.accentBright }]}>
                                     {formattedDate}
                                 </Text>
@@ -319,7 +322,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             </View>
 
                             <View style={styles.currentAssigneeBadge}>
-                                <Ionicons name="checkmark-circle" size={16} color={isMeeting ? colors.accentBright : colors.accentBright} />
+                                <Ionicons name="checkmark-circle" size={16} color={colors.accentBright} />
                                 <Text style={styles.currentAssigneeText}>Seleccionado: <Text style={{ fontFamily: fonts.bold }}>{assigneeName}</Text></Text>
                             </View>
                             </>
@@ -327,7 +330,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.acceptBtn, isMeeting && { backgroundColor: colors.accentTint }, (!isCounterProposal && isGroup
+                            style={[styles.acceptBtn, (!isCounterProposal && isGroup
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId && { opacity: 0.5 })
                                 : (!isCounterProposal && !suggestionData.assignedToUserId && !suggestionData.counterpartyContactId && { opacity: 0.5 }))]}
                             onPress={onConfirm}
@@ -335,6 +338,13 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId)
                                 : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId))}
                         >
+                            <LinearGradient
+                                pointerEvents="none"
+                                colors={gradients.accent}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={StyleSheet.absoluteFill}
+                            />
                             <Text style={styles.acceptBtnText}>
                                 {isCounterProposal ? 'Enviar nuevo horario' : isEditing ? 'Guardar cambios' : 'Agendar'}
                             </Text>
@@ -409,7 +419,6 @@ const styles = StyleSheet.create({
         flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', alignItems: 'center', padding: 20,
     },
     suggestionModal: {
-        backgroundColor: colors.surfaceSolid,
         borderRadius: 24, 
         width: '100%', 
         padding: 24, 
@@ -418,6 +427,7 @@ const styles = StyleSheet.create({
         shadowRadius: 10, 
         elevation: 5,
         maxHeight: '90%',
+        ...sheetSurface,
     },
     modalHeader: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12,
@@ -485,7 +495,7 @@ const styles = StyleSheet.create({
         flex: 1,
         lineHeight: 16,
     },
-    acceptBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+    acceptBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 16, alignItems: 'center', overflow: 'hidden' },
     acceptBtnText: { color: colors.onAccent, fontSize: 16, fontFamily: fonts.bold },
     cancelCommitmentBtn: {
         marginTop: 12,

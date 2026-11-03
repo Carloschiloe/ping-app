@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { latLngToOsmTile } from '../utils/mapTiles';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 export interface LocationPreview {
     latitude: number;
@@ -68,7 +69,8 @@ export default function LocationConfirmModal({
             onRequestClose={onCancel}
         >
             <View style={styles.overlay}>
-                <View style={[styles.sheet, { backgroundColor: colors.surfaceSolid }]}>
+                <View style={[styles.sheet]}>
+                    <SheetFill />
                     {/* Header */}
                     <View style={styles.header}>
                         <Text style={[styles.title, { color: colors.text }]}>
@@ -191,8 +193,8 @@ const styles = StyleSheet.create({
     sheet: {
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        overflow: 'hidden',
         paddingBottom: 32,
+        ...sheetSurface,
     },
     header: {
         flexDirection: 'row',

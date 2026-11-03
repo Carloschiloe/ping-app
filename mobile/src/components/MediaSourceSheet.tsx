@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { SheetFill, sheetSurface } from '../design/Sheet';
 
 // Canonical media-source chooser for chat. Deliberately NOT a native
 // Alert.alert/Modal — both are real native presentations (UIAlertController
@@ -49,6 +50,7 @@ export function MediaSourceSheet({
         <View style={styles.overlay} pointerEvents="box-none">
             <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
             <View style={styles.sheet}>
+                <SheetFill />
                 <Text style={styles.title}>Enviar archivo</Text>
                 <TouchableOpacity style={styles.row} onPress={onPickPhoto}>
                     <Ionicons name="camera-outline" size={22} color={colors.textSoft} />
@@ -87,12 +89,12 @@ const styles = StyleSheet.create({
         backgroundColor: colors.scrim,
     },
     sheet: {
-        backgroundColor: colors.surfaceSolid,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         paddingTop: 8,
         paddingBottom: 24,
         paddingHorizontal: 8,
+        ...sheetSurface,
     },
     title: {
         textAlign: 'center',
