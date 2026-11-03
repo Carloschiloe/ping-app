@@ -38,7 +38,7 @@ import type { AgentCoreScreenProps } from '../navigation/types';
 import { useAgentVoiceInput } from '../hooks/useAgentVoiceInput';
 import { formatRecordingDuration } from '../utils/audioRecording';
 import { voiceStatusCopy } from '../utils/voiceSession';
-import { LiveVoiceSession } from '../components/agent/LiveVoiceSession';
+import { LiveVoiceSession, type LiveVoiceCloseReason } from '../components/agent/LiveVoiceSession';
 
 // Sección 17 del ticket: el backend puede tardar tras cold start -- no se
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
@@ -98,6 +98,24 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     // explicit build flag for controlled builds, but do not hide the entry
     // point in Expo Go when the dynamic config has no extra values.
     const liveVoiceEnabled = isMainCoreEntry || Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true;
+
+    // From the Chats aura Ping opens straight into voice; "Escribir" there brings
+    // the user to this text chat, and "Hablar" here goes back to voice.
+    const voiceEntryRef = useRef(route.params?.startWith === 'voice' && liveVoiceEnabled);
+    useEffect(() => {
+        if (voiceEntryRef.current) setLiveVoiceVisible(true);
+    }, []);
+    const openLiveVoice = useCallback(() => {
+        voiceEntryRef.current = false;
+        setLiveVoiceVisible(true);
+    }, []);
+    const closeLiveVoice = useCallback((reason: LiveVoiceCloseReason) => {
+        setLiveVoiceVisible(false);
+        // A voice session can confirm actions this chat never saw.
+        invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true });
+        if (reason === 'leave' && voiceEntryRef.current) navigation.goBack();
+        voiceEntryRef.current = false;
+    }, [navigation, queryClient]);
 
     useEffect(() => {
         if (!historyConversationId || !persistedHistory || hydratedConversationRef.current === historyConversationId) return;
@@ -394,25 +412,11 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Volver" hitSlop={8}>
                         <Ionicons name="chevron-back" size={26} color={colors.text} />
                     </TouchableOpacity>
+                    <PingOrb size={36} state={isPending ? 'thinking' : 'idle'} paused={liveVoiceVisible} />
                     <View style={styles.headerInfo}>
                         <Text style={styles.title} numberOfLines={1}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
                         <Text style={styles.subtitle} numberOfLines={1}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
                     </View>
-                    {liveVoiceEnabled ? (
-                        <TouchableOpacity
-                            onPress={() => setLiveVoiceVisible(true)}
-                            style={styles.headerAura}
-                            testID="ping-voice-button"
-                            accessibilityRole="button"
-                            accessibilityLabel="Abrir Ping Voz"
-                        >
-                            <PingOrb size={44} state={isPending ? 'thinking' : 'idle'} />
-                        </TouchableOpacity>
-                    ) : (
-                        <View style={styles.headerAura}>
-                            <PingOrb size={44} state={isPending ? 'thinking' : 'idle'} />
-                        </View>
-                    )}
                     <TouchableOpacity
                         onPress={handleClearHistory}
                         style={[styles.headerBtn, (!historyConversationId || isPending || isClearingHistory) && styles.headerBtnDisabled]}
@@ -438,7 +442,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 {messages.length === 0 ? (
                     <View style={styles.emptyState}>
                         <View style={styles.emptyOrb}>
-                            <PingOrb size={120} state={isPending ? 'thinking' : 'idle'} />
+                            <PingOrb size={120} state={isPending ? 'thinking' : 'idle'} paused={liveVoiceVisible} />
                         </View>
                         <Text style={styles.emptyTitle}>Pregúntale a Ping</Text>
                         <Text style={styles.emptySubtitle}>
@@ -574,6 +578,19 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                                         <Ionicons name="send" size={18} color={colors.onAccent} />
                                     </LinearGradient>
                                 </TouchableOpacity>
+                            ) : liveVoiceEnabled ? (
+                                <TouchableOpacity
+                                    style={styles.talkBtn}
+                                    onPress={openLiveVoice}
+                                    testID="ping-voice-button"
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Abrir Ping Voz"
+                                >
+                                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.talkFill}>
+                                        <Ionicons name="mic" size={18} color={colors.onAccent} />
+                                        <Text style={styles.talkText}>Hablar</Text>
+                                    </LinearGradient>
+                                </TouchableOpacity>
                             ) : (
                                 <TouchableOpacity
                                     style={[styles.sendBtn, isPending && styles.sendBtnDisabled]}
@@ -622,11 +639,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
             <LiveVoiceSession
                 visible={liveVoiceVisible}
                 conversationId={historyConversationId}
-                onClose={() => {
-                    setLiveVoiceVisible(false);
-                    // A voice session can confirm actions this chat never saw.
-                    invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true });
-                }}
+                onClose={closeLiveVoice}
             />
         </View>
     );
@@ -660,7 +673,6 @@ const styles = StyleSheet.create({
         borderColor: colors.glassBorder,
     },
     headerBtnDisabled: { opacity: 0.5 },
-    headerAura: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 
     keyboardArea: { flex: 1 },
     messageList: { flex: 1 },
@@ -768,6 +780,9 @@ const styles = StyleSheet.create({
     },
     roundBtnDanger: { backgroundColor: colors.glassDim, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.danger },
     sendBtn: { width: FIELD_HEIGHT, height: FIELD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
+    talkBtn: { height: FIELD_HEIGHT, borderRadius: FIELD_HEIGHT / 2, overflow: 'hidden' },
+    talkFill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16 },
+    talkText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.onAccent },
     circleFill: {
         width: FIELD_HEIGHT,
         height: FIELD_HEIGHT,

@@ -1,3 +1,4 @@
+import { useIsFocused } from '@react-navigation/native';
 import React from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet,
@@ -81,6 +82,7 @@ const SELF_CHAT_PLACEHOLDER = {
 } as const;
 
 export default function ConversationsScreen({ navigation }: ConversationsListScreenProps) {
+    const isFocused = useIsFocused();
     const insets = useSafeAreaInsets();
     const { data, isLoading, isError, refetch } = useConversations();
     const { user } = useAuth();
@@ -404,11 +406,11 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                             </Pressable>
                             <Pressable
                                 style={styles.orbButton}
-                                onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface() })}
+                                onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface(), startWith: 'voice' })}
                                 accessibilityRole="button"
                                 accessibilityLabel="Abrir Ping"
                             >
-                                <PingOrb size={44} />
+                                <PingOrb size={44} paused={!isFocused} />
                             </Pressable>
                         </View>
                     </View>

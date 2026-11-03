@@ -26,7 +26,7 @@ const ARCS: { k: number; speed: number; len: number; color: string; opacity: num
 ];
 
 // Ping's presence: a glass core of drifting light with orbiting arcs.
-export function PingOrb({ size = 34, state = 'idle' }: { size?: number; state?: PingOrbState }) {
+export function PingOrb({ size = 34, state = 'idle', paused = false }: { size?: number; state?: PingOrbState; paused?: boolean }) {
     const id = useId().replace(/[^a-zA-Z0-9]/g, '');
     const t = useSharedValue(0);
     const speed = useSharedValue(SPEED[state]);
@@ -35,9 +35,13 @@ export function PingOrb({ size = 34, state = 'idle' }: { size?: number; state?: 
         speed.value = withTiming(SPEED[state], { duration: 400 });
     }, [speed, state]);
 
-    useFrameCallback((frame) => {
+    const frames = useFrameCallback((frame) => {
         t.value += ((frame.timeSincePreviousFrame ?? 16) / 1000) * speed.value;
-    });
+    }, !paused);
+    // A screen kept underneath another one stops animating its aura.
+    useEffect(() => {
+        frames.setActive(!paused);
+    }, [frames, paused]);
 
     const c = size / 2;
     const R = size * 0.28;
