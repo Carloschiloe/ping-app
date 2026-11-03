@@ -161,3 +161,24 @@ describe('Chat info and add participants in the new design', () => {
         expect(read('screens/AddParticipantsScreen.tsx')).toContain('searchResults?.users || []');
     });
 });
+
+describe('Shared content in the new design', () => {
+    const files = [
+        'screens/SharedContentScreen.tsx',
+        'screens/SharedVisualContentScreen.tsx',
+        'components/shared-content/SharedContentActionSheet.tsx',
+        'components/shared-content/SharedMediaViewer.tsx',
+    ];
+
+    it('reads every color from the design tokens', () => {
+        for (const file of files) {
+            const source = read(file);
+            expect(source, file).not.toContain('useAppTheme');
+            expect(source, file).not.toMatch(/['"]#[0-9a-fA-F]{3,8}['"]/);
+            expect(source, file).not.toMatch(/rgba\(/);
+        }
+        expect(read('screens/SharedContentScreen.tsx')).toContain('<ScreenHeader');
+        expect(read('screens/SharedVisualContentScreen.tsx')).toContain('<ScreenHeader');
+        expect(read('components/shared-content/SharedContentActionSheet.tsx')).toContain('<SheetFill />');
+    });
+});

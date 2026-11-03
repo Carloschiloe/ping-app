@@ -77,24 +77,12 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="SharedContent"
             component={SharedContentScreen}
-            options={{
-                headerShown: true,
-                title: 'Contenido compartido',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="SharedVisualContent"
             component={SharedVisualContentScreen}
-            options={{
-                headerShown: true,
-                title: 'Fotos y videos',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="AddParticipants"
