@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
         borderColor: colors.accentTint,
     },
     actionButtonPrimary: {
-        backgroundColor: colors.accentTint,
+        backgroundColor: colors.accent,
         borderColor: colors.accent,
     },
     actionButtonText: {
@@ -657,7 +657,7 @@ const styles = StyleSheet.create({
         color: colors.text,
     },
     actionButtonTextPrimary: {
-        color: colors.accent,
+        color: colors.onAccent,
     },
     feedbackRow: {
         flexDirection: 'row',

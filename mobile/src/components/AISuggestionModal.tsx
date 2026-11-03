@@ -433,12 +433,12 @@ const styles = StyleSheet.create({
     modalBody: { marginBottom: 12 },
     inputLabel: { fontSize: 12, fontFamily: fonts.bold, color: colors.textFaint, marginBottom: 8, textTransform: 'uppercase' },
     modalInput: { fontFamily: fonts.regular,
-        backgroundColor: colors.surfaceSolid, borderWidth: 1, borderColor: colors.glassBorder, borderRadius: 12, padding: 12, fontSize: 16, color: colors.text, marginBottom: 16,
+        backgroundColor: colors.glassRaised, borderWidth: 1, borderColor: colors.glassBorder, borderRadius: 12, padding: 12, fontSize: 16, color: colors.text, marginBottom: 16,
     },
     datePreview: {
-        flexDirection: 'row', alignItems: 'center', backgroundColor: colors.warningTint, borderRadius: 12, padding: 12, gap: 10,
+        flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accentTint, borderRadius: 12, padding: 12, gap: 10,
     },
-    dateText: { fontSize: 14, fontFamily: fonts.medium, color: colors.warning },
+    dateText: { fontSize: 14, fontFamily: fonts.medium, color: colors.accentBright },
     conflictBanner: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
         flex: 1,
         lineHeight: 16,
     },
-    acceptBtn: { backgroundColor: colors.accentTint, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+    acceptBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     acceptBtnText: { color: colors.onAccent, fontSize: 16, fontFamily: fonts.bold },
     cancelCommitmentBtn: {
         marginTop: 12,
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         paddingVertical: 12,
         alignItems: 'center',
-        backgroundColor: colors.dangerTint,
+        backgroundColor: colors.danger,
     },
     confirmCancellationBtnText: {
         color: colors.onAccent,
@@ -573,13 +573,13 @@ const styles = StyleSheet.create({
         fontFamily: fonts.extrabold,
     },
     pickerWrapper: {
-        backgroundColor: colors.surfaceSolid,
+        backgroundColor: colors.glassRaised,
         borderRadius: 16,
         padding: 8,
         marginTop: 8,
     },
     confirmPickerBtn: {
-        backgroundColor: colors.accentTint,
+        backgroundColor: colors.accent,
         paddingVertical: 10,
         borderRadius: 12,
         alignItems: 'center',

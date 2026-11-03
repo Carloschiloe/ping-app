@@ -16,8 +16,9 @@ export const colors = {
     glassPressed: 'rgba(255,255,255,0.08)',
     glassRaised: 'rgba(255,255,255,0.10)',
     separator: 'rgba(255,255,255,0.07)',
-    // Menus and sheets that float over content: almost solid so they read.
-    surfaceSolid: 'rgba(22,24,30,0.98)',
+    // Menus and sheets that float over content: a soft graphite, solid
+    // enough to read but lighter than the screen behind it.
+    surfaceSolid: 'rgba(50,54,64,0.97)',
 
     // Inside a conversation the waves sit behind a darker veil, so the
     // messages stay the main thing on screen.
@@ -47,7 +48,7 @@ export const colors = {
     success: '#4ADE80',
     successTint: 'rgba(74,222,128,0.16)',
     // Dims the screen behind a sheet or menu.
-    scrim: 'rgba(0,0,0,0.55)',
+    scrim: 'rgba(8,9,11,0.40)',
 } as const;
 
 export const gradients = {
