@@ -19,7 +19,7 @@ describe('toggleMessageReaction', () => {
         const { toggleMessageReaction } = await import('../src/services/messageReaction.service');
 
         await expect(toggleMessageReaction(USER, CONV, MSG, '👍')).resolves.toEqual({ reacted: true });
-        expect(mock.getInsertCalls('message_reactions')).toEqual([{ message_id: MSG, user_id: USER, reaction: '👍' }]);
+        expect(mock.getInsertCalls('message_reactions')).toEqual([{ message_id: MSG, user_id: USER, emoji: '👍' }]);
     });
 
     it('takes it back when the same reaction is tapped again', async () => {

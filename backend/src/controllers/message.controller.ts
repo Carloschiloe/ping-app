@@ -67,6 +67,7 @@ export const toggleReaction = async (req: Request, res: Response): Promise<void>
         res.json(result);
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
+        if (statusCode === 500) console.error('[reactions] save failed:', error?.message);
         res.status(statusCode).json({ error: statusCode === 500 ? 'Unable to save reaction' : error.message });
     }
 };
