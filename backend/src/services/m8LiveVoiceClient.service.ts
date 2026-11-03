@@ -93,11 +93,16 @@ main{text-align:center;padding:28px}.aura{display:block;width:220px;height:220px
     telemetry('core_response_received',{turnId:turnId||activeTurnId,httpStatus:response.status,latencyMs:Date.now()-coreStartedAt,detailCode:'agent_turn_completed',sideEffects:0});
     sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core_presentation:presentation})}});telemetry('function_call_output',{turnId:turnId||activeTurnId,detailCode:'ping_core_turn_output',coreKind:presentation.kind,coreAnswer:safeText(presentation.authorizedText,800),sideEffects:0});createResponse('core_result_authorized','none',presentation.authorizedText);setAudioGate(true);
   }
-  // Ping opens the conversation itself, greeting the user by first name.
-  let greeted=false;
-  const greet=()=>{if(greeted||closed||failed)return;greeted=true;const name=String((cfg&&cfg.firstName)||'').replace(/[^A-Za-zÀ-ÿ' -]/g,'').trim().slice(0,30);createResponse('greeting','none','Hola'+(name?' '+name:'')+', ¿cómo estás? ¿En qué te puedo ayudar hoy?');setAudioGate(true)};
+  // Ping opens the conversation itself, greeting the user by first name. The
+  // microphone pauses until the greeting has played, so Ping's own voice from
+  // the speaker cannot count as the user interrupting it.
+  let greeted=false,greetingMicHeld=false;
+  const setMicEnabled=(enabled)=>{if(mic)mic.getAudioTracks().forEach(track=>{track.enabled=enabled})};
+  const releaseGreetingMic=()=>{if(!greetingMicHeld)return;greetingMicHeld=false;setMicEnabled(true)};
+  const greet=()=>{if(greeted||closed||failed)return;greeted=true;greetingMicHeld=true;setMicEnabled(false);setTimeout(releaseGreetingMic,9000);const name=String((cfg&&cfg.firstName)||'').replace(/[^A-Za-zÀ-ÿ' -]/g,'').trim().slice(0,30);createResponse('greeting','none','Hola'+(name?' '+name:'')+', ¿cómo estás? ¿En qué te puedo ayudar hoy?');setAudioGate(true)};
   function onEvent(raw){
     let event;try{event=JSON.parse(raw.data||raw)}catch{telemetry('error',{detailCode:'provider_event_invalid_json',sideEffects:0});return}
+    if(event.type==='output_audio_buffer.stopped')releaseGreetingMic();
     if(event.type==='response.created'){responseProviderId=event.response?.id||event.response_id||null;telemetry('voice_stage',{stage:'response_created',detailCode:'provider_response_created',providerEventType:event.type,sideEffects:0})}
     const isOutputTextDelta=event.type==='response.output_text.delta'||event.type==='response.audio_transcript.delta'||event.type==='response.output_audio_transcript.delta';
     const isOutputAudioDelta=event.type==='response.audio.delta'||event.type==='response.output_audio.delta';
