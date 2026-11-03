@@ -44,10 +44,10 @@ describe('Hoy — one tab for the day and every commitment', () => {
         expect(hoy).toContain('const isOpen = !!query ||');
     });
 
-    it('section titles are small colored labels, and each section sits on its own card', () => {
+    it('section titles are small colored labels, and each section sits on its own glass band', () => {
         expect(hoy).toContain('styles.countPill');
-        expect(hoy).toContain('styles.cardRowFirst');
-        expect(hoy).toContain('styles.cardRowLast');
+        expect(hoy).toContain('isFirst && styles.bandFirst');
+        expect(hoy).toContain('isLast && styles.bandLast');
     });
 
     it('every row shows when it is due on a badge at its left', () => {

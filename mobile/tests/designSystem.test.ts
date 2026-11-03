@@ -68,3 +68,30 @@ describe('Conversation in the new design', () => {
         expect(read('components/MessageItem.tsx')).toContain('colors={gradients.accent}');
     });
 });
+
+describe('Hoy in the new design', () => {
+    const files = [
+        'screens/HoyScreen.tsx',
+        'components/compromisos/CommitmentRow.tsx',
+        'components/compromisos/CommitmentDetailSheet.tsx',
+        'components/compromisos/ConfirmCommitmentModal.tsx',
+        'components/compromisos/RescheduleModal.tsx',
+        'components/hoy/WeekStrip.tsx',
+    ];
+
+    it('reads every color from the design tokens', () => {
+        for (const file of files) {
+            const source = read(file);
+            expect(source, file).not.toContain('useAppTheme');
+            expect(source, file).not.toMatch(/['"]#[0-9a-fA-F]{3,8}['"]/);
+            expect(source, file).not.toMatch(/rgba\(/);
+        }
+    });
+
+    it('sits on the waves with glass rows and clears the floating tab bar', () => {
+        const hoy = read('screens/HoyScreen.tsx');
+        expect(hoy).toContain("<SafeAreaView edges={['top']} style={styles.container}>");
+        expect(hoy).toContain('<Glass style={[StyleSheet.absoluteFill, styles.bandGlass]}');
+        expect(hoy).toContain('TAB_BAR_CLEARANCE');
+    });
+});

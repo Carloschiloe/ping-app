@@ -4,7 +4,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { format, addDays, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAppTheme } from '../../theme/ThemeContext';
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { SheetFill, sheetSurface } from '../../design/Sheet';
 
 interface RescheduleModalProps {
     item: any | null;
@@ -13,7 +15,6 @@ interface RescheduleModalProps {
 }
 
 export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalProps) {
-    const { theme } = useAppTheme();
     const initialDate = item?.due_at ? new Date(item.due_at) : addDays(new Date(), 1);
     const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
     const [showNativePicker, setShowNativePicker] = useState(false);
@@ -73,42 +74,43 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
     return (
         <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
             <Pressable style={styles.overlay} onPress={onClose} />
-            <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.card}>
+                <SheetFill />
                 <View style={styles.header}>
-                    <Text style={[styles.title, { color: theme.colors.text.primary }]}>
+                    <Text style={[styles.title, { color: colors.text }]}>
                         {item.due_at ? 'Reprogramar fecha' : 'Agendar compromiso'}
                     </Text>
                     <TouchableOpacity onPress={onClose}>
-                        <Ionicons name="close" size={20} color={theme.colors.text.secondary} />
+                        <Ionicons name="close" size={20} color={colors.textSoft} />
                     </TouchableOpacity>
                 </View>
-                <Text style={[styles.subtitle, { color: theme.colors.text.secondary }]} numberOfLines={1}>
+                <Text style={[styles.subtitle, { color: colors.textSoft }]} numberOfLines={1}>
                     {item.title}
                 </Text>
 
                 {/* Quick Presets */}
                 <View style={styles.presetsRow}>
-                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => quickSelect(0, 18)}>
-                        <Text style={[styles.presetText, { color: theme.colors.text.primary }]}>Hoy tarde (18:00)</Text>
+                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: colors.glassRaised }]} onPress={() => quickSelect(0, 18)}>
+                        <Text style={[styles.presetText, { color: colors.text }]}>Hoy tarde (18:00)</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => quickSelect(1, 10)}>
-                        <Text style={[styles.presetText, { color: theme.colors.text.primary }]}>Mañana 10:00</Text>
+                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: colors.glassRaised }]} onPress={() => quickSelect(1, 10)}>
+                        <Text style={[styles.presetText, { color: colors.text }]}>Mañana 10:00</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: theme.colors.surfaceMuted }]} onPress={() => quickSelect(7, 10)}>
-                        <Text style={[styles.presetText, { color: theme.colors.text.primary }]}>Próxima semana</Text>
+                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: colors.glassRaised }]} onPress={() => quickSelect(7, 10)}>
+                        <Text style={[styles.presetText, { color: colors.text }]}>Próxima semana</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* Selected Date Preview */}
                 <TouchableOpacity
-                    style={[styles.datePreview, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border }]}
+                    style={[styles.datePreview, { backgroundColor: colors.glassRaised, borderColor: colors.glassBorder }]}
                     onPress={openPicker}
                 >
-                    <Ionicons name="calendar-outline" size={18} color={theme.colors.accent} />
-                    <Text style={[styles.datePreviewText, { color: theme.colors.text.primary }]}>
+                    <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.datePreviewText, { color: colors.text }]}>
                         {format(selectedDate, "eeee d 'de' MMMM · HH:mm", { locale: es })}
                     </Text>
-                    <Ionicons name="pencil-outline" size={14} color={theme.colors.text.muted} />
+                    <Ionicons name="pencil-outline" size={14} color={colors.textFaint} />
                 </TouchableOpacity>
 
                 {showNativePicker && (
@@ -123,11 +125,11 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
 
                 {/* Footer Buttons */}
                 <View style={styles.footer}>
-                    <TouchableOpacity style={[styles.cancelBtn, { borderColor: theme.colors.border }]} onPress={onClose}>
-                        <Text style={{ color: theme.colors.text.secondary, fontWeight: '600' }}>Cancelar</Text>
+                    <TouchableOpacity style={[styles.cancelBtn, { borderColor: colors.glassBorder }]} onPress={onClose}>
+                        <Text style={{ color: colors.textSoft, fontFamily: fonts.semibold }}>Cancelar</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.colors.accent }]} onPress={handleConfirm}>
-                        <Text style={{ color: theme.colors.white, fontWeight: '700' }}>Guardar fecha</Text>
+                    <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.accent }]} onPress={handleConfirm}>
+                        <Text style={{ color: colors.onAccent, fontFamily: fonts.bold }}>Guardar fecha</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -138,7 +140,7 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: colors.scrim,
     },
     card: {
         position: 'absolute',
@@ -147,12 +149,13 @@ const styles = StyleSheet.create({
         right: 20,
         borderRadius: 18,
         padding: 20,
-        shadowColor: '#000',
+        shadowColor: colors.ink,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.2,
         shadowRadius: 10,
         elevation: 8,
         gap: 12,
+        ...sheetSurface,
     },
     header: {
         flexDirection: 'row',
@@ -161,11 +164,11 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 17,
-        fontWeight: '700',
+        fontFamily: fonts.bold,
     },
     subtitle: {
         fontSize: 13,
-        fontWeight: '500',
+        fontFamily: fonts.medium,
     },
     presetsRow: {
         flexDirection: 'row',
@@ -179,7 +182,7 @@ const styles = StyleSheet.create({
     },
     presetText: {
         fontSize: 12,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     datePreview: {
         flexDirection: 'row',
@@ -192,7 +195,7 @@ const styles = StyleSheet.create({
     datePreviewText: {
         flex: 1,
         fontSize: 13,
-        fontWeight: '600',
+        fontFamily: fonts.semibold,
     },
     footer: {
         flexDirection: 'row',

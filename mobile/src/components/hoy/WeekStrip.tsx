@@ -3,8 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { addMonths, addWeeks, format, isSameDay, isSameMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAppTheme } from '../../theme/ThemeContext';
 import { dayKey, monthGrid, weekDays, type DayMark } from '../../utils/calendarDays';
+import { colors } from '../../design/tokens';
+import { fonts } from '../../design/typography';
+import { Glass } from '../../design/Glass';
 
 interface WeekStripProps {
     marks: Record<string, DayMark>;
@@ -19,7 +21,6 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 // due (red when something is late). Tapping a day shows only that day;
 // tapping it again shows everything. The calendar icon opens the whole month.
 export function WeekStrip({ marks, selectedDay, onSelectDay }: WeekStripProps) {
-    const { theme } = useAppTheme();
     const [anchor, setAnchor] = useState(() => new Date());
     const [monthOpen, setMonthOpen] = useState(false);
     const today = new Date();
@@ -33,10 +34,10 @@ export function WeekStrip({ marks, selectedDay, onSelectDay }: WeekStripProps) {
         const isSelected = !!selectedDay && isSameDay(day, selectedDay);
         const isToday = isSameDay(day, today);
         const outside = monthOpen && !isSameMonth(day, anchor);
-        const textColor = isSelected ? theme.colors.white
-            : outside ? theme.colors.text.muted
-                : isToday ? theme.colors.accent
-                    : theme.colors.text.primary;
+        const textColor = isSelected ? colors.onAccent
+            : outside ? colors.textFaint
+                : isToday ? colors.accentBright
+                    : colors.text;
         return (
             <TouchableOpacity
                 key={dayKey(day)}
@@ -49,8 +50,8 @@ export function WeekStrip({ marks, selectedDay, onSelectDay }: WeekStripProps) {
                 <View
                     style={[
                         styles.dayCircle,
-                        isToday && !isSelected && { borderColor: theme.colors.accent, borderWidth: 1.5 },
-                        isSelected && { backgroundColor: theme.colors.accent },
+                        isToday && !isSelected && { borderColor: colors.accent, borderWidth: 1.5 },
+                        isSelected && { backgroundColor: colors.accent },
                     ]}
                 >
                     <Text style={[styles.dayNumber, { color: textColor }]}>{format(day, 'd')}</Text>
@@ -58,7 +59,7 @@ export function WeekStrip({ marks, selectedDay, onSelectDay }: WeekStripProps) {
                 <View
                     style={[
                         styles.dot,
-                        mark && { backgroundColor: mark === 'overdue' ? theme.colors.danger : theme.colors.accent },
+                        mark && { backgroundColor: mark === 'overdue' ? colors.danger : colors.accent },
                     ]}
                 />
             </TouchableOpacity>
@@ -69,19 +70,19 @@ export function WeekStrip({ marks, selectedDay, onSelectDay }: WeekStripProps) {
     for (let i = 0; i < days.length; i += 7) rows.push(days.slice(i, i + 7));
 
     return (
-        <View style={[styles.container, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <Glass style={styles.container} intensity={30}>
             <View style={styles.topRow}>
                 <TouchableOpacity onPress={() => step(-1)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel={monthOpen ? 'Mes anterior' : 'Semana anterior'}>
-                    <Ionicons name="chevron-back" size={18} color={theme.colors.text.secondary} />
+                    <Ionicons name="chevron-back" size={18} color={colors.textSoft} />
                 </TouchableOpacity>
-                <Text style={[styles.title, { color: theme.colors.text.primary }]}>{title}</Text>
+                <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
                 <TouchableOpacity onPress={() => step(1)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel={monthOpen ? 'Mes siguiente' : 'Semana siguiente'}>
-                    <Ionicons name="chevron-forward" size={18} color={theme.colors.text.secondary} />
+                    <Ionicons name="chevron-forward" size={18} color={colors.textSoft} />
                 </TouchableOpacity>
                 <View style={{ flex: 1 }} />
                 {!isSameDay(anchor, today) && (
                     <TouchableOpacity onPress={() => setAnchor(new Date())} style={styles.todayBtn} accessibilityRole="button">
-                        <Text style={[styles.todayText, { color: theme.colors.accent }]}>Hoy</Text>
+                        <Text style={[styles.todayText, { color: colors.accentBright }]}>Hoy</Text>
                     </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -89,35 +90,35 @@ export function WeekStrip({ marks, selectedDay, onSelectDay }: WeekStripProps) {
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     accessibilityRole="button"
                     accessibilityLabel={monthOpen ? 'Ver solo la semana' : 'Ver el mes'}
-                    style={[styles.monthBtn, monthOpen && { backgroundColor: theme.colors.accentSoft }]}
+                    style={[styles.monthBtn, monthOpen && { backgroundColor: colors.accentTint }]}
                 >
-                    <Ionicons name={monthOpen ? 'contract-outline' : 'calendar-outline'} size={18} color={monthOpen ? theme.colors.accent : theme.colors.text.secondary} />
+                    <Ionicons name={monthOpen ? 'contract-outline' : 'calendar-outline'} size={18} color={monthOpen ? colors.accentBright : colors.textSoft} />
                 </TouchableOpacity>
             </View>
 
             <View style={styles.row}>
                 {WEEKDAY_LETTERS.map((letter, i) => (
-                    <Text key={i} style={[styles.weekday, { color: theme.colors.text.muted }]}>{letter}</Text>
+                    <Text key={i} style={[styles.weekday, { color: colors.textFaint }]}>{letter}</Text>
                 ))}
             </View>
             {rows.map((week) => (
                 <View key={dayKey(week[0])} style={styles.row}>{week.map(renderDay)}</View>
             ))}
-        </View>
+        </Glass>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+    container: { borderRadius: 20, paddingHorizontal: 8, paddingTop: 10, paddingBottom: 6 },
     topRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 6, marginBottom: 6 },
-    title: { fontSize: 14, fontWeight: '700' },
+    title: { fontSize: 14, fontFamily: fonts.bold },
     todayBtn: { paddingHorizontal: 8, paddingVertical: 3 },
-    todayText: { fontSize: 13, fontWeight: '700' },
+    todayText: { fontSize: 13, fontFamily: fonts.bold },
     monthBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
     row: { flexDirection: 'row' },
-    weekday: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', marginBottom: 2 },
+    weekday: { flex: 1, textAlign: 'center', fontSize: 11, fontFamily: fonts.semibold, marginBottom: 2 },
     dayCell: { flex: 1, alignItems: 'center', paddingVertical: 3 },
     dayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-    dayNumber: { fontSize: 14, fontWeight: '600' },
+    dayNumber: { fontSize: 14, fontFamily: fonts.semibold },
     dot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 2 },
 });
