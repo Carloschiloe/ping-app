@@ -10,7 +10,7 @@ import { buildCallPageOriginWhitelist } from '../../utils/callBridge';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { PingOrb } from '../../design/PingOrb';
+import { useAuth } from '../../context/AuthContext';
 import { colors, gradients, radius, space } from '../../design/tokens';
 import { fonts, type } from '../../design/typography';
 
@@ -30,6 +30,7 @@ type LiveConfig = {
     deviceSessionId: string;
     locale: string;
     timezone: string;
+    firstName?: string;
 };
 
 type LiveVoiceWebViewMessage = {
@@ -52,6 +53,7 @@ function voiceLocale(): string {
 
 export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoiceSessionProps) {
     const insets = useSafeAreaInsets();
+    const { profile } = useAuth();
     const [authorization, setAuthorization] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [microphoneCanAskAgain, setMicrophoneCanAskAgain] = useState(true);
@@ -69,7 +71,8 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         deviceSessionId: createEphemeralUuid(),
         locale: voiceLocale(),
         timezone: getDeviceTimeZone(),
-    } : null, [authorization, conversationId]);
+        firstName: profile?.full_name?.trim().split(/\s+/)[0] || undefined,
+    } : null, [authorization, conversationId, profile?.full_name]);
     const injected = useMemo(() => config
         ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
         : '', [config]);
@@ -173,7 +176,6 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
     return <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={requestClose}>
         <View style={styles.container}>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
-                <PingOrb size={40} state="listening" />
                 <Text style={styles.title}>Ping Voz</Text>
                 <TouchableOpacity onPress={requestClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz">
                     <Ionicons name="close" size={20} color={colors.text} />
