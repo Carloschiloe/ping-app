@@ -123,3 +123,17 @@ describe('Perfil in the new design', () => {
         }
     });
 });
+
+describe('New chat and new group in the new design', () => {
+    const files = ['screens/NewChatScreen.tsx', 'screens/NewGroupScreen.tsx'];
+
+    it('read every color from the design tokens and use the glass header', () => {
+        for (const file of files) {
+            const source = read(file);
+            expect(source, file).not.toMatch(/['"]#[0-9a-fA-F]{3,8}['"]/);
+            expect(source, file).not.toMatch(/rgba\(/);
+            expect(source, file).not.toContain("'white'");
+            expect(source, file).toContain('<ScreenHeader');
+        }
+    });
+});

@@ -62,18 +62,12 @@ const ConversationsStack = () => {
         <ConversationsStackNav.Screen
             name="NewChat"
             component={NewChatScreen}
-            options={{ headerShown: false }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="NewGroup"
             component={NewGroupScreen}
-            options={{
-                headerShown: true,
-                title: 'Nuevo Grupo',
-                headerBackTitle: 'Atrás',
-                headerStyle: stackHeaderStyle,
-                headerTintColor: stackTintColor,
-            }}
+            options={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
         />
         <ConversationsStackNav.Screen
             name="ChatInfo"

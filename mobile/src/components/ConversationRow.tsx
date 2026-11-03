@@ -19,18 +19,13 @@ import {
 import { DeliveryTicks } from './chat/DeliveryTicks';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { avatarGradient } from '../design/ScreenHeader';
 
 const AVATAR_SIZE = 52;
 
 const avatarInitials = (email?: string) => {
     if (!email) return '?';
     return email.substring(0, 2).toUpperCase();
-};
-
-const avatarGradient = (str: string) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return gradients.avatar[Math.abs(hash) % gradients.avatar.length];
 };
 
 type ConversationRowProps = {
