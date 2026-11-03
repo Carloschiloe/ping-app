@@ -246,6 +246,8 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.');greet();");
         expect(html).toContain("cfg.firstName");
         expect(html).toContain("¿cómo estás? ¿En qué te puedo ayudar hoy?");
+        expect(html).toContain('greetingMicHeld=true;setMicEnabled(false)');
+        expect(html).toContain("if(event.type==='output_audio_buffer.stopped')releaseGreetingMic();");
     });
 
     it('returns the voice UI to listening after output or response completion', () => {
