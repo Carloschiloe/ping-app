@@ -54,7 +54,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
             <GlassBackdrop>
                 <View style={styles.content}>
                     <View style={styles.orb}>
-                        <PingOrb size={84} />
+                        <PingOrb size={130} />
                         <View style={styles.lockBadge}>
                             <Ionicons name="lock-closed" size={16} color={colors.text} />
                         </View>
@@ -80,8 +80,8 @@ const styles = StyleSheet.create({
     orb: { marginBottom: space.xxl },
     lockBadge: {
         position: 'absolute',
-        right: -6,
-        bottom: -6,
+        right: 14,
+        bottom: 14,
         width: 34,
         height: 34,
         borderRadius: 17,

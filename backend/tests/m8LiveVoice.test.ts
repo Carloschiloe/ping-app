@@ -238,6 +238,16 @@ describe('M8 live voice environment boundary', () => {
         expect(() => new Function(html.slice(start + marker.length, end))).not.toThrow();
     });
 
+    it('draws the living aura and greets the user by first name once connected', () => {
+        const html = getM8LiveVoiceClientHtml('aura-greeting-test-nonce');
+        expect(html).toContain('<canvas id="orb" class="aura"');
+        expect(html).not.toContain('class="orb"');
+        expect(html).toContain("aura.set(auraMode(name))");
+        expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.');greet();");
+        expect(html).toContain("cfg.firstName");
+        expect(html).toContain("¿cómo estás? ¿En qué te puedo ayudar hoy?");
+    });
+
     it('returns the voice UI to listening after output or response completion', () => {
         const html = getM8LiveVoiceClientHtml('completion-test-nonce');
 
