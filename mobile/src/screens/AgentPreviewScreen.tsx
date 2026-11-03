@@ -25,7 +25,7 @@ import { invalidateCommitmentViews } from '../api/query-invalidation';
 import { ApiError } from '../api/client';
 import {
     AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage, appendUserMessage,
-    canSendInput, describeCitationsSummary, describeCitationTypes, describeStatusLabel, isLatestAgentMessage,
+    canSendInput, citationKindLabel, describeCitationsSummary, describeCitationTypes, describeStatusLabel, isLatestAgentMessage,
     restoreAgentConversationMessages, type AgentChatMessage,
 } from '../utils/agentChat';
 import { getChatKeyboardBehavior, getChatKeyboardOffset } from '../utils/chatKeyboard';
@@ -43,6 +43,17 @@ import { LiveVoiceSession } from '../components/agent/LiveVoiceSession';
 // Sección 17 del ticket: el backend puede tardar tras cold start -- no se
 // cancela, sólo se cambia el copy para que la espera se sienta viva.
 const SLOW_REQUEST_COPY_DELAY_MS = 10_000;
+
+const CITATION_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+    commitment: 'checkbox-outline',
+    commitment_proposal: 'checkbox-outline',
+    commitment_event: 'checkbox-outline',
+    message: 'chatbubble-outline',
+    memory: 'bookmark-outline',
+    transcription: 'mic-outline',
+    attachment: 'document-text-outline',
+    person: 'person-outline',
+};
 
 export default function AgentPreviewScreen({ navigation, route }: AgentCoreScreenProps) {
     const insets = useSafeAreaInsets();
@@ -584,14 +595,21 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         <SheetFill />
                         <View style={styles.sheetHandle} />
                         <Text style={styles.sheetTitle}>Fuentes de esta respuesta</Text>
-                        {describeCitationTypes(citationsSheetFor?.citations).map((label, idx) => (
-                            <View key={`${label}-${idx}`} style={styles.sheetRow}>
-                                <View style={styles.sheetRowIcon}>
-                                    <Ionicons name="document-text-outline" size={17} color={colors.accentBright} />
+                        {describeCitationTypes(citationsSheetFor?.citations).map((label, idx) => {
+                            const citation = citationsSheetFor!.citations![idx];
+                            const kind = citationKindLabel(citation);
+                            return (
+                                <View key={`${citation.sourceId}-${idx}`} style={styles.sheetRow}>
+                                    <View style={styles.sheetRowIcon}>
+                                        <Ionicons name={CITATION_ICONS[citation.sourceType] ?? 'document-text-outline'} size={17} color={colors.accentBright} />
+                                    </View>
+                                    <View style={styles.sheetRowCopy}>
+                                        <Text style={styles.sheetRowText} numberOfLines={2}>{label}</Text>
+                                        {label !== kind && <Text style={styles.sheetRowKind}>{kind}</Text>}
+                                    </View>
                                 </View>
-                                <Text style={styles.sheetRowText}>{label}</Text>
-                            </View>
-                        ))}
+                            );
+                        })}
                         <TouchableOpacity style={styles.sheetCloseBtn} onPress={() => setCitationsSheetFor(null)}>
                             <Text style={styles.sheetCloseText}>Cerrar</Text>
                         </TouchableOpacity>
@@ -804,7 +822,9 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         backgroundColor: colors.accentTint,
     },
-    sheetRowText: { flex: 1, fontFamily: fonts.medium, fontSize: 14, color: colors.text },
+    sheetRowCopy: { flex: 1 },
+    sheetRowText: { fontFamily: fonts.medium, fontSize: 14, color: colors.text },
+    sheetRowKind: { ...type.caption, color: colors.textFaint, marginTop: 1 },
     sheetCloseBtn: { marginTop: space.md, alignItems: 'center', paddingVertical: 14 },
     sheetCloseText: { fontFamily: fonts.semibold, color: colors.textSoft, fontSize: 15 },
 });

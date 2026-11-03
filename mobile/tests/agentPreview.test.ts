@@ -237,6 +237,21 @@ describe('M-1G: agentChat — historial local, nunca DB', () => {
         expect(describeCitationsSummary([{ sourceType: 'commitment', sourceId: 'c1' }, { sourceType: 'message', sourceId: 'm1' }])).toBe('2 fuentes');
     });
 
+    it('describeCitationTypes: muestra el nombre de cada fuente cuando el servidor lo envía', () => {
+        expect(describeCitationTypes([
+            { sourceType: 'commitment', sourceId: 'c1', label: 'Llamar al dentista' },
+            { sourceType: 'message', sourceId: 'm1' },
+        ])).toEqual(['Llamar al dentista', 'Mensaje']);
+        const parsed = parseAgentResponse({
+            status: 'answered', answer: 'ok',
+            citations: [{ sourceType: 'commitment', sourceId: 'c1', label: ' Informe mensual ' }, { sourceType: 'memory', sourceId: 'f1', label: 42 }],
+        });
+        expect(parsed.citations).toEqual([
+            { sourceType: 'commitment', sourceId: 'c1', label: 'Informe mensual' },
+            { sourceType: 'memory', sourceId: 'f1' },
+        ]);
+    });
+
     it('describeCitationTypes: nunca expone el sourceId crudo, sólo etiquetas de tipo', () => {
         const labels = describeCitationTypes([
             { sourceType: 'commitment', sourceId: '11111111-1111-1111-1111-111111111111' },

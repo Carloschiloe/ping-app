@@ -210,6 +210,16 @@ describe('M9 assistant tools — safety contract', () => {
     });
 });
 
+describe('Sources of an answer', () => {
+    it('names each commitment it read, so the sources list is readable', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('qué tengo hoy', [[LIST_TODAY], 'Tienes cosas hoy.']);
+        const listed = toolResults(output)[0].items as Array<{ title: string }>;
+        expect(listed.length).toBeGreaterThan(0);
+        expect(output.citations.map((citation) => citation.label)).toEqual(listed.map((item) => item.title));
+    });
+});
+
 describe('M11 assistant memory', () => {
     const systemText = (model: ScriptedModel) => model.seen[0].filter((message) => message.role === 'system').map((message) => message.content).join('\n');
     const FACT_ID = 'ffffffff-0000-4000-8000-000000000001';

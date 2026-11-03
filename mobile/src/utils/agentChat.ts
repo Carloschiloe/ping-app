@@ -101,6 +101,7 @@ const CITATION_TYPE_LABELS: Record<string, string> = {
     commitment_proposal: 'Compromiso',
     commitment_event: 'Compromiso',
     message: 'Mensaje',
+    memory: 'Algo que me contaste',
     transcription: 'Audio',
     attachment: 'Documento',
     person: 'Persona',
@@ -113,9 +114,15 @@ export function describeCitationsSummary(citations: AgentCitation[] | undefined)
     return citations.length === 1 ? '1 fuente' : `${citations.length} fuentes`;
 }
 
+// The name of each source (the commitment title, the message, the fact);
+// older answers saved without one fall back to the kind of source.
 export function describeCitationTypes(citations: AgentCitation[] | undefined): string[] {
     if (!citations) return [];
-    return citations.map((c) => CITATION_TYPE_LABELS[c.sourceType] ?? 'Fuente');
+    return citations.map((c) => c.label || (CITATION_TYPE_LABELS[c.sourceType] ?? 'Fuente'));
+}
+
+export function citationKindLabel(citation: AgentCitation): string {
+    return CITATION_TYPE_LABELS[citation.sourceType] ?? 'Fuente';
 }
 
 // PING — STATUS COLLAPSE FIX: AgentResponseStatus was captured on the chat
