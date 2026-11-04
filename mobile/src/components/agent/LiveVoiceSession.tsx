@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio';
 import * as Localization from 'expo-localization';
 import { getAuthHeaders, API_URL } from '../../api/client';
@@ -16,7 +17,7 @@ import { fonts, type } from '../../design/typography';
 import { GlassBackdrop } from '../../design/Glass';
 
 // The voice page draws over the app's own glass background, keeping only its blue glow.
-const SEE_THROUGH_PAGE = `(function(){var s=document.createElement('style');s.textContent='html,body{background:radial-gradient(120% 60% at 50% 46%,${colors.accentTint},transparent 60%) transparent!important}';document.documentElement.appendChild(s)})();`;
+const SEE_THROUGH_PAGE = `(function(){var add=function(){var s=document.createElement('style');s.textContent='html,body{background:radial-gradient(120% 60% at 50% 46%,${colors.accentTint},transparent 60%) transparent!important}';document.head.appendChild(s)};if(document.head)add();else document.addEventListener('DOMContentLoaded',add);})();`;
 
 interface LiveVoiceSessionProps {
     visible: boolean;
@@ -188,7 +189,19 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
         }
     }, []);
 
-    return <Modal visible={visible} animationType={instant ? 'none' : 'fade'} statusBarTranslucent navigationBarTranslucent onRequestClose={requestClose}>
+    // Android's back button ends the conversation like the back arrow does.
+    useEffect(() => {
+        if (!visible) return;
+        const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+            requestClose();
+            return true;
+        });
+        return () => subscription.remove();
+    }, [requestClose, visible]);
+
+    if (!visible) return null;
+    // Drawn over the screen instead of in a separate window, so Android's own buttons keep the app's look.
+    return <Reanimated.View entering={instant ? undefined : FadeIn.duration(180)} style={styles.overlay}>
         <GlassBackdrop>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
                 <TouchableOpacity onPress={requestClose} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz" hitSlop={8}>
@@ -196,7 +209,7 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
                 </TouchableOpacity>
                 <Text style={styles.title}>Ping</Text>
             </View>
-            {visible && (error ? <View style={styles.error}>
+            {error ? <View style={styles.error}>
                 <View style={styles.errorIcon}>
                     <Ionicons name="mic-off-outline" size={28} color={colors.danger} />
                 </View>
@@ -221,12 +234,14 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
                 allowsInlineMediaPlayback
                 originWhitelist={buildCallPageOriginWhitelist(API_URL)}
                 style={styles.webview}
-            /> : <ActivityIndicator style={styles.loading} color={colors.accentBright} />)}
+            /> : <ActivityIndicator style={styles.loading} color={colors.accentBright} />}
         </GlassBackdrop>
-    </Modal>;
+    </Reanimated.View>;
 }
 
 const styles = StyleSheet.create({
+    // Above the chat's header too, which sits raised on Android.
+    overlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, elevation: 20 },
     topbar: {
         flexDirection: 'row',
         alignItems: 'center',

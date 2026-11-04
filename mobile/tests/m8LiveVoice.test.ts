@@ -19,7 +19,8 @@ describe('M8 live voice production surface', () => {
         expect(source).toContain("ping-config");
         expect(source).toContain("onLoadEnd={injectConfig}");
         expect(source).toContain("injectJavaScript(\"document.getElementById('stop')?.click();true;\")");
-        expect(source).toContain("onRequestClose={requestClose}");
+        expect(source).toContain("BackHandler.addEventListener('hardwareBackPress'");
+        expect(source).not.toContain('<Modal');
         expect(source).toContain("if (message.type === 'closed') scheduleClose()");
         expect(source).toContain('originWhitelist={buildCallPageOriginWhitelist(API_URL)}');
         expect(source).toContain('getRecordingPermissionsAsync');
