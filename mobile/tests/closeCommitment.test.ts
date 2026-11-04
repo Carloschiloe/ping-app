@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { closingResult } from '../src/utils/commitmentClosing';
+import { closingResult, remainingDueOptions } from '../src/utils/commitmentClosing';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', 'src', rel), 'utf-8');
 
@@ -29,10 +29,28 @@ describe('Closing a commitment says how it went', () => {
         const card = read('components/GroupTaskCard.tsx');
         for (const src of [hoy, card]) {
             expect(src).toContain('<CloseCommitmentSheet');
-            expect(src).toContain("if (outcome === 'not_done')");
+            expect(src).toContain('useCloseCommitment()');
         }
         expect(hoy).not.toContain('Resuelto desde Hoy.');
         expect(card).not.toContain('Marcar acción realizada');
+    });
+
+    it('half done stays open with a new date and what is missing, right in the sheet', () => {
+        const close = read('hooks/useCloseCommitment.ts');
+        expect(close).toContain("if (outcome === 'partial' && dueAt)");
+        expect(close).toContain('await update({ id: item.id, data: { due_at: iso } });');
+        expect(close).toContain('nextAction: missing');
+        expect(close).toContain('undo: () => update({ id: item.id, data: { due_at: previous } })');
+        expect(read('screens/HoyScreen.tsx')).not.toContain('Recuérdame terminar');
+        expect(read('components/compromisos/CloseCommitmentSheet.tsx')).toContain('¿Para cuándo?');
+    });
+
+    it('quick dates for the rest are tomorrow, in three days and next week, at ten', () => {
+        const now = new Date(2026, 10, 4, 16, 30);
+        const options = remainingDueOptions(now);
+        expect(options.map((o) => o.label)).toEqual(['Mañana', 'En 3 días', 'Próxima semana']);
+        expect(options.map((o) => o.date.getDate())).toEqual([5, 7, 11]);
+        expect(options.every((o) => o.date.getHours() === 10 && o.date.getMinutes() === 0)).toBe(true);
     });
 
     it('only the owner is offered "No se hizo", since only the owner can call it off', () => {
@@ -45,7 +63,7 @@ describe('Closing a commitment says how it went', () => {
     it('the overdue notice walks through each overdue item, and every close can be undone', () => {
         const hoy = read('screens/HoyScreen.tsx');
         expect(hoy).toContain('startReview(mineData.overdue)');
-        expect(hoy).toContain("showUndo(item.id, outcome === 'not_done' ? 'Cerrado como no hecho.' : 'Marcado como hecho.')");
-        expect(hoy).toContain('reopenCommitment(undoToast.id)');
+        expect(hoy).toContain('showUndo(notice);');
+        expect(hoy).toContain('undoToast.undo();');
     });
 });

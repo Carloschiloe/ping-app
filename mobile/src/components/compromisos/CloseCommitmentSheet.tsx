@@ -5,10 +5,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { colors, radius, space } from '../../design/tokens';
 import { fonts } from '../../design/typography';
 import { SheetFill, sheetSurface } from '../../design/Sheet';
-import type { CloseOutcome } from '../../utils/commitmentClosing';
+import { remainingDueOptions, type CloseOutcome } from '../../utils/commitmentClosing';
 
 export { closingResult, type CloseOutcome } from '../../utils/commitmentClosing';
 
@@ -26,7 +29,8 @@ interface CloseCommitmentSheetProps {
     // Set while going through the overdue items one by one.
     progress?: { index: number; total: number } | null;
     onClose: () => void;
-    onSubmit: (outcome: CloseOutcome, note: string) => void;
+    // Half done comes with the date for what is left.
+    onSubmit: (outcome: CloseOutcome, note: string, dueAt: Date | null) => void;
     onReschedule?: (item: any) => void;
     onSkip?: () => void;
     // Inside a list the sheet needs its own window; on a full screen it is
@@ -39,12 +43,16 @@ export function CloseCommitmentSheet({
 }: CloseCommitmentSheetProps) {
     const [outcome, setOutcome] = useState<CloseOutcome>('done');
     const [note, setNote] = useState('');
+    const [dueAt, setDueAt] = useState<Date | null>(null);
+    const [picking, setPicking] = useState(false);
     const insets = useSafeAreaInsets();
     const itemId = item?.id;
 
     useEffect(() => {
         setOutcome('done');
         setNote('');
+        setDueAt(null);
+        setPicking(false);
     }, [itemId]);
 
     const open = !!item;
@@ -57,6 +65,9 @@ export function CloseCommitmentSheet({
     if (!item) return null;
     const isMeeting = item.type === 'meeting';
     const options = OPTIONS.filter((o) => o.outcome !== 'not_done' || canCancel);
+    const quickDates = remainingDueOptions(new Date());
+    const chosenDue = dueAt ?? quickDates[0].date;
+    const isQuick = (d: Date) => chosenDue.getTime() === d.getTime();
 
     const sheet = (
         <>
@@ -102,6 +113,49 @@ export function CloseCommitmentSheet({
                         maxLength={500}
                     />
 
+                    {outcome === 'partial' && (
+                        <>
+                            <Text style={styles.label}>¿Para cuándo?</Text>
+                            <View style={styles.dates}>
+                                {quickDates.map((d) => (
+                                    <TouchableOpacity
+                                        key={d.label}
+                                        style={[styles.dateChip, isQuick(d.date) && styles.dateChipOn]}
+                                        onPress={() => setDueAt(d.date)}
+                                        accessibilityRole="radio"
+                                        accessibilityState={{ selected: isQuick(d.date) }}
+                                    >
+                                        <Text style={[styles.dateText, isQuick(d.date) && styles.dateTextOn]}>{d.label}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                                <TouchableOpacity
+                                    style={[styles.dateChip, !quickDates.some((d) => isQuick(d.date)) && styles.dateChipOn]}
+                                    onPress={() => setPicking(true)}
+                                    accessibilityRole="button"
+                                >
+                                    <Ionicons name="calendar-outline" size={14} color={colors.text} />
+                                    <Text style={[styles.dateText, !quickDates.some((d) => isQuick(d.date)) && styles.dateTextOn]}>
+                                        {quickDates.some((d) => isQuick(d.date)) ? 'Otra fecha' : format(chosenDue, "d 'de' MMM", { locale: es })}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                            {picking && (
+                                <DateTimePicker
+                                    value={chosenDue}
+                                    mode="date"
+                                    minimumDate={new Date()}
+                                    onValueChange={(_, date) => {
+                                        const next = new Date(date);
+                                        next.setHours(10, 0, 0, 0);
+                                        setDueAt(next);
+                                        setPicking(false);
+                                    }}
+                                    onDismiss={() => setPicking(false)}
+                                />
+                            )}
+                        </>
+                    )}
+
                     {outcome === 'not_done' && !!onReschedule && (
                         <TouchableOpacity onPress={() => onReschedule(item)} accessibilityRole="button">
                             <Text style={styles.link}>Mejor cambiar la fecha</Text>
@@ -110,7 +164,7 @@ export function CloseCommitmentSheet({
 
                     <TouchableOpacity
                         style={[styles.saveBtn, isSaving && styles.saving]}
-                        onPress={() => onSubmit(outcome, note)}
+                        onPress={() => onSubmit(outcome, note, outcome === 'partial' ? chosenDue : null)}
                         disabled={isSaving}
                         accessibilityRole="button"
                     >
@@ -186,6 +240,22 @@ const styles = StyleSheet.create({
         color: colors.text,
         textAlignVertical: 'top',
     },
+    label: { fontSize: 13, fontFamily: fonts.semibold, color: colors.textSoft, marginTop: 2 },
+    dates: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    dateChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: radius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+        backgroundColor: colors.glassDim,
+    },
+    dateChipOn: { borderColor: colors.accentBright, backgroundColor: colors.accentTint },
+    dateText: { fontSize: 13, fontFamily: fonts.medium, color: colors.text },
+    dateTextOn: { color: colors.accentBright },
     link: { fontSize: 14, fontFamily: fonts.semibold, color: colors.accentBright, textAlign: 'center', paddingVertical: 4 },
     saveBtn: {
         minHeight: 48,

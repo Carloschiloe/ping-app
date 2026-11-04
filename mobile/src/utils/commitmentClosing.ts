@@ -12,3 +12,18 @@ export function closingResult(outcome: CloseOutcome, note: string, isMeeting = f
     if (!text) return `${label}.`;
     return text.length >= 3 ? text : `${label}: ${text}`;
 }
+
+// Quick choices for when the rest gets done.
+export function remainingDueOptions(now: Date): { label: string; date: Date }[] {
+    const at = (days: number) => {
+        const d = new Date(now);
+        d.setDate(d.getDate() + days);
+        d.setHours(10, 0, 0, 0);
+        return d;
+    };
+    return [
+        { label: 'Mañana', date: at(1) },
+        { label: 'En 3 días', date: at(3) },
+        { label: 'Próxima semana', date: at(7) },
+    ];
+}

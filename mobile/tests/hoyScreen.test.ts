@@ -60,7 +60,8 @@ describe('Hoy — one tab for the day and every commitment', () => {
         expect(hoy).toContain('onReopen={view === \'historial\' ? handleReopen : undefined}');
         expect(row).toContain('>Reactivar<');
         expect(hoy).toContain('Cancelado. Lo verás en Terminados y cancelados.');
-        expect(hoy).toContain('reopenCommitment(undoToast.id);');
+        expect(hoy).toContain('undo: () => reopenCommitment(id)');
+        expect(hoy).toContain('undoToast.undo();');
     });
 
     it('a meeting from a past day leaves the list instead of turning overdue', () => {

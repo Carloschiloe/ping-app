@@ -256,6 +256,16 @@ export const useReopenCommitment = () => {
     });
 };
 
+// What is still missing, kept on the commitment as its next step.
+export const useScheduleFollowUp = () => {
+    const invalidate = useCommitmentLifecycleInvalidation();
+    return useMutation({
+        mutationFn: async ({ id, followUpAt, nextAction }: { id: string; followUpAt: string; nextAction: string }) =>
+            apiClient.post(`/commitments/${id}/follow-up`, { followUpAt, nextAction }),
+        onSuccess: invalidate,
+    });
+};
+
 export const useMarkActionCompleted = () => {
     const invalidate = useCommitmentLifecycleInvalidation();
     return useMutation({
