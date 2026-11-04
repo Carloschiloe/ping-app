@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Image,
     ScrollView,
     StyleSheet,
     Text,
@@ -10,6 +9,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -142,7 +142,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
                         <TouchableOpacity onPress={handlePickGroupImage} disabled={!isAdmin || isUpdatingAvatar} style={styles.avatarRing} accessibilityLabel={isAdmin ? 'Cambiar imagen del grupo' : undefined}>
                             <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
                                 {isUpdatingAvatar ? <ActivityIndicator color={colors.onAccent} /> : avatarUrl
-                                    ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                                    ? <CachedImage uri={avatarUrl} style={styles.avatarImage} />
                                     : <Text style={styles.initials}>{initials}</Text>}
                             </LinearGradient>
                             {isAdmin && <View style={styles.camera}><Ionicons name="camera" size={14} color={colors.onAccent} /></View>}

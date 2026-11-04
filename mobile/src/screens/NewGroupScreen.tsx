@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert, Platform, KeyboardAvoidingView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert, Platform, KeyboardAvoidingView } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -95,7 +96,7 @@ export default function NewGroupScreen({ navigation }: any) {
                     <View style={styles.groupHeaderRow}>
                         <TouchableOpacity onPress={pickImage} style={styles.imagePickerBtn} accessibilityLabel="Elegir foto del grupo">
                             {avatarUri ? (
-                                <Image source={{ uri: avatarUri }} style={styles.groupImagePreview} />
+                                <CachedImage uri={avatarUri} style={styles.groupImagePreview} />
                             ) : (
                                 <View style={styles.imagePickerPlaceholder}>
                                     <Ionicons name="camera" size={24} color={colors.accentBright} />

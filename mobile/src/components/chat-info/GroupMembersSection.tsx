@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { CachedImage } from '../../design/CachedImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, radius, space } from '../../design/tokens';
 import { fonts, type } from '../../design/typography';
@@ -34,7 +35,7 @@ export function GroupMembersSection({
                         <View key={member.id} style={styles.memberRow}>
                             {index > 0 && <View pointerEvents="none" style={styles.divider} />}
                             {member.avatar_url ? (
-                                <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+                                <CachedImage uri={member.avatar_url} style={styles.memberAvatar} />
                             ) : (
                                 <LinearGradient colors={avatarGradient(label)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.memberAvatar}>
                                     <Text style={styles.memberInitials}>{label.substring(0, 2).toUpperCase()}</Text>

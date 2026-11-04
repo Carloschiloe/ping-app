@@ -1,10 +1,21 @@
 import { useIsFocused } from '@react-navigation/native';
 import React from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet,
-    ActivityIndicator, StatusBar, Platform, ScrollView, TextInput, Animated,
-    Modal, Image, Alert, Pressable
+    View,
+    Text,
+    TouchableOpacity,
+    StyleSheet,
+    ActivityIndicator,
+    StatusBar,
+    Platform,
+    ScrollView,
+    TextInput,
+    Animated,
+    Modal,
+    Alert,
+    Pressable,
 } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import Reanimated, { Extrapolation, FadeInDown, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -558,11 +569,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                         accessibilityRole="button"
                         accessibilityLabel="Cerrar foto de perfil"
                     >
-                        <Image
-                            source={{ uri: profileViewerUrl || '' }}
-                            style={styles.profileViewerImage}
-                            resizeMode="contain"
-                        />
+                        <CachedImage uri={profileViewerUrl || ''} style={styles.profileViewerImage} contentFit="contain" />
                         <View style={[styles.profileViewerClose, { top: insets.top + 12 }]}>
                             <Ionicons name="close-circle" size={38} color={colors.text} />
                         </View>

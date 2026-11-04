@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
-    StatusBar, Image, Alert, TouchableOpacity, Animated, Linking, Modal
+    View,
+    Text,
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    ActivityIndicator,
+    StyleSheet,
+    StatusBar,
+    Alert,
+    TouchableOpacity,
+    Animated,
+    Linking,
+    Modal,
 } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -530,22 +542,26 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         confirmDelete(selectedMessages.map((message) => message.id));
     };
 
+    // Signed links last a minute and the list no longer renews them, so a
+    // file the user opens, shares or saves gets a link that is valid now.
+    const currentMediaUrl = async (message: any): Promise<string | null> => {
+        try {
+            const attachmentId = resolvableAttachmentId(message);
+            if (attachmentId) return (await resolveAttachmentUrl(attachmentId)).signedUrl;
+            if (message?.media_bucket && message?.media_object_path) {
+                return (await resolvePrivateFileUrl('message', message.id)).signedUrl;
+            }
+        } catch { /* fall back to the link already on screen */ }
+        return typeof message?._resolvedMediaUrl === 'string' ? message._resolvedMediaUrl : null;
+    };
+
     const resolveAttachmentForAction = async (message: any) => {
         const presentation = resolveMessageAttachmentPresentation(message);
         if (!presentation.kind) return null;
 
-        let signedUrl = typeof message?._resolvedMediaUrl === 'string'
-            ? message._resolvedMediaUrl
-            : null;
+        let signedUrl = await currentMediaUrl(message);
         if (!signedUrl) {
-            const attachmentId = resolvableAttachmentId(message);
-            if (attachmentId) {
-                const access = await resolveAttachmentUrl(attachmentId, { forceRefresh: true });
-                signedUrl = access.signedUrl;
-            } else if (message?.media_bucket && message?.media_object_path) {
-                const access = await resolvePrivateFileUrl('message', message.id, { forceRefresh: true });
-                signedUrl = access.signedUrl;
-            } else if (presentation.legacyUrl) {
+            if (presentation.legacyUrl) {
                 signedUrl = presentation.legacyUrl;
             } else {
                 const legacyMatch = resolveMessageContent(message).match(/^\[(?:imagen|video|audio)\]\s+([^\s]+)/i);
@@ -688,7 +704,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     highlightedMsgId={highlightedMsgId}
                     groupTasks={groupTasks}
                     groupParticipants={groupParticipants}
-                    onPress={(msg) => {
+                    onPress={async (msg) => {
                         if (isMultiSelecting) { toggleSelect(msg.id); return; }
                         if (msg?.status === 'rejected_offline') {
                             Alert.alert('No se envió', '¿Qué quieres hacer con este mensaje?', [
@@ -722,7 +738,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             // the in-app viewer — masked for images (Safari renders a
                             // JPEG fine) but visibly broken for video.
                             const mimeType = msg?.attachment?.mimeType || msg?.meta?.attachment?.mimeType || '';
-                            const presentation = resolveMediaTapPresentation(msg._resolvedMediaUrl, mimeType);
+                            const mediaUrl = (await currentMediaUrl(msg)) ?? msg._resolvedMediaUrl;
+                            const presentation = resolveMediaTapPresentation(mediaUrl, mimeType);
                             if (presentation.kind === 'image') {
                                 setViewerMedia({ url: presentation.url, type: 'image' });
                             } else if (presentation.kind === 'video') {
@@ -1080,7 +1097,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                             <VideoView player={viewerVideoPlayer} style={styles.viewerImage} nativeControls contentFit="contain" />
                         ) : (
                             <TouchableOpacity style={{ flex: 1, width: '100%' }} activeOpacity={1} onPress={() => setViewerMedia(null)}>
-                                <Image source={{ uri: viewerMedia?.url || '' }} style={styles.viewerImage} resizeMode="contain" />
+                                <CachedImage uri={viewerMedia?.url || ''} style={styles.viewerImage} contentFit="contain" />
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerMedia(null)}>

@@ -1,7 +1,6 @@
 import React from 'react';
 import {
     ActivityIndicator,
-    Image,
     Linking,
     Modal,
     Platform,
@@ -10,6 +9,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import { latLngToOsmTile } from '../utils/mapTiles';
 import { colors } from '../design/tokens';
@@ -97,11 +97,7 @@ export default function LocationConfirmModal({
                                     style={{ flex: 1 }}
                                     onPress={() => openInMaps(location.latitude, location.longitude)}
                                 >
-                                    <Image
-                                        source={{ uri: latLngToOsmTile(location.latitude, location.longitude, 16) }}
-                                        style={styles.mapImage}
-                                        resizeMode="cover"
-                                    />
+                                    <CachedImage uri={latLngToOsmTile(location.latitude, location.longitude, 16)} style={styles.mapImage} />
                                     {/* Center Marker */}
                                     <View style={styles.markerContainer}>
                                         <View style={styles.markerShadow} />

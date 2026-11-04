@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../design/tokens';
 
@@ -42,7 +43,7 @@ export function GlobalSearchSection({ section, searchQuery, styles, onPress }: G
                 >
                     <View style={styles.resultIcon}>
                         {item.avatar_url ? (
-                            <Image source={{ uri: item.avatar_url }} style={styles.resultAvatar} />
+                            <CachedImage uri={item.avatar_url} style={styles.resultAvatar} />
                         ) : (
                             <View style={styles.resultIconInner}>
                                 <Ionicons

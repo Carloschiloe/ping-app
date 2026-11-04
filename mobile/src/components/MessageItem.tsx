@@ -1,12 +1,20 @@
 import React, { memo } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet, Image, Animated, Linking, Platform,
+    View,
+    Text,
+    TouchableOpacity,
+    StyleSheet,
+    Animated,
+    Linking,
+    Platform,
     ActivityIndicator,
 } from 'react-native';
+import { CachedImage, stableImageKey } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Reanimated, { FadeInDown } from 'react-native-reanimated';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { createVideoPlayer, type VideoThumbnail } from 'expo-video';
+import { Image as ExpoImage } from 'expo-image';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
 import AudioPlayer from './AudioPlayer';
@@ -14,7 +22,6 @@ import GroupTaskCard from './GroupTaskCard';
 import { DeliveryTicks } from './chat/DeliveryTicks';
 import { isMessageTombstoned, resolvableAttachmentId, resolveDeletedMessageLabel, resolveMessageAttachmentPresentation, resolveReactionEmoji } from '../utils/messageCompat';
 import {
-    getPrivateFileRefreshDelay,
     isRetryablePrivateFileReadError,
     resolveAttachmentUrl,
     resolvePrivateFileUrl,
@@ -39,6 +46,12 @@ function buildDirectionsUrl(lat: number, lng: number) {
 }
 
 /** Vista previa muda de video en la lista de mensajes. Componente separado y memoizado para no crear un VideoPlayer nativo por cada mensaje (solo se monta cuando el mensaje es de video). */
+// A chat list can hold many videos. Each one shows a single still frame,
+// taken once with a short-lived player and kept for the session, instead of
+// a live native player per message.
+const VIDEO_STILLS_LIMIT = 40;
+const videoStills = new Map<string, VideoThumbnail>();
+
 const InlineVideoThumbnail = React.memo(function InlineVideoThumbnail({
     uri,
     style,
@@ -46,10 +59,32 @@ const InlineVideoThumbnail = React.memo(function InlineVideoThumbnail({
     uri: string;
     style: object;
 }) {
-    const player = useVideoPlayer(uri, (p) => {
-        p.muted = true;
-    });
-    return <VideoView player={player} style={style} nativeControls={false} contentFit="cover" />;
+    const stillKey = stableImageKey(uri);
+    const [still, setStill] = React.useState<VideoThumbnail | null>(() => videoStills.get(stillKey) ?? null);
+
+    React.useEffect(() => {
+        if (still) return;
+        let active = true;
+        const player = createVideoPlayer(uri);
+        player.muted = true;
+        player.generateThumbnailsAsync([0], { maxWidth: 480 })
+            .then(([frame]) => {
+                if (!frame) return;
+                if (videoStills.size >= VIDEO_STILLS_LIMIT) {
+                    const oldest = videoStills.keys().next().value;
+                    if (oldest) videoStills.delete(oldest);
+                }
+                videoStills.set(stillKey, frame);
+                if (active) setStill(frame);
+            })
+            .catch(() => { /* the play badge still marks it as a video */ })
+            .finally(() => player.release());
+        return () => { active = false; };
+    }, [still, stillKey, uri]);
+
+    return still
+        ? <ExpoImage source={still} style={style} contentFit="cover" />
+        : <View style={[style, { backgroundColor: colors.glassDim }]} />;
 });
 
 /** Regex matching http/https URLs within text (same pattern as backend link extractor). */
@@ -118,6 +153,8 @@ const MessageItemComponent = ({
     formatTime, avatarColor, swipeableRowRefs, groupParticipants = [], conversationMode = 'chat', activeCommitmentId = null
 }: MessageItemProps) => {
     const [privateMediaUrl, setPrivateMediaUrl] = React.useState<string | null>(null);
+    // Bumped when a photo fails to load, e.g. its one-minute link ran out first.
+    const [mediaReloads, setMediaReloads] = React.useState(0);
     const [privateMediaState, setPrivateMediaState] = React.useState<'idle' | 'loading' | 'ready' | 'retrying' | 'unavailable'>('idle');
     const privateMediaUrlRef = React.useRef<string | null>(null);
     const privateMediaRetryCountRef = React.useRef(0);
@@ -143,7 +180,6 @@ const MessageItemComponent = ({
 
     React.useEffect(() => {
         let active = true;
-        let refreshTimer: ReturnType<typeof setTimeout> | null = null;
         let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
         const hasLegacyReference = !!item?.id && !!item?.media_bucket && !!item?.media_object_path;
@@ -170,10 +206,6 @@ const MessageItemComponent = ({
                 setPrivateMediaUrl(access.signedUrl);
                 setPrivateMediaState('ready');
                 privateMediaRetryCountRef.current = 0;
-                refreshTimer = setTimeout(
-                    () => loadSignedUrl(true),
-                    getPrivateFileRefreshDelay(access.expiresIn)
-                );
             } catch (error) {
                 if (!active) return;
                 const retryCount = privateMediaRetryCountRef.current;
@@ -194,13 +226,12 @@ const MessageItemComponent = ({
             }
         };
 
-        loadSignedUrl();
+        loadSignedUrl(mediaReloads > 0);
         return () => {
             active = false;
-            if (refreshTimer) clearTimeout(refreshTimer);
             if (retryTimer) clearTimeout(retryTimer);
         };
-    }, [canonicalAttachmentId, item?.id, item?.media_bucket, item?.media_object_path, isTombstoned]);
+    }, [canonicalAttachmentId, item?.id, item?.media_bucket, item?.media_object_path, isTombstoned, mediaReloads]);
 
     if (item.type === 'divider') {
         return (
@@ -412,7 +443,7 @@ const MessageItemComponent = ({
                             const color = avatarColor(email || 'user');
 
                             return avatarUrl ? (
-                                <Image source={{ uri: avatarUrl }} style={styles.senderAvatar} />
+                                <CachedImage uri={avatarUrl} style={styles.senderAvatar} />
                             ) : (
                                 <View style={[styles.senderAvatar, { backgroundColor: color, justifyContent: 'center', alignItems: 'center' }]}>
                                     <Text style={styles.senderAvatarText}>{initialsString}</Text>
@@ -496,7 +527,7 @@ const MessageItemComponent = ({
                             // picked and say plainly whether it is going or failed.
                             <View style={styles.pendingMedia}>
                                 {meta?.attachment?.localUri && meta?.attachment?.mimeType?.startsWith('image/') ? (
-                                    <Image source={{ uri: meta.attachment.localUri }} style={styles.pendingMediaThumb} />
+                                    <CachedImage uri={meta.attachment.localUri} style={styles.pendingMediaThumb} />
                                 ) : (
                                     <View style={[styles.pendingMediaThumb, styles.pendingMediaIcon]}>
                                         <Ionicons
@@ -546,11 +577,7 @@ const MessageItemComponent = ({
                             </View>
                         ) : isImage && mediaUrl ? (
                             <View>
-                                <Image
-                                    source={{ uri: mediaUrl as string }}
-                                    style={styles.msgImage}
-                                    resizeMode="cover"
-                                />
+                                <CachedImage uri={mediaUrl as string} style={styles.msgImage} onError={() => setMediaReloads((count) => Math.min(count + 1, 2))} />
                                 {description ? <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { padding: 8, fontSize: 14 }]}>{description}</Text> : null}
                             </View>
                         ) : isVideo && mediaUrl ? (
@@ -595,11 +622,7 @@ const MessageItemComponent = ({
                                         Linking.openURL(targetUrl);
                                     }}
                                 >
-                                    <Image
-                                        source={{ uri: latLngToOsmTile(meta.location.latitude, meta.location.longitude, 15) }}
-                                        style={styles.locationMapImage}
-                                        resizeMode="cover"
-                                    />
+                                    <CachedImage uri={latLngToOsmTile(meta.location.latitude, meta.location.longitude, 15)} style={styles.locationMapImage} />
                                     <View style={styles.locationMapMarker}>
                                         <View style={styles.locationMapMarkerShadow} />
                                         <Ionicons name="location-sharp" size={32} color={colors.danger} style={styles.locationMapMarkerIcon} />
