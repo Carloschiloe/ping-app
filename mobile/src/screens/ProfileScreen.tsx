@@ -51,6 +51,7 @@ export default function ProfileScreen() {
     const [dailySummaryEnabled, setDailySummaryEnabled] = useState(true);
     const [summaryHour, setSummaryHour] = useState(8);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
+    const [privacyOpen, setPrivacyOpen] = useState(false);
     const [noticesOpen, setNoticesOpen] = useState(false);
 
     // Focus Mode State (kept from original implementation)
@@ -321,18 +322,28 @@ export default function ProfileScreen() {
             </Section>
 
             {/* PRIVACY & SECURITY */}
+            {/* Closed by default, like the notices. */}
             <Section title="PRIVACIDAD Y SEGURIDAD" order={2}>
+                <Row
+                    icon="shield-checkmark-outline"
+                    title="Privacidad"
+                    subtitle={privacySummary(hasBiometricHw && biometricEnabled, readReceiptsEnabled, lastSeenEnabled)}
+                    onPress={() => setPrivacyOpen((open) => !open)}
+                    expanded={privacyOpen}
+                />
+                {privacyOpen && (<>
                 {hasBiometricHw && (
-                    <Row icon="finger-print-outline" title="Bloqueo de Aplicación">
+                    <Row icon="finger-print-outline" title="Bloqueo de Aplicación" divider>
                         <Toggle value={biometricEnabled} onValueChange={handleToggleBiometric} />
                     </Row>
                 )}
-                <Row icon="checkmark-done-outline" title="Confirmaciones de Lectura" divider={hasBiometricHw}>
+                <Row icon="checkmark-done-outline" title="Confirmaciones de Lectura" divider>
                     <Toggle value={readReceiptsEnabled} onValueChange={handleToggleReadReceipts} />
                 </Row>
                 <Row icon="time-outline" title="Última Vez en Línea" divider>
                     <Toggle value={lastSeenEnabled} onValueChange={handleToggleLastSeen} />
                 </Row>
+                </>)}
             </Section>
 
             {/* PING NOTICES */}
@@ -444,6 +455,11 @@ const SUMMARY_HOURS = [6, 7, 8, 9, 10];
 export function noticesSummary(morning: boolean, hour: number, overdue: boolean): string {
     const parts = [morning ? `Resumen a las ${hour}:00` : null, overdue ? 'Aviso de atrasados' : null].filter(Boolean);
     return parts.length ? parts.join(' · ') : 'Apagados';
+}
+
+export function privacySummary(lock: boolean, receipts: boolean, lastSeen: boolean): string {
+    const parts = [lock ? 'Bloqueo' : null, receipts ? 'Confirmaciones' : null, lastSeen ? 'Última vez' : null].filter(Boolean);
+    return parts.length ? `Visible: ${parts.join(' · ')}` : 'Todo oculto';
 }
 
 function Section({ title, order, children }: { title?: string; order: number; children: React.ReactNode }) {
