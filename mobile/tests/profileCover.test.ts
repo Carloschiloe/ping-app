@@ -15,6 +15,12 @@ describe('Perfil stays tidy and can carry a cover photo', () => {
         expect(profile).toContain("return parts.length ? parts.join(' · ') : 'Apagados';");
     });
 
+    it('Privacidad also starts closed with a one-line summary', () => {
+        expect(profile).toContain('const [privacyOpen, setPrivacyOpen] = useState(false);');
+        expect(profile).toContain('{privacyOpen && (<>');
+        expect(profile).toContain('subtitle={privacySummary(hasBiometricHw && biometricEnabled, readReceiptsEnabled, lastSeenEnabled)}');
+    });
+
     it('the cover is picked in Editar perfil and uploaded as a private file', () => {
         const sheet = read('components/perfil/EditProfileSheet.tsx');
         expect(sheet).toContain('accessibilityLabel="Cambiar fondo"');
