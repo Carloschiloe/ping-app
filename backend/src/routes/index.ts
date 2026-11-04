@@ -279,6 +279,18 @@ router.post(
     privateFileController.completeProfileAvatar
 );
 router.post(
+    '/files/profile-cover/upload-url',
+    requireAuth,
+    validateRequest(privateFileSchema.createProfileAvatarUploadUrlSchema),
+    privateFileController.createProfileCoverUploadUrl
+);
+router.post(
+    '/files/profile-cover/complete',
+    requireAuth,
+    validateRequest(privateFileSchema.completeProfileAvatarSchema),
+    privateFileController.completeProfileCover
+);
+router.post(
     '/attachments/upload-intents',
     requireAuth,
     validateRequest(attachmentSchema.createUploadIntentSchema),

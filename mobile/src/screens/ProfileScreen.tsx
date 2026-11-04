@@ -33,6 +33,7 @@ export default function ProfileScreen() {
     const [phone, setPhone] = useState('');
     const [fullName, setFullName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+    const [coverUrl, setCoverUrl] = useState<string | null>(null);
     const { mutateAsync: updateProfile } = useUpdateProfile();
 
     const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
@@ -50,6 +51,7 @@ export default function ProfileScreen() {
     const [dailySummaryEnabled, setDailySummaryEnabled] = useState(true);
     const [summaryHour, setSummaryHour] = useState(8);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
+    const [noticesOpen, setNoticesOpen] = useState(false);
 
     // Focus Mode State (kept from original implementation)
     const [focusActive, setFocusActive] = useState(false);
@@ -87,7 +89,7 @@ export default function ProfileScreen() {
         if (!user) return;
         supabase
             .from('profiles')
-            .select('phone, full_name, avatar_url, avatar_bucket, avatar_object_path')
+            .select('phone, full_name, avatar_url, avatar_bucket, avatar_object_path, cover_object_path')
             .eq('id', user.id)
             .single()
             .then(({ data }) => {
@@ -101,6 +103,11 @@ export default function ProfileScreen() {
                     setAvatarUrl(data.avatar_url);
                 } else {
                     setAvatarUrl(null);
+                }
+                if (data?.cover_object_path) {
+                    resolvePrivateFileUrl('profile_cover', user.id)
+                        .then(({ signedUrl }) => setCoverUrl(signedUrl))
+                        .catch(() => setCoverUrl(null));
                 }
             });
 
@@ -268,6 +275,17 @@ export default function ProfileScreen() {
             {/* IDENTITY */}
             <Reanimated.View entering={FadeInDown.duration(380)} style={styles.heroWrap}>
                 <Glass style={styles.hero} intensity={30} tint={colors.glassTintLight}>
+                    {/* The cover sits behind, dimmed toward the bottom so the name stays readable. */}
+                    {!!coverUrl && (
+                        <>
+                            <CachedImage uri={coverUrl} style={styles.cover} />
+                            <LinearGradient
+                                pointerEvents="none"
+                                colors={gradients.coverShade}
+                                style={styles.cover}
+                            />
+                        </>
+                    )}
                     <View style={styles.avatarRing}>
                         <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
                             {avatarUrl ? (
@@ -318,8 +336,17 @@ export default function ProfileScreen() {
             </Section>
 
             {/* PING NOTICES */}
+            {/* Closed by default: one line says how they are set. */}
             <Section title="AVISOS DE PING" order={3}>
-                <Row icon="sunny-outline" title="Resumen de la mañana">
+                <Row
+                    icon="notifications-outline"
+                    title="Avisos de Ping"
+                    subtitle={noticesSummary(dailySummaryEnabled, summaryHour, overdueNoticesEnabled)}
+                    onPress={() => setNoticesOpen((open) => !open)}
+                    expanded={noticesOpen}
+                />
+                {noticesOpen && (<>
+                <Row icon="sunny-outline" title="Resumen de la mañana" divider>
                     <Toggle value={dailySummaryEnabled} onValueChange={handleToggleDailySummary} />
                 </Row>
                 {dailySummaryEnabled && (
@@ -347,6 +374,7 @@ export default function ProfileScreen() {
                 <Row icon="alarm-outline" title="Avisar si algo se me pasa" divider>
                     <Toggle value={overdueNoticesEnabled} onValueChange={handleToggleOverdueNotices} />
                 </Row>
+                </>)}
             </Section>
 
             {/* MEMORY */}
@@ -378,8 +406,10 @@ export default function ProfileScreen() {
                 initialFullName={fullName}
                 initialPhone={phone}
                 initialAvatarUrl={avatarUrl}
+                initialCoverUrl={coverUrl}
                 onSaveProfile={handleSaveProfile}
                 onSaveAvatar={handleSaveAvatar}
+                onSaveCover={setCoverUrl}
             />
 
             <CalendarsSheet
@@ -411,6 +441,11 @@ export default function ProfileScreen() {
 const SUMMARY_HOURS = [6, 7, 8, 9, 10];
 
 // One group of settings: a label above a full-width glass band.
+export function noticesSummary(morning: boolean, hour: number, overdue: boolean): string {
+    const parts = [morning ? `Resumen a las ${hour}:00` : null, overdue ? 'Aviso de atrasados' : null].filter(Boolean);
+    return parts.length ? parts.join(' · ') : 'Apagados';
+}
+
 function Section({ title, order, children }: { title?: string; order: number; children: React.ReactNode }) {
     return (
         <Reanimated.View entering={FadeInDown.delay(order * 50).duration(380)} style={styles.section}>
@@ -430,10 +465,12 @@ type RowProps = {
     divider?: boolean;
     onPress?: () => void;
     accessibilityLabel?: string;
+    // Set on a row that opens and closes the rows under it.
+    expanded?: boolean;
     children?: React.ReactNode;
 };
 
-function Row({ icon, title, subtitle, divider, onPress, accessibilityLabel, children }: RowProps) {
+function Row({ icon, title, subtitle, divider, onPress, accessibilityLabel, expanded, children }: RowProps) {
     const body = (
         <>
             {divider && <View pointerEvents="none" style={styles.divider} />}
@@ -445,12 +482,24 @@ function Row({ icon, title, subtitle, divider, onPress, accessibilityLabel, chil
                 {!!subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
             </View>
             {children}
-            {onPress && <Ionicons name="chevron-forward" size={18} color={colors.textFaint} style={styles.chevron} />}
+            {onPress && (
+                <Ionicons
+                    name={expanded === undefined ? 'chevron-forward' : expanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={colors.textFaint}
+                    style={styles.chevron}
+                />
+            )}
         </>
     );
     if (!onPress) return <View style={styles.row}>{body}</View>;
     return (
-        <TouchableOpacity style={styles.row} onPress={onPress} accessibilityLabel={accessibilityLabel ?? title}>
+        <TouchableOpacity
+            style={styles.row}
+            onPress={onPress}
+            accessibilityLabel={accessibilityLabel ?? title}
+            accessibilityState={expanded === undefined ? undefined : { expanded }}
+        >
             {body}
         </TouchableOpacity>
     );
@@ -499,6 +548,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
     },
     avatarImage: { width: AVATAR, height: AVATAR },
+    cover: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
     avatarText: { fontFamily: fonts.bold, fontSize: 34, color: colors.onAccent },
     heroName: { ...type.title, fontSize: 22, maxWidth: '100%' },
     heroEmail: { ...type.subhead, marginTop: 3, maxWidth: '100%' },

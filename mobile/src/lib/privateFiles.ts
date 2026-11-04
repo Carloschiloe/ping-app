@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 import { createClientMessageId } from '../utils/synchronization';
 import { File } from 'expo-file-system';
 
-export type PrivateFileResourceType = 'message' | 'profile' | 'conversation';
+export type PrivateFileResourceType = 'message' | 'profile' | 'profile_cover' | 'conversation';
 
 export type PrivateFileReadAccess = {
     signedUrl: string;
@@ -207,6 +207,23 @@ export async function uploadPrivateProfileAvatar(
         objectPath: access.objectPath,
     });
     return resolvePrivateFileUrl('profile', userId, { forceRefresh: true });
+}
+
+export async function uploadPrivateProfileCover(
+    userId: string,
+    uri: string,
+    mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+) {
+    const access: PrivateFileUploadAccess = await apiClient.post(
+        '/files/profile-cover/upload-url',
+        { mimeType }
+    );
+    await uploadToSignedPrivatePath(uri, mimeType, access);
+    await apiClient.post('/files/profile-cover/complete', {
+        bucket: access.bucket,
+        objectPath: access.objectPath,
+    });
+    return resolvePrivateFileUrl('profile_cover', userId, { forceRefresh: true });
 }
 
 export async function uploadPrivateMessageAttachment(

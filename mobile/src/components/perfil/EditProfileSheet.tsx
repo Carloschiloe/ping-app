@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { getDisplayNameValidationError, normalizeDisplayName, normalizeOptionalPhone } from '../../utils/profile';
-import { uploadPrivateProfileAvatar } from '../../lib/privateFiles';
+import { uploadPrivateProfileAvatar, uploadPrivateProfileCover } from '../../lib/privateFiles';
 
 import { colors } from '../../design/tokens';
 import { fonts } from '../../design/typography';
@@ -18,8 +18,10 @@ interface EditProfileSheetProps {
     initialFullName: string;
     initialPhone: string;
     initialAvatarUrl: string | null;
+    initialCoverUrl: string | null;
     onSaveProfile: (fullName: string, phone: string) => Promise<void>;
     onSaveAvatar: (signedUrl: string) => Promise<void>;
+    onSaveCover: (signedUrl: string) => void;
 }
 
 export function EditProfileSheet({
@@ -29,14 +31,17 @@ export function EditProfileSheet({
     initialFullName,
     initialPhone,
     initialAvatarUrl,
+    initialCoverUrl,
     onSaveProfile,
     onSaveAvatar,
+    onSaveCover,
 }: EditProfileSheetProps) {
     const insets = useSafeAreaInsets();
     const [fullName, setFullName] = useState(initialFullName);
     const [phone, setPhone] = useState(initialPhone);
     const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
     const [pendingAvatar, setPendingAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
+    const [pendingCover, setPendingCover] = useState<ImagePicker.ImagePickerAsset | null>(null);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -45,11 +50,12 @@ export function EditProfileSheet({
             setPhone(initialPhone);
             setAvatarUrl(initialAvatarUrl);
             setPendingAvatar(null);
+            setPendingCover(null);
             setSaving(false);
         }
     }, [visible, initialFullName, initialPhone, initialAvatarUrl]);
 
-    const handlePickImage = async () => {
+    const pickPicture = async (onPicked: (asset: ImagePicker.ImagePickerAsset) => void) => {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: false,
@@ -62,9 +68,11 @@ export function EditProfileSheet({
                 Alert.alert('Imagen demasiado grande', 'Elige una imagen de hasta 25 MB.');
                 return;
             }
-            setPendingAvatar(asset);
+            onPicked(asset);
         }
     };
+    const handlePickImage = () => pickPicture(setPendingAvatar);
+    const handlePickCover = () => pickPicture(setPendingCover);
 
     const handleSave = async () => {
         const normalizedName = normalizeDisplayName(fullName);
@@ -102,6 +110,17 @@ export function EditProfileSheet({
                 }
             }
 
+            // The cover keeps its shape, only made lighter to send.
+            if (pendingCover && user) {
+                const prepared = await ImageManipulator.manipulateAsync(
+                    pendingCover.uri,
+                    [{ resize: { width: Math.min(pendingCover.width || 1440, 1440) } }],
+                    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+                );
+                const uploadResult = await uploadPrivateProfileCover(user.id, prepared.uri, 'image/jpeg');
+                if (uploadResult?.signedUrl) onSaveCover(uploadResult.signedUrl);
+            }
+
             // Then save text data
             await onSaveProfile(normalizedName, normalizeOptionalPhone(phone) || '');
             onClose();
@@ -113,6 +132,7 @@ export function EditProfileSheet({
     };
 
     const currentAvatarUri = pendingAvatar ? pendingAvatar.uri : avatarUrl;
+    const currentCoverUri = pendingCover ? pendingCover.uri : initialCoverUrl;
     const initialLetter = fullName?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?';
 
     return (
@@ -142,6 +162,22 @@ export function EditProfileSheet({
                             )}
                         </TouchableOpacity>
                     </View>
+
+                    <TouchableOpacity
+                        onPress={handlePickCover}
+                        disabled={saving}
+                        style={styles.cover}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cambiar fondo"
+                    >
+                        {currentCoverUri
+                            ? <CachedImage uri={currentCoverUri} style={styles.coverImage} />
+                            : <View style={[styles.coverImage, { backgroundColor: colors.glassRaised }]} />}
+                        <View style={styles.coverChip}>
+                            <Ionicons name="image-outline" size={14} color={colors.text} />
+                            <Text style={styles.coverChipText}>Cambiar fondo</Text>
+                        </View>
+                    </TouchableOpacity>
 
                     <View style={styles.avatarWrap}>
                         <TouchableOpacity onPress={handlePickImage} disabled={saving} style={styles.avatarContainer}>
@@ -224,8 +260,30 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontFamily: fonts.semibold,
     },
+    cover: {
+        height: 120,
+        borderRadius: 16,
+        overflow: 'hidden',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    coverImage: { width: '100%', height: '100%' },
+    coverChip: {
+        position: 'absolute',
+        right: 10,
+        top: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: colors.scrim,
+    },
+    coverChipText: { fontSize: 12, fontFamily: fonts.semibold, color: colors.text },
     avatarWrap: {
         alignItems: 'center',
+        marginTop: -40,
         marginBottom: 24,
     },
     avatarContainer: {
