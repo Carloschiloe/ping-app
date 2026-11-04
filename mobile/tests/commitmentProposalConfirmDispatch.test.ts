@@ -295,7 +295,9 @@ describe('M-1H v4: semántica de producto -- Confirmar (proposal->accepted) y Li
     it('InsightsScreen/TaskDashboardScreen: handleMarkDone usa useResolveCommitment, un hook y endpoint totalmente distinto de performCommitmentConfirm', () => {
         for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
-            expect(src).toMatch(/const handleMarkDone = useCallback\(\(id: string\) => \{\s*resolveCommitment\(/);
+            expect(src).toMatch(/const handleMarkDone = useCallback\(\(id: string\) => \{/);
+            expect(src).toMatch(/await resolveCommitment\(\{ id: item\.id, result: closingResult\(/);
+            expect(src).not.toMatch(/performCommitmentConfirm\([^)]*closeItem/);
         }
     });
 });

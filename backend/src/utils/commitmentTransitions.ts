@@ -315,6 +315,9 @@ function computeCancel(input: CommitmentTransitionInput): CommitmentTransitionRe
     return {
         patch: {
             status: 'cancelled',
+            // How it ended: the reason is shown as the outcome of a
+            // cancelled commitment, like the result of a resolved one.
+            resolution_result: reason,
             waiting_on_user_id: null,
             waiting_on_contact_id: null,
         },

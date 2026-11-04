@@ -612,28 +612,26 @@ describe('PING — CANONICAL POST-WRITE VERIFICATION COMPLETENESS + LIFECYCLE IN
 // same component and the helper already exists -- no new status-label
 // map introduced.
 describe('PING — RESOLUTION RESULT NOT VISIBLE IN COMMITMENT DETAIL FIX: CommitmentDetailSheet.tsx renders the canonical resolution_result field, never the nonexistent item.result', () => {
+    const outcomeBlock = () => COMMITMENT_DETAIL_SHEET_SRC.match(/\{\(status === 'resolved' \|\| status === 'cancelled'\) && !!item\.resolution_result && \([^]*?\)\}/);
+
     it('reads item.resolution_result -- the real canonical field name, never item.result (which never exists in any API response)', () => {
-        expect(COMMITMENT_DETAIL_SHEET_SRC).toMatch(/status === 'resolved' && !!item\.resolution_result/);
+        expect(outcomeBlock()).not.toBeNull();
         expect(COMMITMENT_DETAIL_SHEET_SRC).not.toMatch(/!!item\.result\b/);
     });
 
-    it('the section renders the label "Resultado" and the exact field value, with no truncation prop (numberOfLines) that would cut off multiline content', () => {
-        const sectionMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{status === 'resolved' && !!item\.resolution_result && \([^]*?\)\}/);
-        expect(sectionMatch).not.toBeNull();
-        const block = sectionMatch![0];
-        expect(block).toMatch(/>Resultado</);
+    it('the section is titled "Cómo quedó" and shows the exact field value, with no truncation prop (numberOfLines) that would cut off multiline content', () => {
+        const block = outcomeBlock()![0];
+        expect(block).toMatch(/>Cómo quedó</);
         expect(block).toMatch(/\{item\.resolution_result\}/);
         expect(block).not.toMatch(/numberOfLines/);
     });
 
-    it('the Resultado section is gated on status === \'resolved\' -- an accepted/cancelled/rejected/proposed item can never render it, even if a stray non-empty value existed on the object', () => {
-        const sectionMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{status === 'resolved' && !!item\.resolution_result && \([^]*?\)\}/);
-        expect(sectionMatch![0]).toMatch(/^\{status === 'resolved' && !!item\.resolution_result/);
+    it('the section only shows for something closed or called off -- never for an active, rejected or proposed item', () => {
+        expect(outcomeBlock()![0]).toMatch(/^\{\(status === 'resolved' \|\| status === 'cancelled'\) && !!item\.resolution_result/);
     });
 
     it('renders no internal metadata alongside the result -- only the plain resolution_result string, never a JSON.stringify or a second field interpolated into the same block', () => {
-        const sectionMatch = COMMITMENT_DETAIL_SHEET_SRC.match(/\{status === 'resolved' && !!item\.resolution_result && \([^]*?\)\}/);
-        const block = sectionMatch![0];
+        const block = outcomeBlock()![0];
         expect(block).not.toMatch(/JSON\.stringify/);
         expect(block).not.toMatch(/item\.id|item\.owner_user_id|item\.conversation_id/);
     });

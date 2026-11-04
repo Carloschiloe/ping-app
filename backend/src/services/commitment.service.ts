@@ -312,8 +312,24 @@ export const markActionCompleted = async (userId: string, id: string) => {
     return data;
 };
 
+// The other side of a commitment hears that it was closed and how it went.
+function otherParty(data: { owner_user_id?: string | null; assigned_to_user_id?: string | null }, userId: string) {
+    const other = data.owner_user_id === userId ? data.assigned_to_user_id : data.owner_user_id;
+    return other && other !== userId ? other : null;
+}
+
 export const resolveCommitment = async (userId: string, id: string, resolutionResult: string) => {
     const data = await applyCommitmentTransition(userId, id, 'resolve', { resolutionResult });
+    const recipient = otherParty(data, userId);
+    if (recipient) {
+        const userName = await getUserName(userId);
+        await notifyUser(
+            recipient,
+            data.type === 'meeting' ? 'Reunión realizada' : 'Compromiso cerrado',
+            `${userName} cerró "${data.title}": ${resolutionResult.trim()}`,
+            { type: 'commitment_resolved', commitmentId: data.id, conversationId: data.conversation_id }
+        );
+    }
     return data;
 };
 
@@ -321,11 +337,12 @@ export const cancelCommitment = async (userId: string, id: string, reason?: stri
     const normalizedReason = reason?.trim() || null;
     const data = await applyCommitmentTransition(userId, id, 'cancel', { reason: normalizedReason });
     const userName = await getUserName(userId);
-    if (data.assigned_to_user_id && data.assigned_to_user_id !== userId) {
+    const recipient = otherParty(data, userId);
+    if (recipient) {
         await notifyUser(
-            data.assigned_to_user_id,
+            recipient,
             data.type === 'meeting' ? 'Reunión cancelada' : 'Compromiso cancelado',
-            `${userName} canceló "${data.title}"`,
+            `${userName} canceló "${data.title}"${normalizedReason ? `: ${normalizedReason}` : ''}`,
             { type: 'commitment_cancelled', commitmentId: data.id, conversationId: data.conversation_id }
         );
     }

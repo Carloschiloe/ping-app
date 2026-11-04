@@ -46,12 +46,15 @@ function TabButton({ label, focused, onPress }: { label: string; focused: boolea
 }
 
 // Floating frosted bar with a blue pill under the active tab.
-export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
+export function FloatingTabBar({ state, navigation, descriptors }: BottomTabBarProps) {
     const insets = useSafeAreaInsets();
     const focusedOptions = state.routes[state.index];
     const nested = (focusedOptions.state as any)?.index ?? 0;
     // Inside a conversation the bar steps aside so the composer has the room.
     if (nested > 0) return null;
+    // A screen can ask for the whole height, e.g. while a sheet is open.
+    const style = descriptors[focusedOptions.key]?.options.tabBarStyle as { display?: string } | undefined;
+    if (style?.display === 'none') return null;
 
     return (
         <View pointerEvents="box-none" style={[styles.wrap, { bottom: Math.max(insets.bottom, 12) }]}>
