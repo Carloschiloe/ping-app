@@ -317,7 +317,6 @@ export async function completePrivateProfileAvatar(
             avatar_bucket: bucket,
             avatar_object_path: objectPath,
             avatar_url: null,
-            updated_at: new Date().toISOString(),
         })
         .eq('id', userId)
         .select('id, avatar_bucket, avatar_object_path')
@@ -341,7 +340,6 @@ export async function completePrivateProfileCover(
         .update({
             cover_bucket: bucket,
             cover_object_path: objectPath,
-            updated_at: new Date().toISOString(),
         })
         .eq('id', userId)
         .select('id, cover_bucket, cover_object_path')
