@@ -82,7 +82,8 @@ describe('M8 live voice environment boundary', () => {
         expect(session).toContain('"create_response":false');
         expect(session).toContain('"interrupt_response":true');
         expect(session).toContain('"language":"es"');
-        expect(session).toContain('gpt-4o-mini-transcribe');
+        expect(session).toContain('"model":"gpt-4o-transcribe"');
+        expect(session).toContain('"noise_reduction":{"type":"near_field"}');
         expect(session).toContain('español de Chile');
         expect(session).toContain('"voice":"cedar"');
         expect(result.sdp).toBe('v=0\\r\\nanswer');
@@ -201,7 +202,8 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("self_audio_echo_suspected");
         expect(html).toContain("createResponse('user_turn_ready','required')");
         expect(html).toContain("createResponse('core_result_authorized','none',presentation.authorizedText)");
-        expect(html).toContain('di exactamente este texto, palabra por palabra');
+        expect(html).toContain('Mantén todo su contenido y el orden de las ideas, sin agregar, quitar ni comentar nada');
+        expect(html).toContain('No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones');
         expect(html).toContain("responseHasAudio=toolChoice!=='required'");
         expect(html).toContain("response.created");
         expect(html).toContain("realtime_output_transcript_done");
