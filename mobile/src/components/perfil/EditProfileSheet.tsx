@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Modal, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, Alert } from 'react-native';
+import { CachedImage } from '../../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -145,7 +146,7 @@ export function EditProfileSheet({
                     <View style={styles.avatarWrap}>
                         <TouchableOpacity onPress={handlePickImage} disabled={saving} style={styles.avatarContainer}>
                             {currentAvatarUri ? (
-                                <Image source={{ uri: currentAvatarUri }} style={styles.avatarImage} />
+                                <CachedImage uri={currentAvatarUri} style={styles.avatarImage} />
                             ) : (
                                 <View style={[styles.avatarPlaceholder, { backgroundColor: colors.accent }]}>
                                     <Text style={styles.avatarText}>{initialLetter}</Text>

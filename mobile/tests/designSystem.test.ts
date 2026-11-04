@@ -270,3 +270,18 @@ describe('Sign-in screens in the glass design', () => {
         expect(auth).not.toContain('setProfileComplete(false)');
     });
 });
+
+describe('Photos stay cached across signed-link renewals', () => {
+    const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+
+    it('keys the image cache on the file, not on its one-minute link', () => {
+        const src = read('src/design/CachedImage.tsx');
+        expect(src).toContain("uri.split('?')[0]");
+        expect(src).toContain('cachePolicy="memory-disk"');
+    });
+
+    it('chat media is not renewed on a timer', () => {
+        expect(read('src/components/MessageItem.tsx')).not.toContain('getPrivateFileRefreshDelay');
+        expect(read('src/hooks/useSharedContentUrl.ts')).not.toContain('getPrivateFileRefreshDelay');
+    });
+});

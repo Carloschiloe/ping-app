@@ -72,13 +72,12 @@ describe('SDK57 hotfix: MessageItem (miniatura de video en la lista) migrado a e
         expect(thumbnailSrc).not.toMatch(/\.play\(\)/);
     });
 
-    it('preserva silencio (isMuted=true -> p.muted = true)', () => {
-        expect(src).toContain('p.muted = true');
-    });
-
-    it('preserva contentFit=cover (equivalente a ResizeMode.COVER) y controles ocultos', () => {
+    it('muestra un cuadro fijo: un reproductor corto y silenciado que se libera al terminar', () => {
+        expect(src).toContain('player.muted = true');
+        expect(src).toContain('generateThumbnailsAsync([0]');
+        expect(src).toContain('.finally(() => player.release())');
+        expect(src).not.toContain('<VideoView');
         expect(src).toContain('contentFit="cover"');
-        expect(src).toMatch(/<VideoView[^>]*nativeControls=\{false\}/);
     });
 
     it('solo se monta la miniatura de video cuando el mensaje es de tipo video (isVideo && mediaUrl)', () => {

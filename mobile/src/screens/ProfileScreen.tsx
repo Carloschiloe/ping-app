@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Image, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Switch } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -270,7 +271,7 @@ export default function ProfileScreen() {
                     <View style={styles.avatarRing}>
                         <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
                             {avatarUrl ? (
-                                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                                <CachedImage uri={avatarUrl} style={styles.avatarImage} />
                             ) : (
                                 <Text style={styles.avatarText}>{initialLetter}</Text>
                             )}

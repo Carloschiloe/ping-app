@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-    getPrivateFileRefreshDelay,
     resolveAttachmentUrl,
     resolvePrivateFileUrl,
 } from '../lib/privateFiles';
@@ -16,7 +15,6 @@ export function useSharedContentUrl(item: SharedContentItem | null, enabled = tr
     useEffect(() => {
         if (!item || !enabled || item.type === 'link') return;
         let active = true;
-        let renewal: ReturnType<typeof setTimeout> | undefined;
         const forceRefresh = refreshVersion > 0;
         setState('loading');
 
@@ -28,7 +26,6 @@ export function useSharedContentUrl(item: SharedContentItem | null, enabled = tr
                 if (!active) return;
                 setUrl(access.signedUrl);
                 setState('available');
-                renewal = setTimeout(refresh, getPrivateFileRefreshDelay(access.expiresIn));
             } catch {
                 if (!active) return;
                 if (item.legacyUrl) {
@@ -43,9 +40,8 @@ export function useSharedContentUrl(item: SharedContentItem | null, enabled = tr
         void resolve();
         return () => {
             active = false;
-            if (renewal) clearTimeout(renewal);
         };
-    }, [enabled, item, refresh, refreshVersion]);
+    }, [enabled, item, refreshVersion]);
 
     return { url, state, refresh };
 }

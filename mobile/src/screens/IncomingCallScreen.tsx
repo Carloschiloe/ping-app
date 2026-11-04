@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet,
-    Animated, Easing, Vibration, Platform, Image,
+    View,
+    Text,
+    TouchableOpacity,
+    StyleSheet,
+    Animated,
+    Easing,
+    Vibration,
+    Platform,
 } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { GlassBackdrop } from '../design/Glass';
@@ -148,7 +155,7 @@ const IncomingCallScreen = ({ route, navigation }: any) => {
 
                     <View style={styles.avatarCircle}>
                         {callerAvatar ? (
-                            <Image source={{ uri: callerAvatar }} style={styles.avatarImage} />
+                            <CachedImage uri={callerAvatar} style={styles.avatarImage} />
                         ) : (
                             <LinearGradient colors={avatarGradient(callerName)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarFill}>
                                 <Text style={styles.avatarInitial}>

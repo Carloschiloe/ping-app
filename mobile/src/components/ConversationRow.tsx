@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 // `Pressable` from react-native-gesture-handler (not core react-native) — this row lives
 // inside a `Swipeable`, whose pan/tap recognition runs entirely on RNGH's native gesture
 // manager. Core RN's touchables use the legacy JS responder system, a separate,
@@ -134,7 +135,7 @@ export const ConversationRow = React.memo(function ConversationRow({ item, userI
                 >
                     <View style={[styles.avatar, isOperation && styles.avatarOperation]}>
                         {resolvedAvatarUrl ? (
-                            <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatarImage} />
+                            <CachedImage uri={resolvedAvatarUrl} style={styles.avatarImage} />
                         ) : (
                             <LinearGradient colors={avatarGradient(colorStr)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarFill}>
                                 {isSelf

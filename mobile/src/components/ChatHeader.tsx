@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { CachedImage } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -73,7 +74,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     accessibilityRole="imagebutton"
                     accessibilityLabel="Ver foto de perfil"
                 >
-                    <Image source={{ uri: resolvedAvatarUrl }} style={styles.avatar} />
+                    <CachedImage uri={resolvedAvatarUrl} style={styles.avatar} />
                     {online && <View style={styles.onlineDot} />}
                 </TouchableOpacity>
             ) : (

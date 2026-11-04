@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { CachedImage } from '../../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import type { SharedContentItem } from '../../types/sharedContent';
 import { useSharedContentUrl } from '../../hooks/useSharedContentUrl';
@@ -25,7 +26,7 @@ export function SharedContentThumbnail({ item, size = 58 }: { item: SharedConten
     if (!url) {
         return <View style={[styles.placeholder, style]}><Ionicons name="image-outline" size={24} color={colors.textFaint} /></View>;
     }
-    return <Image source={{ uri: url }} style={style} resizeMode="cover" />;
+    return <CachedImage uri={url} style={style} />;
 }
 
 const styles = StyleSheet.create({
