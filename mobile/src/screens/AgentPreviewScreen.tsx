@@ -413,7 +413,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     <PingOrb size={36} state={isPending ? 'thinking' : 'idle'} paused={liveVoiceVisible} />
                     <View style={styles.headerInfo}>
                         <Text style={styles.title} numberOfLines={1}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
-                        <Text style={styles.subtitle} numberOfLines={1}>{isMainCoreEntry ? 'Recuerda lo importante · confirma antes de actuar' : 'Preview interna · confirma antes de actuar'}</Text>
+                        <Text style={styles.subtitle} numberOfLines={1}>{isMainCoreEntry ? 'Tu asistente de compromisos' : 'Preview interna · confirma antes de actuar'}</Text>
                     </View>
                     <TouchableOpacity
                         onPress={handleClearHistory}
