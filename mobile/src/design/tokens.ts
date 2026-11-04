@@ -61,6 +61,8 @@ export const gradients = {
     // Sheets: light graphite at the top falling into a deeper one.
     sheet: ['rgba(70,76,92,0.98)', 'rgba(36,40,50,0.98)'] as const,
     sheetGlow: ['rgba(91,155,255,0.20)', 'rgba(91,155,255,0)'] as const,
+    // Over a cover photo: light at the top, darker where the name sits.
+    coverShade: ['rgba(8,9,11,0.15)', 'rgba(8,9,11,0.80)'] as const,
     // Avatars without a photo: cool metallic tones.
     avatar: [
         ['#4A5263', '#262B35'],

@@ -36,12 +36,13 @@ export const PRIVATE_FILE_READ_TTL_SECONDS = 60;
 // real sample already measured.
 export const MAX_MESSAGE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
-export const privateFileResourceTypes = ['message', 'profile', 'conversation'] as const;
+export const privateFileResourceTypes = ['message', 'profile', 'profile_cover', 'conversation'] as const;
 export type PrivateFileResourceType = typeof privateFileResourceTypes[number];
 
 export const privateFileUploadPurposes = [
     'message_attachment',
     'profile_avatar',
+    'profile_cover',
     'conversation_avatar',
 ] as const;
 export type PrivateFileUploadPurpose = typeof privateFileUploadPurposes[number];
@@ -144,7 +145,10 @@ async function getConversationReference(userId: string, resourceId: string): Pro
     return assertReferenceOwnedBy(assertStoredReference(data.avatar_bucket, data.avatar_object_path), `conversations/${resourceId}/avatar/`);
 }
 
-async function getProfileReference(userId: string, resourceId: string): Promise<StoredReference> {
+// A profile has two pictures: the avatar and the cover behind it.
+type ProfilePicture = 'avatar' | 'cover';
+
+async function getProfileReference(userId: string, resourceId: string, picture: ProfilePicture = 'avatar'): Promise<StoredReference> {
     if (resourceId !== userId) {
         const visibleProfileIds = await getSharedProfileIds(userId);
         if (!visibleProfileIds.includes(resourceId)) {
@@ -154,13 +158,17 @@ async function getProfileReference(userId: string, resourceId: string): Promise<
 
     const { data, error } = await supabaseAdmin
         .from('profiles')
-        .select('id, avatar_bucket, avatar_object_path')
+        .select(`id, ${picture}_bucket, ${picture}_object_path`)
         .eq('id', resourceId)
         .maybeSingle();
 
     if (error) throw new AppError(error.message, 500);
     if (!data) throw new AppError('Profile not found', 404);
-    return assertReferenceOwnedBy(assertStoredReference(data.avatar_bucket, data.avatar_object_path), `profiles/${resourceId}/avatar/`);
+    const row = data as Record<string, any>;
+    return assertReferenceOwnedBy(
+        assertStoredReference(row[`${picture}_bucket`], row[`${picture}_object_path`]),
+        `profiles/${resourceId}/${picture}/`
+    );
 }
 
 export async function createPrivateFileReadUrl(
@@ -172,7 +180,7 @@ export async function createPrivateFileReadUrl(
         ? await getMessageReference(userId, resourceId)
         : resourceType === 'conversation'
             ? await getConversationReference(userId, resourceId)
-            : await getProfileReference(userId, resourceId);
+            : await getProfileReference(userId, resourceId, resourceType === 'profile_cover' ? 'cover' : 'avatar');
 
     const { data, error } = await supabaseAdmin.storage
         .from(reference.bucket)
@@ -221,9 +229,9 @@ async function authorizeUpload(
     }
 
     if (userId !== ownerResourceId) {
-        throw new AppError('You can only upload an avatar for your own profile', 403);
+        throw new AppError('You can only upload pictures for your own profile', 403);
     }
-    return `profiles/${ownerResourceId}/avatar`;
+    return `profiles/${ownerResourceId}/${purpose === 'profile_cover' ? 'cover' : 'avatar'}`;
 }
 
 function expectedUploadPrefix(
@@ -237,7 +245,7 @@ function expectedUploadPrefix(
     if (purpose === 'conversation_avatar') {
         return `conversations/${ownerResourceId}/avatar/`;
     }
-    return `profiles/${userId}/avatar/`;
+    return `profiles/${userId}/${purpose === 'profile_cover' ? 'cover' : 'avatar'}/`;
 }
 
 export async function validatePrivateFileUploadReference(
@@ -271,7 +279,8 @@ export async function validatePrivateFileUploadReference(
     if (!storedObject) throw new AppError('Uploaded private file was not found', 400);
 
     const size = Number(storedObject.metadata?.size ?? 0);
-    const maxBytes = purpose === 'profile_avatar'
+    const isProfilePicture = purpose === 'profile_avatar' || purpose === 'profile_cover';
+    const maxBytes = isProfilePicture
         ? MAX_AVATAR_BYTES
         : MAX_MESSAGE_ATTACHMENT_BYTES;
     if (!Number.isFinite(size) || size <= 0 || size > maxBytes) {
@@ -282,8 +291,8 @@ export async function validatePrivateFileUploadReference(
     if (!allowedMimeTypes.has(mimeType)) {
         throw new AppError('Stored private file type is not allowed', 400);
     }
-    if (purpose === 'profile_avatar' && !mimeType.startsWith('image/')) {
-        throw new AppError('Profile avatars must be images', 400);
+    if (isProfilePicture && !mimeType.startsWith('image/')) {
+        throw new AppError('Profile pictures must be images', 400);
     }
 
     return { bucket, objectPath, mimeType, size };
@@ -316,6 +325,30 @@ export async function completePrivateProfileAvatar(
 
     if (error || !data) {
         throw new AppError(error?.message || 'Unable to save private profile avatar', 500);
+    }
+    return data;
+}
+
+export async function completePrivateProfileCover(
+    userId: string,
+    bucket: string,
+    objectPath: string
+) {
+    await validatePrivateFileUploadReference(userId, 'profile_cover', userId, bucket, objectPath);
+
+    const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .update({
+            cover_bucket: bucket,
+            cover_object_path: objectPath,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('id, cover_bucket, cover_object_path')
+        .single();
+
+    if (error || !data) {
+        throw new AppError(error?.message || 'Unable to save profile cover', 500);
     }
     return data;
 }

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import {
     completePrivateProfileAvatar,
+    completePrivateProfileCover,
     createPrivateFileReadUrl,
     createPrivateFileUploadUrl,
 } from '../services/privateFile.service';
@@ -39,6 +40,35 @@ export async function completeProfileAvatar(req: Request, res: Response, next: N
     try {
         if (!req.user) throw new AppError('Unauthorized', 401);
         const result = await completePrivateProfileAvatar(
+            req.user.id,
+            req.body.bucket,
+            req.body.objectPath
+        );
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createProfileCoverUploadUrl(req: Request, res: Response, next: NextFunction) {
+    try {
+        if (!req.user) throw new AppError('Unauthorized', 401);
+        const result = await createPrivateFileUploadUrl(
+            req.user.id,
+            'profile_cover',
+            req.user.id,
+            req.body.mimeType
+        );
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function completeProfileCover(req: Request, res: Response, next: NextFunction) {
+    try {
+        if (!req.user) throw new AppError('Unauthorized', 401);
+        const result = await completePrivateProfileCover(
             req.user.id,
             req.body.bucket,
             req.body.objectPath
