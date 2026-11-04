@@ -203,8 +203,8 @@ describe('Task history and the Ping screen in the new design', () => {
 });
 
 describe('The old light/dark theme is gone', () => {
-    it('only the sign-in palette is left in src/theme', () => {
-        expect(fs.readdirSync(path.join(__dirname, '../src/theme'))).toEqual(['authTheme.ts']);
+    it('no separate palette is left, not even for sign-in', () => {
+        expect(fs.existsSync(path.join(__dirname, '../src/theme'))).toBe(false);
     });
 
     for (const file of ['navigation/index.tsx', 'components/AgreementParticipantsList.tsx']) {
@@ -242,5 +242,31 @@ describe("Ping's living aura", () => {
         expect(orb).toContain('frames.setActive(!paused)');
         expect(ping).toContain('paused={liveVoiceVisible}');
         expect(read('screens/ConversationsScreen.tsx')).toContain('<PingOrb size={44} paused={!isFocused} />');
+    });
+});
+
+describe('Sign-in screens in the glass design', () => {
+    const files = ['components/auth/AuthKit.tsx', 'screens/AuthScreen.tsx', 'screens/CompleteProfileScreen.tsx', 'screens/PasswordRecoveryScreen.tsx'];
+    for (const file of files) {
+        it(`${file} reads every color from the design tokens`, () => {
+            const source = read(file);
+            expect(source).not.toContain('authColors');
+            expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+            expect(source).not.toContain('rgba(');
+            expect(source).not.toContain('fontWeight');
+        });
+    }
+
+    it('shows the aura, the glass backdrop and what Ping does', () => {
+        const kit = read('components/auth/AuthKit.tsx');
+        expect(kit).toContain('<GlassBackdrop>');
+        expect(kit).toContain('<PingOrb size={compact ? 96 : 128} />');
+        expect(kit).toContain('Lo que acuerdas en tus chats, Ping lo recuerda por ti.');
+    });
+
+    it('a failed profile read retries instead of asking for the name again', () => {
+        const auth = read('context/AuthContext.tsx');
+        expect(auth).toContain('void loadProfile(userId);');
+        expect(auth).not.toContain('setProfileComplete(false)');
     });
 });

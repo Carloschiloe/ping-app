@@ -14,7 +14,8 @@ import { useAuth } from '../context/AuthContext';
 import { createRequestGate } from '../utils/authRegistration';
 import { getDisplayNameValidationError, normalizeDisplayName } from '../utils/profile';
 import { supabase } from '../lib/supabase';
-import { authColors } from '../theme/authTheme';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 
 export default function CompleteProfileScreen() {
     const { user, refreshProfile } = useAuth();
@@ -59,19 +60,19 @@ export default function CompleteProfileScreen() {
         <AuthScaffold condensedBrand>
             <View style={styles.intro}>
                 <Text style={styles.eyebrow}>ÚLTIMO PASO</Text>
-                <Text style={styles.title}>¿Cómo debemos llamarte?</Text>
+                <Text style={styles.title}>¿Cómo te llamas?</Text>
                 <Text style={styles.description}>
-                    Tu nombre permitirá reconocerte en conversaciones y compromisos.
+                    Así Ping te saluda y tus contactos te reconocen en las conversaciones.
                 </Text>
             </View>
 
             <AuthCard>
                 <View style={styles.profileIcon}>
-                    <Ionicons name="person-outline" size={29} color={authColors.primary} />
+                    <Ionicons name="person-outline" size={29} color={colors.accentBright} />
                 </View>
                 {!!user?.email && (
                     <View style={styles.accountPill}>
-                        <Ionicons name="checkmark-circle" size={16} color={authColors.success} />
+                        <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                         <Text style={styles.email} numberOfLines={1}>{user.email}</Text>
                     </View>
                 )}
@@ -116,7 +117,7 @@ export default function CompleteProfileScreen() {
                     disabled={saving}
                     style={({ pressed }) => [styles.signOut, pressed && styles.pressed]}
                 >
-                    <Ionicons name="swap-horizontal-outline" size={17} color={authColors.inkSoft} />
+                    <Ionicons name="swap-horizontal-outline" size={17} color={colors.textSoft} />
                     <Text style={styles.signOutText}>Usar otra cuenta</Text>
                 </Pressable>
 
@@ -128,17 +129,18 @@ export default function CompleteProfileScreen() {
 
 const styles = StyleSheet.create({
     intro: { alignItems: 'center', paddingHorizontal: 12, marginBottom: 18 },
-    eyebrow: { color: authColors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 1.6 },
+    eyebrow: { color: colors.accentBright, fontSize: 11, fontFamily: fonts.bold, letterSpacing: 1.6 },
     title: {
-        color: authColors.ink,
+        color: colors.text,
         fontSize: 28,
         lineHeight: 34,
-        fontWeight: '900',
+        fontFamily: fonts.bold,
         textAlign: 'center',
         marginTop: 6,
     },
     description: {
-        color: authColors.inkSoft,
+        fontFamily: fonts.regular,
+        color: colors.textSoft,
         fontSize: 15,
         lineHeight: 21,
         textAlign: 'center',
@@ -152,7 +154,7 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#edf0ff',
+        backgroundColor: colors.accentTint,
         marginBottom: 12,
     },
     accountPill: {
@@ -161,15 +163,15 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         gap: 6,
         maxWidth: '100%',
-        backgroundColor: authColors.successSurface,
+        backgroundColor: colors.successTint,
         paddingHorizontal: 12,
         paddingVertical: 7,
         borderRadius: 999,
         marginBottom: 18,
     },
-    email: { color: authColors.success, fontSize: 12, fontWeight: '700', flexShrink: 1 },
-    label: { color: authColors.ink, fontSize: 13, fontWeight: '800', marginBottom: 8, marginLeft: 2 },
-    optional: { color: authColors.inkSoft, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 15 },
+    email: { color: colors.success, fontSize: 12, fontFamily: fonts.semibold, flexShrink: 1 },
+    label: { color: colors.text, fontSize: 13, fontFamily: fonts.semibold, marginBottom: 8, marginLeft: 2 },
+    optional: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 15 },
     signOut: {
         flexDirection: 'row',
         gap: 6,
@@ -178,6 +180,6 @@ const styles = StyleSheet.create({
         paddingVertical: 15,
         marginBottom: -9,
     },
-    signOutText: { color: authColors.inkSoft, fontSize: 13, fontWeight: '700' },
+    signOutText: { color: colors.textSoft, fontSize: 13, fontFamily: fonts.semibold },
     pressed: { opacity: 0.7 },
 });

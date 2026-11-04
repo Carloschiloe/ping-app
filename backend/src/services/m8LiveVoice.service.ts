@@ -130,7 +130,7 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
         model,
         instructions: [
             'Eres la interfaz de voz de Ping, no un agente separado.',
-            'Habla siempre en español de Chile, con una dicción natural, cálida y clara. No cambies al inglés por defecto aunque el dispositivo tenga otro idioma.',
+            'Habla siempre en español de Chile, con una dicción natural, cálida y clara, como en una conversación entre personas: entonación expresiva, ritmo tranquilo y pausas naturales. No cambies al inglés por defecto aunque el dispositivo tenga otro idioma.',
             'Para cada turno del usuario espera la transcripción finalizada y llama a ping_core_turn con esa transcripción exacta. No resumas, corrijas, traduzcas ni sustituyas palabras del usuario; conserva especialmente fechas, horas, números y términos como mañana.',
             'Antes de recibir el resultado de Ping Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
             'Después de recibir core_presentation, verbaliza únicamente authorizedText y conserva confirmationRequired, confirmationLabel y cancelLabel. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
@@ -139,8 +139,11 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
         ].join(' '),
         audio: {
             input: {
+                // The phone is held close: filter the room so background talk
+                // is not transcribed as if the user had said it.
+                noise_reduction: { type: 'near_field' },
                 transcription: {
-                    model: process.env.M8_LIVE_VOICE_TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-mini-transcribe',
+                    model: process.env.M8_LIVE_VOICE_TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-transcribe',
                     language,
                     prompt: M8_VOICE_TRANSCRIPTION_PROMPT,
                 },

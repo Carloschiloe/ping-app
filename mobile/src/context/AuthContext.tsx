@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import * as Localization from 'expo-localization';
@@ -48,7 +48,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
     const clearPasswordRecovery = useCallback(() => setPasswordRecoveryPending(false), []);
 
+    const profileRetryRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number }>({ timer: null, attempt: 0 });
+    const cancelProfileRetry = useCallback(() => {
+        if (profileRetryRef.current.timer) clearTimeout(profileRetryRef.current.timer);
+        profileRetryRef.current = { timer: null, attempt: 0 };
+    }, []);
+
     const loadProfile = useCallback(async (userId: string): Promise<AuthProfile | null> => {
+        if (profileRetryRef.current.timer) clearTimeout(profileRetryRef.current.timer);
+        profileRetryRef.current.timer = null;
         const { data, error } = await supabase
             .from('profiles')
             .select('id, email, full_name, avatar_url, phone')
@@ -60,10 +68,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 code: error.code || null,
                 detailsPresent: !!error.details,
             });
-            setProfile(null);
-            setProfileComplete(false);
+            // A failed read (often no connection) says nothing about the
+            // profile: keep what is known and try again, instead of sending a
+            // user who already has a name back to the name step.
+            const attempt = profileRetryRef.current.attempt + 1;
+            profileRetryRef.current.attempt = attempt;
+            profileRetryRef.current.timer = setTimeout(() => {
+                void loadProfile(userId);
+            }, Math.min(15000, 1000 * 2 ** (attempt - 1)));
             return null;
         }
+
+        profileRetryRef.current.attempt = 0;
 
         const nextProfile = (data || null) as AuthProfile | null;
         setProfile(nextProfile);
@@ -170,6 +186,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 syncLocale(session.user.id);
                 interval = heartbeat(session.user.id);
             } else {
+                cancelProfileRetry();
                 setProfile(null);
                 setProfileComplete(null);
             }
@@ -197,6 +214,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 interval = heartbeat(session.user.id);
             } else {
                 if (interval) clearInterval(interval);
+                cancelProfileRetry();
                 setProfile(null);
                 setProfileComplete(null);
             }
@@ -205,8 +223,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return () => {
             subscription.unsubscribe();
             if (interval) clearInterval(interval);
+            cancelProfileRetry();
         };
-    }, [loadProfile]);
+    }, [cancelProfileRetry, loadProfile]);
 
     return (
         <AuthContext.Provider value={{

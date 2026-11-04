@@ -58,7 +58,8 @@ describe('M8 live voice production surface', () => {
     it('opens straight into voice from the Chats aura and can switch to text', () => {
         const screen = read('src/screens/AgentPreviewScreen.tsx');
         const session = read('src/components/agent/LiveVoiceSession.tsx');
-        expect(screen).toContain("route.params?.startWith === 'voice' && liveVoiceEnabled");
+        expect(screen).toContain("useState(() => route.params?.startWith === 'voice'");
+        expect(screen).toContain('instant={voiceEntryRef.current}');
         expect(screen).toContain("if (reason === 'leave' && voiceEntryRef.current) navigation.goBack();");
         expect(session).toContain("if (message.type === 'write') closeReasonRef.current = 'write';");
         expect(session).toContain('canSwitchToText: true');
