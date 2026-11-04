@@ -13,7 +13,8 @@ export function GlassBackdrop({ children }: { children: React.ReactNode }) {
     const target = useRef<View | null>(null);
     return (
         <View style={styles.root}>
-            <NavigationBar style="dark" />
+            {/* Light buttons: the app is dark, so Android adds no pale strip behind them. */}
+            <NavigationBar style="light" />
             <BlurTargetView ref={target} style={StyleSheet.absoluteFill}>
                 <Silk />
             </BlurTargetView>
