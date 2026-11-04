@@ -17,6 +17,8 @@ import { fonts, type } from '../../design/typography';
 interface LiveVoiceSessionProps {
     visible: boolean;
     conversationId?: string;
+    /** Show without the fade, for when Ping opens straight into voice. */
+    instant?: boolean;
     /** `write` when the user chose to keep going by text, `leave` otherwise. */
     onClose: (reason: LiveVoiceCloseReason) => void;
 }
@@ -55,7 +57,7 @@ function voiceLocale(): string {
     return 'es-CL';
 }
 
-export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoiceSessionProps) {
+export function LiveVoiceSession({ visible, conversationId, instant = false, onClose }: LiveVoiceSessionProps) {
     const insets = useSafeAreaInsets();
     const { profile } = useAuth();
     const [authorization, setAuthorization] = useState<string | null>(null);
@@ -182,7 +184,7 @@ export function LiveVoiceSession({ visible, conversationId, onClose }: LiveVoice
         }
     }, []);
 
-    return <Modal visible={visible} animationType="fade" statusBarTranslucent onRequestClose={requestClose}>
+    return <Modal visible={visible} animationType={instant ? 'none' : 'fade'} statusBarTranslucent onRequestClose={requestClose}>
         <View style={styles.container}>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
                 <TouchableOpacity onPress={requestClose} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz" hitSlop={8}>

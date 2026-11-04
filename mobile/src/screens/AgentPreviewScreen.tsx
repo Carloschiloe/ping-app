@@ -67,7 +67,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const [citationsSheetFor, setCitationsSheetFor] = useState<AgentChatMessage | null>(null);
     const [voiceDraft, setVoiceDraft] = useState<{ text: string; token: string; confidence: number | null } | null>(null);
     const [voiceError, setVoiceError] = useState<string | null>(null);
-    const [liveVoiceVisible, setLiveVoiceVisible] = useState(false);
+    // Opened from the Chats aura, the voice view is up from the first frame so the text chat never flashes underneath.
+    const [liveVoiceVisible, setLiveVoiceVisible] = useState(() => route.params?.startWith === 'voice' && (isMainCoreEntry || Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true));
     const [retryBlockedUntil, setRetryBlockedUntil] = useState(0);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
@@ -101,10 +102,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
 
     // From the Chats aura Ping opens straight into voice; "Escribir" there brings
     // the user to this text chat, and "Hablar" here goes back to voice.
-    const voiceEntryRef = useRef(route.params?.startWith === 'voice' && liveVoiceEnabled);
-    useEffect(() => {
-        if (voiceEntryRef.current) setLiveVoiceVisible(true);
-    }, []);
+    const voiceEntryRef = useRef(liveVoiceVisible);
     const openLiveVoice = useCallback(() => {
         voiceEntryRef.current = false;
         setLiveVoiceVisible(true);
@@ -434,7 +432,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 </View>
             </Glass>
 
-            <KeyboardAvoidingView
+            {/* Entering straight into voice, the chat stays unmounted so it cannot show for a frame. */}
+            {!(liveVoiceVisible && voiceEntryRef.current) && <KeyboardAvoidingView
                 style={styles.keyboardArea}
                 behavior={getChatKeyboardBehavior(Platform.OS)}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + headerHeight : getChatKeyboardOffset(Platform.OS, insets.bottom)}
@@ -607,7 +606,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         </View>
                     )}
                 </View>
-            </KeyboardAvoidingView>
+            </KeyboardAvoidingView>}
 
             <Modal visible={!!citationsSheetFor} transparent animationType="fade" onRequestClose={() => setCitationsSheetFor(null)}>
                 <Pressable style={styles.sheetOverlay} onPress={() => setCitationsSheetFor(null)}>
@@ -638,6 +637,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
             </Modal>
             <LiveVoiceSession
                 visible={liveVoiceVisible}
+                instant={voiceEntryRef.current}
                 conversationId={historyConversationId}
                 onClose={closeLiveVoice}
             />
