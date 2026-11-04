@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
     coverChip: {
         position: 'absolute',
         right: 10,
-        bottom: 10,
+        top: 10,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 5,
