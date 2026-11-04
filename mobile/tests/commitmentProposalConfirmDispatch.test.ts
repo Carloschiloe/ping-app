@@ -296,7 +296,8 @@ describe('M-1H v4: semántica de producto -- Confirmar (proposal->accepted) y Li
         for (const relPath of ['src/screens/HoyScreen.tsx', 'src/screens/HoyScreen.tsx']) {
             const src = readSrc(relPath);
             expect(src).toMatch(/const handleMarkDone = useCallback\(\(id: string\) => \{/);
-            expect(src).toMatch(/await resolveCommitment\(\{ id: item\.id, result: closingResult\(/);
+            expect(src).toMatch(/await closeCommitment\(item, outcome, note, dueAt\)/);
+            expect(readSrc('src/hooks/useCloseCommitment.ts')).toMatch(/await resolve\(\{ id: item\.id, result: closingResult\(/);
             expect(src).not.toMatch(/performCommitmentConfirm\([^)]*closeItem/);
         }
     });

@@ -10,7 +10,7 @@ import type { ChatsTabNavigationProp } from '../navigation/types';
 import { AISuggestionModal } from './AISuggestionModal';
 import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
-    useResolveCommitment, useReopenCommitment,
+    useReopenCommitment,
     useContacts, useCancelCommitment, useRespondToCommitmentProposal, useGroupParticipants,
 } from '../api/queries';
 import * as Haptics from 'expo-haptics';
@@ -23,7 +23,8 @@ import {
 import { getProposalActorPresentation } from '../utils/actorPresentation';
 import { AgreementParticipantsList } from './AgreementParticipantsList';
 import { dayBadge } from './compromisos/dayBadge';
-import { CloseCommitmentSheet, closingResult, type CloseOutcome } from './compromisos/CloseCommitmentSheet';
+import { CloseCommitmentSheet, type CloseOutcome } from './compromisos/CloseCommitmentSheet';
+import { useCloseCommitment } from '../hooks/useCloseCommitment';
 import { colors, gradients } from '../design/tokens';
 import { fonts } from '../design/typography';
 import { SheetFill, sheetSurface } from '../design/Sheet';
@@ -54,7 +55,6 @@ export default function GroupTaskCard({
     // conserva solo como fallback defensivo (alias temporal del backend).
     const conversationId = manualConversationId || resolveConversationId(commitment);
     const { user } = useAuth();
-    const { mutateAsync: resolveCommitment, isPending: isResolving } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutate: accept } = useAcceptCommitment();
     const { mutate: reject } = useRejectCommitment();
@@ -66,6 +66,7 @@ export default function GroupTaskCard({
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [showActions, setShowActions] = useState(false);
     const [showClose, setShowClose] = useState(false);
+    const { close: closeCommitment, isSaving: isClosing } = useCloseCommitment();
     const [showDetails, setShowDetails] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
@@ -141,13 +142,9 @@ export default function GroupTaskCard({
         return format(new Date(iso), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '');
     };
     // One step to close it, saying how it went.
-    const handleCloseSubmit = async (outcome: CloseOutcome, note: string) => {
+    const handleCloseSubmit = async (outcome: CloseOutcome, note: string, dueAt: Date | null) => {
         try {
-            if (outcome === 'not_done') {
-                await cancelCommitment({ id: commitment.id, reason: closingResult(outcome, note, isMeeting) });
-            } else {
-                await resolveCommitment({ id: commitment.id, result: closingResult(outcome, note, isMeeting) });
-            }
+            await closeCommitment(commitment, outcome, note, dueAt);
         } catch {
             Alert.alert('No se pudo guardar', 'Intenta nuevamente.');
             return;
@@ -565,7 +562,7 @@ export default function GroupTaskCard({
                 item={showClose ? commitment : null}
                 canCancel={isOwner}
                 inModal
-                isSaving={isResolving || isCancelling}
+                isSaving={isClosing}
                 onClose={() => setShowClose(false)}
                 onSubmit={handleCloseSubmit}
             />

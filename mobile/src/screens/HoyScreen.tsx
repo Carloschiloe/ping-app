@@ -17,7 +17,7 @@ import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { useAuth } from '../context/AuthContext';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import {
-    useAcceptCommitment, useResolveCommitment, useReopenCommitment,
+    useAcceptCommitment, useReopenCommitment,
     useCancelCommitment, useUpdateCommitment, useContacts, useGroupParticipants,
     useRespondToCommitmentProposal, useConfirmCommitmentProposal,
     useWithdrawCommitmentProposal, useArchiveCommitment,
@@ -32,7 +32,8 @@ import { CommitmentRow, formatWhen } from '../components/compromisos/CommitmentR
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
 import { RescheduleModal } from '../components/compromisos/RescheduleModal';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
-import { CloseCommitmentSheet, closingResult, type CloseOutcome } from '../components/compromisos/CloseCommitmentSheet';
+import { CloseCommitmentSheet, type CloseOutcome } from '../components/compromisos/CloseCommitmentSheet';
+import { useCloseCommitment, type ClosedNotice } from '../hooks/useCloseCommitment';
 import { WeekStrip } from '../components/hoy/WeekStrip';
 import { buildDayMarks } from '../utils/calendarDays';
 import { colors, gradients, radius, space } from '../design/tokens';
@@ -102,7 +103,7 @@ export default function HoyScreen() {
             return !visible;
         });
     }, []);
-    const [undoToast, setUndoToast] = useState<{ id: string; text: string } | null>(null);
+    const [undoToast, setUndoToast] = useState<ClosedNotice | null>(null);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
@@ -187,7 +188,6 @@ export default function HoyScreen() {
     }, [refetch, refetchArchived, showingArchived]));
 
     const { mutateAsync: acceptCommitment } = useAcceptCommitment();
-    const { mutateAsync: resolveCommitment } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutateAsync: cancelCommitment } = useCancelCommitment();
     const { mutateAsync: archiveCommitment } = useArchiveCommitment();
@@ -200,7 +200,7 @@ export default function HoyScreen() {
     // Closing asks how it went. While reviewing the overdue items the sheet
     // walks through them one by one.
     const [closeItem, setCloseItem] = useState<any | null>(null);
-    const [isClosing, setIsClosing] = useState(false);
+    const { close: closeCommitment, isSaving: isClosing } = useCloseCommitment();
     const [review, setReview] = useState<{ ids: string[]; index: number } | null>(null);
 
     // The sheet covers the bottom of the screen, so the tab bar steps aside.
@@ -208,9 +208,9 @@ export default function HoyScreen() {
         navigation.setOptions({ tabBarStyle: closeItem ? { display: 'none' } : undefined } as any);
     }, [navigation, closeItem]);
 
-    const showUndo = useCallback((id: string, text: string) => {
+    const showUndo = useCallback((notice: ClosedNotice) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
-        setUndoToast({ id, text });
+        setUndoToast(notice);
         toastTimer.current = setTimeout(() => setUndoToast(null), UNDO_TOAST_MS);
     }, []);
 
@@ -238,36 +238,24 @@ export default function HoyScreen() {
         setCloseItem(commitments.find((c: any) => c.id === review.ids[index]) ?? null);
     }, [review, commitments]);
 
-    const handleCloseSubmit = useCallback(async (outcome: CloseOutcome, note: string) => {
+    const handleCloseSubmit = useCallback(async (outcome: CloseOutcome, note: string, dueAt: Date | null) => {
         const item = closeItem;
         if (!item) return;
-        const isMeeting = item.type === 'meeting';
-        setIsClosing(true);
+        let notice: ClosedNotice;
         try {
-            if (outcome === 'not_done') {
-                await cancelCommitment({ id: item.id, reason: closingResult(outcome, note, isMeeting) });
-            } else {
-                await resolveCommitment({ id: item.id, result: closingResult(outcome, note, isMeeting) });
-            }
+            notice = await closeCommitment(item, outcome, note, dueAt);
         } catch {
             Alert.alert('No se pudo guardar', 'Intenta nuevamente.');
             return;
-        } finally {
-            setIsClosing(false);
         }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        showUndo(item.id, outcome === 'not_done' ? 'Cerrado como no hecho.' : 'Marcado como hecho.');
+        showUndo(notice);
         if (review) {
             nextInReview();
             return;
         }
         setCloseItem(null);
-        // Half done: Ping helps set up what is left, already worded.
-        if (outcome === 'partial') {
-            const missing = note.trim();
-            openPing(`Recuérdame terminar «${item.title}»${missing ? `: ${missing}` : ''} `);
-        }
-    }, [closeItem, review, nextInReview, resolveCommitment, cancelCommitment, showUndo]);
+    }, [closeItem, review, nextInReview, closeCommitment, showUndo]);
 
     const handleCloseReschedule = useCallback((item: any) => {
         setCloseItem(null);
@@ -317,15 +305,15 @@ export default function HoyScreen() {
             Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
             return;
         }
-        showUndo(id, 'Cancelado. Lo verás en Terminados y cancelados.');
-    }, [cancelCommitment, showUndo]);
+        showUndo({ text: 'Cancelado. Lo verás en Terminados y cancelados.', undo: () => reopenCommitment(id) });
+    }, [cancelCommitment, reopenCommitment, showUndo]);
 
     const handleUndo = useCallback(() => {
         if (!undoToast) return;
         if (toastTimer.current) clearTimeout(toastTimer.current);
-        reopenCommitment(undoToast.id);
+        undoToast.undo();
         setUndoToast(null);
-    }, [undoToast, reopenCommitment]);
+    }, [undoToast]);
 
     const handleArchive = useCallback(async (id: string) => {
         try {
