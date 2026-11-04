@@ -10,7 +10,7 @@ import type { ChatsTabNavigationProp } from '../navigation/types';
 import { AISuggestionModal } from './AISuggestionModal';
 import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
-    useResolveCommitment, useReopenCommitment, useMarkActionCompleted,
+    useResolveCommitment, useReopenCommitment,
     useContacts, useCancelCommitment, useRespondToCommitmentProposal, useGroupParticipants,
 } from '../api/queries';
 import * as Haptics from 'expo-haptics';
@@ -23,6 +23,7 @@ import {
 import { getProposalActorPresentation } from '../utils/actorPresentation';
 import { AgreementParticipantsList } from './AgreementParticipantsList';
 import { dayBadge } from './compromisos/dayBadge';
+import { CloseCommitmentSheet, closingResult, type CloseOutcome } from './compromisos/CloseCommitmentSheet';
 import { colors, gradients } from '../design/tokens';
 import { fonts } from '../design/typography';
 import { SheetFill, sheetSurface } from '../design/Sheet';
@@ -53,9 +54,8 @@ export default function GroupTaskCard({
     // conserva solo como fallback defensivo (alias temporal del backend).
     const conversationId = manualConversationId || resolveConversationId(commitment);
     const { user } = useAuth();
-    const { mutate: resolveCommitment, isPending: isResolving } = useResolveCommitment();
+    const { mutateAsync: resolveCommitment, isPending: isResolving } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
-    const { mutate: markActionCompleted, isPending: isMarkingActionCompleted } = useMarkActionCompleted();
     const { mutate: accept } = useAcceptCommitment();
     const { mutate: reject } = useRejectCommitment();
     const { mutateAsync: cancelCommitment, isPending: isCancelling } = useCancelCommitment();
@@ -65,6 +65,7 @@ export default function GroupTaskCard({
     const { data: myContacts } = useContacts();
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [showActions, setShowActions] = useState(false);
+    const [showClose, setShowClose] = useState(false);
     const [showDetails, setShowDetails] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>(null);
@@ -139,30 +140,20 @@ export default function GroupTaskCard({
         if (!iso) return 'Sin fecha';
         return format(new Date(iso), "dd MMM yyyy · HH:mm", { locale: es }).replace('.', '');
     };
-    // Parte 10: "accion realizada" y "resolver" son acciones separadas.
-    const handleActionCompleted = () => {
+    // One step to close it, saying how it went.
+    const handleCloseSubmit = async (outcome: CloseOutcome, note: string) => {
+        try {
+            if (outcome === 'not_done') {
+                await cancelCommitment({ id: commitment.id, reason: closingResult(outcome, note, isMeeting) });
+            } else {
+                await resolveCommitment({ id: commitment.id, result: closingResult(outcome, note, isMeeting) });
+            }
+        } catch {
+            Alert.alert('No se pudo guardar', 'Intenta nuevamente.');
+            return;
+        }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        markActionCompleted(commitment.id);
-    };
-
-    const handleResolve = () => {
-        Alert.alert(
-            `Resolver ${typeLabel}`,
-            `¿Confirmas que este asunto quedo resuelto?`,
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Sí, resolver',
-                    onPress: () => {
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        resolveCommitment({
-                            id: commitment.id,
-                            result: completionNote?.trim() || 'El usuario confirmó que el asunto quedó resuelto.',
-                        });
-                    }
-                }
-            ]
-        );
+        setShowClose(false);
     };
 
     const handleCancel = () => {
@@ -458,25 +449,13 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {!isAgreementProposal && (isAssignee || isOwner) && !isDone && !isRejected && !isCancelled && !commitment.action_completed_at && !isOperationMode && (
-                            <TouchableOpacity
-                                style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}
-                                onPress={() => { setShowActions(false); handleActionCompleted(); }}
-                                disabled={isMarkingActionCompleted}
-                            >
-                                <Ionicons name="checkmark" size={24} color={colors.accentBright} />
-                                <Text style={[styles.menuItemText]}>Marcar acción realizada</Text>
-                            </TouchableOpacity>
-                        )}
-
                         {!isAgreementProposal && (isAssignee || isOwner) && !isDone && !isRejected && !isCancelled && !isProposed && !isOperationMode && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}
-                                onPress={() => { setShowActions(false); handleResolve(); }}
-                                disabled={isResolving}
+                                onPress={() => { setShowActions(false); setShowClose(true); }}
                             >
                                 <Ionicons name="checkmark-done" size={24} color={colors.success} />
-                                <Text style={[styles.menuItemText]}>Resolver</Text>
+                                <Text style={[styles.menuItemText]}>{isMeeting ? 'Se hizo' : 'Listo'}</Text>
                             </TouchableOpacity>
                         )}
 
@@ -581,6 +560,15 @@ export default function GroupTaskCard({
                     </Pressable>
                 </Modal>
             )}
+
+            <CloseCommitmentSheet
+                item={showClose ? commitment : null}
+                canCancel={isOwner}
+                inModal
+                isSaving={isResolving || isCancelling}
+                onClose={() => setShowClose(false)}
+                onSubmit={handleCloseSubmit}
+            />
 
             {/* Edit/Postpone Modal Wrapper */}
             {editData && (
@@ -729,6 +717,13 @@ export default function GroupTaskCard({
                         <View style={styles.detailRowBlock}>
                             <Text style={[styles.detailLabel]}>Motivo</Text>
                             <Text style={[styles.detailValue]}>{rejectionReason}</Text>
+                        </View>
+                    )}
+
+                    {(isDone || isCancelled) && !!commitment.resolution_result && (
+                        <View style={styles.detailRowBlock}>
+                            <Text style={[styles.detailLabel]}>Cómo quedó</Text>
+                            <Text style={[styles.detailValue]}>{commitment.resolution_result}</Text>
                         </View>
                     )}
 

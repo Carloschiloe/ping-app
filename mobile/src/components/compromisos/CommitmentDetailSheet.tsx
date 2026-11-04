@@ -194,22 +194,10 @@ export function CommitmentDetailSheet({
                         </View>
                     )}
 
-                    {/* PING — RESOLUTION RESULT NOT VISIBLE IN COMMITMENT DETAIL
-                        FIX: this section read item.result, a field that never
-                        exists anywhere in the API response (confirmed via
-                        repo-wide grep) -- the real canonical field, selected by
-                        backend commitment.service.ts#getCommitments and
-                        persisted verbatim by completeCommitmentExecutor.ts, is
-                        resolution_result. Gated on status === 'resolved' (the
-                        only transition that ever writes this field --
-                        commitmentTransitions.ts's resolve is the sole writer,
-                        per the tool schema's required resolutionResult) so an
-                        accepted/cancelled/rejected/proposed item can never show
-                        a stray Resultado section even if some legacy row
-                        happened to carry a non-empty value. */}
-                    {status === 'resolved' && !!item.resolution_result && (
-                        <View style={[styles.sectionBlock, { backgroundColor: colors.successTint, padding: 12, borderRadius: 8 }]}>
-                            <Text style={[styles.sectionTitle, { color: colors.success }]}>Resultado</Text>
+                    {/* How it went: written when it is closed or called off. */}
+                    {(status === 'resolved' || status === 'cancelled') && !!item.resolution_result && (
+                        <View style={[styles.sectionBlock, { backgroundColor: status === 'resolved' ? colors.successTint : colors.glassRaised, padding: 12, borderRadius: 8 }]}>
+                            <Text style={[styles.sectionTitle, { color: status === 'resolved' ? colors.success : colors.textSoft }]}>Cómo quedó</Text>
                             <Text style={[styles.bodyText, { color: colors.text }]}>{item.resolution_result}</Text>
                         </View>
                     )}
@@ -249,7 +237,7 @@ export function CommitmentDetailSheet({
                     {!isFinished && !isProposal && !isArchived && primaryAction === 'complete' && onMarkDone && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.accent }]} onPress={() => { onClose(); onMarkDone(item.id); }}>
                             <Ionicons name="checkmark" size={16} color={colors.onAccent} />
-                            <Text style={[styles.actionBtnText, { color: colors.onAccent }]}>Completar</Text>
+                            <Text style={[styles.actionBtnText, { color: colors.onAccent }]}>{item.type === 'meeting' ? 'Se hizo' : 'Listo'}</Text>
                         </TouchableOpacity>
                     )}
 

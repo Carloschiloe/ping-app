@@ -237,15 +237,38 @@ export function CommitmentRow({
             );
         }
 
-        // A meeting is attended, not ticked off: no "Listo" button for it.
-        if (isMeeting && primaryAction === 'complete') return null;
-
         // Sección 9/11/12: "waiting" ya no renderiza su propio badge aquí --
         // el statusLabel actor-aware/lifecycle-aware se muestra como línea
         // propia en la jerarquía principal (ver statusLine más abajo), nunca
         // compitiendo por ancho con el título ni con el resto de acciones.
         if (primaryAction === 'waiting' || primaryAction === 'none') return null;
 
+        const doneButton = (
+            <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
+                onPress={() => onMarkDone(c.id)}
+            >
+                <Ionicons name="checkmark" size={13} color={colors.accent} />
+                <Text style={[styles.primaryBtnText, { color: colors.accent }]}>{isMeeting ? 'Se hizo' : 'Listo'}</Text>
+            </TouchableOpacity>
+        );
+
+        // Something without a date can still be done: a small calendar
+        // button sits next to "Listo" instead of replacing it.
+        if (!c.due_at && primaryAction === 'complete') {
+            return (
+                <>
+                    <TouchableOpacity
+                        style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
+                        onPress={() => onOpenReschedule(c)}
+                        accessibilityLabel="Agendar"
+                    >
+                        <Ionicons name="calendar-outline" size={13} color={colors.accent} />
+                    </TouchableOpacity>
+                    {doneButton}
+                </>
+            );
+        }
         if (!c.due_at) {
             return (
                 <TouchableOpacity
@@ -269,17 +292,7 @@ export function CommitmentRow({
                 </TouchableOpacity>
             );
         }
-        if (primaryAction === 'complete') {
-            return (
-                <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
-                    onPress={() => onMarkDone(c.id)}
-                >
-                    <Ionicons name="checkmark" size={13} color={colors.accent} />
-                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Listo</Text>
-                </TouchableOpacity>
-            );
-        }
+        if (primaryAction === 'complete') return doneButton;
         return null;
     };
 

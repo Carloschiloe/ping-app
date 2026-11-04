@@ -67,13 +67,15 @@ describe('Hoy — one tab for the day and every commitment', () => {
         expect(hoy).toContain('if (classifyMeeting(c) && date < today) return;');
     });
 
-    it('a meeting offers no "Listo" button', () => {
-        expect(row).toContain("if (isMeeting && primaryAction === 'complete') return null;");
+    it('a meeting is closed with "Se hizo" and an undated task still offers "Listo"', () => {
+        expect(row).toContain("{isMeeting ? 'Se hizo' : 'Listo'}");
+        expect(row).toContain("if (!c.due_at && primaryAction === 'complete')");
+        expect(row).not.toContain("if (isMeeting && primaryAction === 'complete') return null;");
     });
 
     it('"Me deben" rows offer Recordarle and Ya me lo dio', () => {
         expect(hoy).toContain("onNudge={view === 'theirs' ? handleNudge : undefined}");
-        expect(hoy).toContain("onReceived={view === 'theirs' ? handleReceived : undefined}");
+        expect(hoy).toContain("onReceived={view === 'theirs' ? handleMarkDone : undefined}");
         expect(hoy).toContain('await Share.share({ message: reminderMessage(c, name) });');
         expect(row).toContain('>Recordarle<');
         expect(row).toContain("onReceived && primaryAction === 'complete'");

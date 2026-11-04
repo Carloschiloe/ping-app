@@ -9,6 +9,7 @@ import Reanimated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { format, startOfDay, isSameDay, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { apiClient } from '../api/client';
@@ -31,6 +32,7 @@ import { CommitmentRow, formatWhen } from '../components/compromisos/CommitmentR
 import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetailSheet';
 import { RescheduleModal } from '../components/compromisos/RescheduleModal';
 import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitmentModal';
+import { CloseCommitmentSheet, closingResult, type CloseOutcome } from '../components/compromisos/CloseCommitmentSheet';
 import { WeekStrip } from '../components/hoy/WeekStrip';
 import { buildDayMarks } from '../utils/calendarDays';
 import { colors, gradients, radius, space } from '../design/tokens';
@@ -69,7 +71,7 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function pingSuggestion(overdue: any[], today: any[]): string | null {
     if (overdue.length > 0) {
         const n = overdue.length;
-        return `Tienes ${n} atrasado${n > 1 ? 's' : ''}. Parte por «${overdue[0].title}».`;
+        return `Tienes ${n} atrasado${n > 1 ? 's' : ''}. ¿Ya hiciste ${n > 1 ? 'alguno' : 'eso'}?`;
     }
     const first = today.find((c) => !classifyMeeting(c)) ?? today[0];
     if (!first) return null;
@@ -100,7 +102,7 @@ export default function HoyScreen() {
             return !visible;
         });
     }, []);
-    const [undoToast, setUndoToast] = useState<{ id: string } | null>(null);
+    const [undoToast, setUndoToast] = useState<{ id: string; text: string } | null>(null);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
@@ -185,7 +187,7 @@ export default function HoyScreen() {
     }, [refetch, refetchArchived, showingArchived]));
 
     const { mutateAsync: acceptCommitment } = useAcceptCommitment();
-    const { mutate: resolveCommitment } = useResolveCommitment();
+    const { mutateAsync: resolveCommitment } = useResolveCommitment();
     const { mutate: reopenCommitment } = useReopenCommitment();
     const { mutateAsync: cancelCommitment } = useCancelCommitment();
     const { mutateAsync: archiveCommitment } = useArchiveCommitment();
@@ -195,13 +197,87 @@ export default function HoyScreen() {
     const { mutateAsync: confirmProposal } = useConfirmCommitmentProposal();
     const { mutateAsync: withdrawProposal } = useWithdrawCommitmentProposal();
 
-    const handleMarkDone = useCallback((id: string) => {
-        resolveCommitment({ id, result: 'Resuelto desde Hoy.' });
-    }, [resolveCommitment]);
+    // Closing asks how it went. While reviewing the overdue items the sheet
+    // walks through them one by one.
+    const [closeItem, setCloseItem] = useState<any | null>(null);
+    const [isClosing, setIsClosing] = useState(false);
+    const [review, setReview] = useState<{ ids: string[]; index: number } | null>(null);
 
-    const handleReceived = useCallback((id: string) => {
-        resolveCommitment({ id, result: 'Recibido.' });
-    }, [resolveCommitment]);
+    // The sheet covers the bottom of the screen, so the tab bar steps aside.
+    useEffect(() => {
+        navigation.setOptions({ tabBarStyle: closeItem ? { display: 'none' } : undefined } as any);
+    }, [navigation, closeItem]);
+
+    const showUndo = useCallback((id: string, text: string) => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setUndoToast({ id, text });
+        toastTimer.current = setTimeout(() => setUndoToast(null), UNDO_TOAST_MS);
+    }, []);
+
+    const handleMarkDone = useCallback((id: string) => {
+        setReview(null);
+        setCloseItem(commitments.find((c: any) => c.id === id) ?? null);
+    }, [commitments]);
+
+    const startReview = useCallback((items: any[]) => {
+        const ids = items.filter((c) => getCommitmentPrimaryAction(c, user?.id) === 'complete').map((c) => c.id);
+        if (ids.length === 0) return false;
+        setReview({ ids, index: 0 });
+        setCloseItem(commitments.find((c: any) => c.id === ids[0]) ?? null);
+        return true;
+    }, [commitments, user?.id]);
+
+    const nextInReview = useCallback(() => {
+        if (!review || review.index + 1 >= review.ids.length) {
+            setReview(null);
+            setCloseItem(null);
+            return;
+        }
+        const index = review.index + 1;
+        setReview({ ...review, index });
+        setCloseItem(commitments.find((c: any) => c.id === review.ids[index]) ?? null);
+    }, [review, commitments]);
+
+    const handleCloseSubmit = useCallback(async (outcome: CloseOutcome, note: string) => {
+        const item = closeItem;
+        if (!item) return;
+        const isMeeting = item.type === 'meeting';
+        setIsClosing(true);
+        try {
+            if (outcome === 'not_done') {
+                await cancelCommitment({ id: item.id, reason: closingResult(outcome, note, isMeeting) });
+            } else {
+                await resolveCommitment({ id: item.id, result: closingResult(outcome, note, isMeeting) });
+            }
+        } catch {
+            Alert.alert('No se pudo guardar', 'Intenta nuevamente.');
+            return;
+        } finally {
+            setIsClosing(false);
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        showUndo(item.id, outcome === 'not_done' ? 'Cerrado como no hecho.' : 'Marcado como hecho.');
+        if (review) {
+            nextInReview();
+            return;
+        }
+        setCloseItem(null);
+        // Half done: Ping helps set up what is left, already worded.
+        if (outcome === 'partial') {
+            const missing = note.trim();
+            openPing(`Recuérdame terminar «${item.title}»${missing ? `: ${missing}` : ''} `);
+        }
+    }, [closeItem, review, nextInReview, resolveCommitment, cancelCommitment, showUndo]);
+
+    const handleCloseReschedule = useCallback((item: any) => {
+        setCloseItem(null);
+        setRescheduleItem(item);
+    }, []);
+
+    const handleRescheduleClose = useCallback(() => {
+        setRescheduleItem(null);
+        if (review) nextInReview();
+    }, [review, nextInReview]);
 
     const handleRequestConfirm = useCallback((commitment: any) => {
         setConfirmItem(commitment);
@@ -241,12 +317,10 @@ export default function HoyScreen() {
             Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
             return;
         }
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setUndoToast({ id });
-        toastTimer.current = setTimeout(() => setUndoToast(null), UNDO_TOAST_MS);
-    }, [cancelCommitment]);
+        showUndo(id, 'Cancelado. Lo verás en Terminados y cancelados.');
+    }, [cancelCommitment, showUndo]);
 
-    const handleUndoCancel = useCallback(() => {
+    const handleUndo = useCallback(() => {
         if (!undoToast) return;
         if (toastTimer.current) clearTimeout(toastTimer.current);
         reopenCommitment(undoToast.id);
@@ -675,7 +749,17 @@ export default function HoyScreen() {
                 onArchive={handleArchive}
                 onRestore={handleRestore}
             />
-            <RescheduleModal item={rescheduleItem} onClose={() => setRescheduleItem(null)} onSaveDate={handleSaveDate} />
+            <RescheduleModal item={rescheduleItem} onClose={handleRescheduleClose} onSaveDate={handleSaveDate} />
+            <CloseCommitmentSheet
+                item={closeItem}
+                canCancel={!!closeItem && closeItem.owner_user_id === user?.id}
+                isSaving={isClosing}
+                progress={review ? { index: review.index, total: review.ids.length } : null}
+                onClose={() => { setCloseItem(null); setReview(null); }}
+                onSubmit={handleCloseSubmit}
+                onReschedule={handleCloseReschedule}
+                onSkip={nextInReview}
+            />
             <ConfirmCommitmentModal
                 commitment={confirmItem}
                 isPending={isConfirming}
@@ -736,7 +820,7 @@ export default function HoyScreen() {
                 )}
 
                 {!!suggestion && (
-                    <TouchableOpacity onPress={() => openPing()} accessibilityRole="button">
+                    <TouchableOpacity onPress={() => { if (!startReview(mineData.overdue)) openPing(); }} accessibilityRole="button">
                         <Glass style={styles.suggestion} intensity={40} tint={colors.glassDim}>
                             <View style={styles.suggestionIcon}>
                                 <Ionicons name="sparkles" size={14} color={colors.accentBright} />
@@ -802,7 +886,7 @@ export default function HoyScreen() {
                         onArchive={handleArchive}
                         onRestore={handleRestore}
                         onNudge={view === 'theirs' ? handleNudge : undefined}
-                        onReceived={view === 'theirs' ? handleReceived : undefined}
+                        onReceived={view === 'theirs' ? handleMarkDone : undefined}
                         onReopen={view === 'historial' ? handleReopen : undefined}
                     />
                         </Reanimated.View>
@@ -856,9 +940,9 @@ export default function HoyScreen() {
                 <View style={styles.toast}>
                     <SheetFill />
                     <Text style={[styles.toastText, { color: colors.text }]} numberOfLines={2}>
-                        Cancelado. Lo verás en Terminados y cancelados.
+                        {undoToast.text}
                     </Text>
-                    <TouchableOpacity onPress={handleUndoCancel} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button">
+                    <TouchableOpacity onPress={handleUndo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button">
                         <Text style={[styles.toastAction, { color: colors.accent }]}>Deshacer</Text>
                     </TouchableOpacity>
                 </View>

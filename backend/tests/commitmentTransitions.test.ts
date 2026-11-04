@@ -199,11 +199,14 @@ describe('computeCommitmentTransition: cancel', () => {
         expect(result.event.event_type).toBe('cancelled');
         expect(result.event.payload).toEqual({ reason: 'Se resolvió antes' });
         expect(result.patch).not.toHaveProperty('resolved_at');
+        // The reason is kept as how it ended, so it shows in the detail.
+        expect(result.patch.resolution_result).toBe('Se resolvió antes');
     });
 
     it('cancelar sin motivo conserva evidencia explícita sin inventar una razón', () => {
         const result = computeCommitmentTransition({ action: 'cancel', actorUserId: OWNER, commitment: snapshot(), now: NOW });
         expect(result.event.payload).toEqual({ reason: null });
+        expect(result.patch.resolution_result).toBeNull();
     });
 });
 
