@@ -13,7 +13,8 @@ import {
     PrivacyNote,
 } from '../components/auth/AuthKit';
 import { supabase } from '../lib/supabase';
-import { authColors } from '../theme/authTheme';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 import {
     createRequestGate,
     DEFAULT_SIGNUP_COOLDOWN_SECONDS,
@@ -378,7 +379,7 @@ function ValuePill({
 }) {
     return (
         <View style={styles.valuePill}>
-            <Ionicons name={icon} size={15} color={authColors.primary} />
+            <Ionicons name={icon} size={15} color={colors.accentBright} />
             <Text style={styles.valueLabel}>{label}</Text>
         </View>
     );
@@ -405,7 +406,7 @@ function PasswordResetRequest({
         <>
             <View style={styles.recoveryIntro}>
                 <View style={styles.recoveryIcon}>
-                    <Ionicons name="mail-unread-outline" size={28} color={authColors.primary} />
+                    <Ionicons name="mail-unread-outline" size={28} color={colors.accentBright} />
                 </View>
                 <Text style={styles.recoveryTitle}>Recuperar contraseña</Text>
                 <Text style={styles.recoveryText}>
@@ -466,7 +467,7 @@ function VerificationState({
         <>
             <View style={styles.verification}>
                 <View style={styles.verificationIcon}>
-                    <Ionicons name="mail-unread-outline" size={30} color={authColors.primary} />
+                    <Ionicons name="mail-unread-outline" size={30} color={colors.accentBright} />
                 </View>
                 <Text style={styles.verificationTitle}>Cuenta creada</Text>
                 <Text style={styles.verificationText}>Enviamos un correo de verificación a</Text>
@@ -516,9 +517,10 @@ function VerificationState({
 
 const styles = StyleSheet.create({
     intro: { alignItems: 'center', marginBottom: 18, paddingHorizontal: 12 },
-    title: { color: authColors.ink, fontSize: 30, lineHeight: 36, fontWeight: '900', textAlign: 'center' },
+    title: { color: colors.text, fontSize: 30, lineHeight: 36, fontFamily: fonts.bold, textAlign: 'center' },
     description: {
-        color: authColors.inkSoft,
+        fontFamily: fonts.regular,
+        color: colors.textSoft,
         fontSize: 15,
         lineHeight: 21,
         textAlign: 'center',
@@ -536,57 +538,57 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 5,
-        backgroundColor: 'rgba(255,255,255,0.75)',
-        borderColor: 'rgba(124,137,207,0.24)',
+        backgroundColor: colors.glassRaised,
+        borderColor: colors.glassBorder,
         borderWidth: 1,
         borderRadius: 999,
         paddingHorizontal: 10,
         paddingVertical: 6,
     },
-    valueLabel: { color: authColors.inkSoft, fontSize: 11, fontWeight: '700' },
+    valueLabel: { color: colors.textSoft, fontSize: 11, fontFamily: fonts.semibold },
     switchLink: { alignItems: 'center', paddingVertical: 16, marginBottom: -5 },
-    switchText: { color: authColors.inkSoft, fontSize: 14 },
-    switchTextStrong: { color: authColors.primary, fontWeight: '800' },
+    switchText: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 14 },
+    switchTextStrong: { color: colors.accentBright, fontFamily: fonts.semibold },
     forgotLink: { alignItems: 'center', paddingVertical: 10 },
-    forgotLinkText: { color: authColors.primary, fontSize: 13, fontWeight: '800' },
+    forgotLinkText: { color: colors.accentBright, fontSize: 13, fontFamily: fonts.semibold },
     recoveryIntro: { alignItems: 'center', marginBottom: 16, paddingHorizontal: 8 },
     recoveryIcon: {
         alignItems: 'center',
-        backgroundColor: '#edf0ff',
+        backgroundColor: colors.accentTint,
         borderRadius: 29,
         height: 58,
         justifyContent: 'center',
         marginBottom: 10,
         width: 58,
     },
-    recoveryTitle: { color: authColors.ink, fontSize: 23, fontWeight: '900' },
-    recoveryText: { color: authColors.inkSoft, fontSize: 14, lineHeight: 20, marginTop: 6, textAlign: 'center' },
+    recoveryTitle: { color: colors.text, fontSize: 23, fontFamily: fonts.bold },
+    recoveryText: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 14, lineHeight: 20, marginTop: 6, textAlign: 'center' },
     recoveryBack: { alignItems: 'center', paddingVertical: 14 },
-    recoveryBackText: { color: authColors.primary, fontSize: 13, fontWeight: '800' },
+    recoveryBackText: { color: colors.accentBright, fontSize: 13, fontFamily: fonts.semibold },
     verification: { alignItems: 'center', marginBottom: 14 },
     verificationIcon: {
         width: 58,
         height: 58,
         borderRadius: 29,
-        backgroundColor: '#edf0ff',
+        backgroundColor: colors.accentTint,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 10,
     },
-    verificationTitle: { color: authColors.ink, fontSize: 24, fontWeight: '900' },
-    verificationText: { color: authColors.inkSoft, fontSize: 14, marginTop: 6 },
-    verificationEmail: { color: authColors.primary, fontWeight: '800', marginTop: 4, marginBottom: 14 },
+    verificationTitle: { color: colors.text, fontSize: 24, fontFamily: fonts.bold },
+    verificationText: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 14, marginTop: 6 },
+    verificationEmail: { color: colors.accentBright, fontFamily: fonts.semibold, marginTop: 4, marginBottom: 14 },
     steps: {
         width: '100%',
-        backgroundColor: authColors.surfaceMuted,
+        backgroundColor: colors.glassRaised,
         borderRadius: 14,
         paddingHorizontal: 15,
         paddingVertical: 11,
     },
-    step: { color: authColors.ink, lineHeight: 22, fontSize: 13 },
-    hint: { color: authColors.inkSoft, fontSize: 12, textAlign: 'center', marginTop: 10 },
+    step: { fontFamily: fonts.regular, color: colors.text, lineHeight: 22, fontSize: 13 },
+    hint: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 12, textAlign: 'center', marginTop: 10 },
     resend: { alignItems: 'center', paddingVertical: 14 },
     resendDisabled: { opacity: 0.5 },
-    resendText: { color: authColors.primary, fontWeight: '800', fontSize: 13 },
+    resendText: { color: colors.accentBright, fontFamily: fonts.semibold, fontSize: 13 },
     pressed: { opacity: 0.72 },
 });

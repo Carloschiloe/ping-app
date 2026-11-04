@@ -11,7 +11,8 @@ import {
 } from '../components/auth/AuthKit';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { authColors } from '../theme/authTheme';
+import { colors } from '../design/tokens';
+import { fonts } from '../design/typography';
 import { createRequestGate, getSafeAuthErrorDetails } from '../utils/authRegistration';
 import { getAuthErrorMessage, getPasswordUpdateValidationError } from '../utils/authForm';
 
@@ -65,7 +66,7 @@ export default function PasswordRecoveryScreen() {
         <AuthScaffold buildLabel={buildLabel}>
             <View style={styles.intro}>
                 <View style={styles.iconCircle}>
-                    <Ionicons name="key-outline" size={30} color={authColors.primary} />
+                    <Ionicons name="key-outline" size={30} color={colors.accentBright} />
                 </View>
                 <Text style={styles.title}>Crea una nueva contraseña</Text>
                 <Text style={styles.description}>
@@ -141,23 +142,24 @@ const styles = StyleSheet.create({
     intro: { alignItems: 'center', marginBottom: 18, paddingHorizontal: 18 },
     iconCircle: {
         alignItems: 'center',
-        backgroundColor: '#eef0ff',
+        backgroundColor: colors.accentTint,
         borderRadius: 32,
         height: 64,
         justifyContent: 'center',
         marginBottom: 14,
         width: 64,
     },
-    title: { color: authColors.ink, fontSize: 27, fontWeight: '900', textAlign: 'center' },
+    title: { color: colors.text, fontSize: 27, fontFamily: fonts.bold, textAlign: 'center' },
     description: {
-        color: authColors.inkSoft,
+        fontFamily: fonts.regular,
+        color: colors.textSoft,
         fontSize: 15,
         lineHeight: 22,
         marginTop: 8,
         textAlign: 'center',
     },
-    hint: { color: authColors.inkSoft, fontSize: 13, marginTop: 14, textAlign: 'center' },
+    hint: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 13, marginTop: 14, textAlign: 'center' },
     secondaryLink: { alignItems: 'center', marginTop: 16, padding: 8 },
-    secondaryLinkText: { color: authColors.primary, fontSize: 14, fontWeight: '800' },
+    secondaryLinkText: { color: colors.accentBright, fontSize: 14, fontFamily: fonts.semibold },
     pressed: { opacity: 0.7 },
 });

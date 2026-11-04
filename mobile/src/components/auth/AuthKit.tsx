@@ -1,9 +1,6 @@
-import React, { ReactNode, useEffect, useMemo, useState } from 'react';
+import React, { ReactNode, useState } from 'react';
 import {
-    AccessibilityInfo,
     ActivityIndicator,
-    Animated,
-    Easing,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -21,8 +18,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { authColors, authLayout } from '../../theme/authTheme';
+import { colors, gradients, radius, space } from '../../design/tokens';
+import { fonts, type } from '../../design/typography';
+import { Glass, GlassBackdrop } from '../../design/Glass';
+import { PingOrb } from '../../design/PingOrb';
 import type { AuthMode } from '../../utils/authForm';
+
+// The sign-in screens share Ping's glass look: silver waves behind, the aura
+// on top and one frosted card holding the form.
+
+const MAX_WIDTH = 480;
 
 type AuthScaffoldProps = {
     children: ReactNode;
@@ -33,127 +38,19 @@ type AuthScaffoldProps = {
 export function AuthScaffold({ children, buildLabel, condensedBrand = false }: AuthScaffoldProps) {
     const { height, width } = useWindowDimensions();
     const compact = height < 760 || width < 360;
-    const backgroundMotion = useMemo(() => new Animated.Value(0), []);
-
-    useEffect(() => {
-        let animation: Animated.CompositeAnimation | undefined;
-        let active = true;
-
-        AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
-            if (!active || reduceMotion) return;
-            animation = Animated.loop(
-                Animated.sequence([
-                    Animated.timing(backgroundMotion, {
-                        toValue: 1,
-                        duration: 6200,
-                        easing: Easing.inOut(Easing.sin),
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(backgroundMotion, {
-                        toValue: 0,
-                        duration: 6200,
-                        easing: Easing.inOut(Easing.sin),
-                        useNativeDriver: true,
-                    }),
-                ]),
-            );
-            animation.start();
-        });
-
-        return () => {
-            active = false;
-            animation?.stop();
-        };
-    }, [backgroundMotion]);
 
     return (
-        <LinearGradient colors={['#f8fbff', '#f4f5ff', '#e9edff']} style={styles.background}>
-            {/* The sign-in screens are light, so the clock and battery go dark. */}
-            <StatusBar style="dark" />
-            <View style={styles.decorations}>
-                <Animated.View
-                    style={[
-                        styles.topBlob,
-                        {
-                            transform: [
-                                {
-                                    translateX: backgroundMotion.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [0, 24],
-                                    }),
-                                },
-                                {
-                                    translateY: backgroundMotion.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [0, 18],
-                                    }),
-                                },
-                                {
-                                    scale: backgroundMotion.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [1, 1.08],
-                                    }),
-                                },
-                            ],
-                        },
-                    ]}
-                >
-                    <LinearGradient
-                        colors={['rgba(72,98,255,0.85)', 'rgba(107,78,255,0.42)']}
-                        style={styles.fill}
-                    />
-                </Animated.View>
-                <Animated.View
-                    style={[
-                        styles.rings,
-                        {
-                            opacity: backgroundMotion.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [0.45, 1],
-                            }),
-                            transform: [
-                                {
-                                    scale: backgroundMotion.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [0.92, 1.08],
-                                    }),
-                                },
-                            ],
-                        },
-                    ]}
-                />
-                <Animated.View
-                    style={[
-                        styles.bottomBlob,
-                        {
-                            transform: [
-                                {
-                                    translateY: backgroundMotion.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [12, -12],
-                                    }),
-                                },
-                            ],
-                        },
-                    ]}
-                >
-                    <LinearGradient
-                        colors={['rgba(91,67,245,0.32)', 'rgba(78,216,237,0.05)']}
-                        style={styles.fill}
-                    />
-                </Animated.View>
-            </View>
-            <SafeAreaView style={styles.safeArea}>
+        <GlassBackdrop>
+            <StatusBar style="light" />
+            <View pointerEvents="none" style={styles.glow} />
+            <SafeAreaView style={styles.flex}>
                 <KeyboardAvoidingView
                     style={styles.flex}
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
                 >
                     <ScrollView
-                        contentContainerStyle={[
-                            styles.scrollContent,
-                            compact && styles.scrollContentCompact,
-                        ]}
+                        contentContainerStyle={[styles.scrollContent, compact && styles.scrollContentCompact]}
                         keyboardShouldPersistTaps="handled"
                         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                         showsVerticalScrollIndicator={false}
@@ -166,148 +63,26 @@ export function AuthScaffold({ children, buildLabel, condensedBrand = false }: A
                     </ScrollView>
                 </KeyboardAvoidingView>
             </SafeAreaView>
-        </LinearGradient>
+        </GlassBackdrop>
     );
 }
 
 export function AuthBrand({ compact = false }: { compact?: boolean }) {
     return (
-        <View style={[styles.brand, compact && styles.brandCompact]}>
-            <PingLogo compact={compact} />
+        <View style={[styles.brand, compact && styles.brandCompact]} accessible accessibilityLabel="Ping">
+            <PingOrb size={compact ? 96 : 128} />
             <Text style={[styles.wordmark, compact && styles.wordmarkCompact]}>PING</Text>
-            <Text style={styles.tagline}>Recuerda lo importante</Text>
+            <Text style={styles.tagline}>Lo que acuerdas en tus chats, Ping lo recuerda por ti.</Text>
         </View>
     );
 }
 
-export function PingLogo({ compact = false }: { compact?: boolean }) {
-    const size = compact ? 74 : 92;
-    const floatMotion = useMemo(() => new Animated.Value(0), []);
-    const signalMotion = useMemo(() => new Animated.Value(0), []);
-
-    useEffect(() => {
-        let floatAnimation: Animated.CompositeAnimation | undefined;
-        let signalAnimation: Animated.CompositeAnimation | undefined;
-        let active = true;
-
-        AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
-            if (!active || reduceMotion) return;
-            floatAnimation = Animated.loop(
-                Animated.sequence([
-                    Animated.timing(floatMotion, {
-                        toValue: 1,
-                        duration: 1700,
-                        easing: Easing.inOut(Easing.sin),
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(floatMotion, {
-                        toValue: 0,
-                        duration: 1700,
-                        easing: Easing.inOut(Easing.sin),
-                        useNativeDriver: true,
-                    }),
-                ]),
-            );
-            signalAnimation = Animated.loop(
-                Animated.sequence([
-                    Animated.timing(signalMotion, {
-                        toValue: 1,
-                        duration: 1150,
-                        easing: Easing.out(Easing.quad),
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(signalMotion, {
-                        toValue: 0,
-                        duration: 650,
-                        easing: Easing.in(Easing.quad),
-                        useNativeDriver: true,
-                    }),
-                ]),
-            );
-            floatAnimation.start();
-            signalAnimation.start();
-        });
-
-        return () => {
-            active = false;
-            floatAnimation?.stop();
-            signalAnimation?.stop();
-        };
-    }, [floatMotion, signalMotion]);
-
-    return (
-        <Animated.View
-            accessibilityLabel="Logo de Ping"
-            accessible
-            style={[
-                styles.logoCanvas,
-                {
-                    width: size + 34,
-                    height: size,
-                    transform: [
-                        {
-                            translateY: floatMotion.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [0, -7],
-                            }),
-                        },
-                        {
-                            rotate: floatMotion.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: ['0deg', '-1.5deg'],
-                            }),
-                        },
-                    ],
-                },
-            ]}
-        >
-            <Animated.View
-                style={[
-                    styles.signal,
-                    {
-                        opacity: signalMotion.interpolate({
-                            inputRange: [0, 0.65, 1],
-                            outputRange: [0.45, 1, 0.45],
-                        }),
-                        transform: [
-                            {
-                                scale: signalMotion.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0.9, 1.12],
-                                }),
-                            },
-                        ],
-                    },
-                ]}
-            >
-                <View style={[styles.wave, styles.waveLarge, compact && styles.waveLargeCompact]} />
-                <View style={[styles.wave, styles.waveMedium, compact && styles.waveMediumCompact]} />
-                <Ionicons
-                    name="sparkles"
-                    size={compact ? 18 : 22}
-                    color={authColors.primary}
-                    style={styles.sparkle}
-                />
-            </Animated.View>
-            <LinearGradient
-                colors={[authColors.primary, authColors.indigo]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.bubble, compact && styles.bubbleCompact]}
-            >
-                <View style={styles.dots}>
-                    <View style={styles.dot} />
-                    <View style={styles.dot} />
-                    <View style={styles.dot} />
-                </View>
-            </LinearGradient>
-            <View style={[styles.tail, compact && styles.tailCompact]} />
-        </Animated.View>
-    );
-}
-
 export function AuthCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-    return <View style={[styles.card, style]}>{children}</View>;
+    return (
+        <Glass style={[styles.card, style]} intensity={50}>
+            {children}
+        </Glass>
+    );
 }
 
 export function AuthSegmentedControl({
@@ -339,10 +114,7 @@ export function AuthSegmentedControl({
                             pressed && !disabled && styles.pressed,
                         ]}
                     >
-                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                            {label}
-                        </Text>
-                        {selected && <View style={styles.segmentIndicator} />}
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>{label}</Text>
                     </Pressable>
                 );
             })}
@@ -357,15 +129,24 @@ type AuthFieldProps = TextInputProps & {
 
 export function AuthField({ icon, secure = false, style, ...props }: AuthFieldProps) {
     const [hidden, setHidden] = useState(secure);
+    const [focused, setFocused] = useState(false);
     return (
-        <View style={styles.field}>
-            <Ionicons name={icon} size={21} color="#6476d8" style={styles.fieldIcon} />
+        <View style={[styles.field, focused && styles.fieldFocused]}>
+            <Ionicons name={icon} size={20} color={focused ? colors.accentBright : colors.textFaint} style={styles.fieldIcon} />
             <TextInput
                 {...props}
+                onFocus={(event) => {
+                    setFocused(true);
+                    props.onFocus?.(event);
+                }}
+                onBlur={(event) => {
+                    setFocused(false);
+                    props.onBlur?.(event);
+                }}
                 style={[styles.fieldInput, style]}
-                placeholderTextColor={authColors.placeholder}
+                placeholderTextColor={colors.textFaint}
                 secureTextEntry={secure && hidden}
-                selectionColor={authColors.primary}
+                selectionColor={colors.accent}
             />
             {secure && (
                 <Pressable
@@ -375,11 +156,7 @@ export function AuthField({ icon, secure = false, style, ...props }: AuthFieldPr
                     onPress={() => setHidden((current) => !current)}
                     style={styles.eyeButton}
                 >
-                    <Ionicons
-                        name={hidden ? 'eye-outline' : 'eye-off-outline'}
-                        size={22}
-                        color={authColors.inkSoft}
-                    />
+                    <Ionicons name={hidden ? 'eye-outline' : 'eye-off-outline'} size={21} color={colors.textSoft} />
                 </Pressable>
             )}
         </View>
@@ -412,26 +189,26 @@ export function AuthPrimaryButton({
                 pressed && !unavailable && styles.pressed,
             ]}
         >
-            <LinearGradient
-                colors={unavailable ? ['#98a2dd', '#8d96d3'] : [authColors.primary, authColors.indigo]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.primaryButton}
-            >
+            <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
                 {loading ? (
-                    <ActivityIndicator color={authColors.white} />
+                    <ActivityIndicator color={colors.onAccent} />
                 ) : (
                     <>
                         <Text style={styles.primaryButtonText}>{label}</Text>
-                        <View style={styles.primaryButtonIcon}>
-                            <Ionicons name={icon} size={22} color={authColors.white} />
-                        </View>
+                        <Ionicons name={icon} size={20} color={colors.onAccent} />
                     </>
                 )}
             </LinearGradient>
         </Pressable>
     );
 }
+
+const MESSAGE_TONES = {
+    error: { icon: 'alert-circle', color: colors.danger, tint: colors.dangerTint },
+    warning: { icon: 'time', color: colors.warning, tint: colors.warningTint },
+    success: { icon: 'checkmark-circle', color: colors.success, tint: colors.successTint },
+    info: { icon: 'information-circle', color: colors.accentBright, tint: colors.accentTint },
+} as const;
 
 export function AuthMessage({
     tone,
@@ -440,25 +217,11 @@ export function AuthMessage({
     tone: 'error' | 'warning' | 'success' | 'info';
     children: ReactNode;
 }) {
-    const icon = tone === 'error'
-        ? 'alert-circle'
-        : tone === 'warning'
-            ? 'time'
-            : tone === 'success'
-                ? 'checkmark-circle'
-                : 'information-circle';
+    const look = MESSAGE_TONES[tone];
     return (
-        <View style={[styles.message, styles[`message_${tone}`]]}>
-            <Ionicons
-                name={icon}
-                size={18}
-                color={tone === 'error'
-                    ? authColors.danger
-                    : tone === 'warning'
-                        ? authColors.warning
-                        : authColors.success}
-            />
-            <Text style={[styles.messageText, styles[`messageText_${tone}`]]}>{children}</Text>
+        <View style={[styles.message, { backgroundColor: look.tint }]}>
+            <Ionicons name={look.icon} size={18} color={look.color} />
+            <Text style={[styles.messageText, { color: look.color }]}>{children}</Text>
         </View>
     );
 }
@@ -466,235 +229,115 @@ export function AuthMessage({
 export function PrivacyNote() {
     return (
         <View style={styles.privacy}>
-            <Ionicons name="shield-checkmark-outline" size={22} color={authColors.primary} />
-            <Text style={styles.privacyText}>
-                Tu información se protege y sólo se usa para tu cuenta.
-            </Text>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.textFaint} />
+            <Text style={styles.privacyText}>Tu información está protegida y solo se usa para tu cuenta.</Text>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     flex: { flex: 1 },
-    background: { flex: 1 },
-    safeArea: { flex: 1 },
-    decorations: { ...StyleSheet.absoluteFill, overflow: 'hidden', pointerEvents: 'none' },
-    fill: { flex: 1, borderRadius: 999 },
-    topBlob: {
+    // A soft blue light behind the aura.
+    glow: {
         position: 'absolute',
-        width: 270,
-        height: 270,
-        borderRadius: 135,
-        left: -145,
-        top: -125,
-    },
-    bottomBlob: {
-        position: 'absolute',
-        width: 170,
-        height: 170,
-        borderRadius: 85,
-        right: -86,
-        bottom: 50,
-    },
-    rings: {
-        position: 'absolute',
-        width: 220,
-        height: 220,
-        borderRadius: 110,
-        borderWidth: 1,
-        borderColor: 'rgba(78,95,190,0.08)',
-        right: -105,
-        top: 120,
+        top: -120,
+        alignSelf: 'center',
+        width: 420,
+        height: 420,
+        borderRadius: 210,
+        backgroundColor: colors.accentTint,
+        opacity: 0.55,
     },
     scrollContent: {
         flexGrow: 1,
         justifyContent: 'center',
-        paddingHorizontal: authLayout.horizontalPadding,
-        paddingVertical: 24,
+        paddingHorizontal: space.xl,
+        paddingVertical: space.xl,
     },
-    scrollContentCompact: { justifyContent: 'flex-start', paddingTop: 12, paddingBottom: 18 },
-    content: { width: '100%', maxWidth: authLayout.maxWidth, alignSelf: 'center' },
-    brand: { alignItems: 'center', marginBottom: 18 },
-    brandCompact: { marginBottom: 10 },
-    logoCanvas: { position: 'relative', alignSelf: 'center' },
-    signal: { ...StyleSheet.absoluteFill },
-    bubble: {
-        position: 'absolute',
-        width: 72,
-        height: 60,
-        borderRadius: 28,
-        left: 2,
-        bottom: 7,
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: authColors.primary,
-        shadowOpacity: 0.25,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 7,
-    },
-    bubbleCompact: { width: 62, height: 52, borderRadius: 24, bottom: 5 },
-    tail: {
-        position: 'absolute',
-        left: 7,
-        bottom: 2,
-        width: 0,
-        height: 0,
-        borderTopWidth: 15,
-        borderRightWidth: 15,
-        borderTopColor: authColors.indigo,
-        borderRightColor: 'transparent',
-        transform: [{ rotate: '-8deg' }],
-    },
-    tailCompact: { borderTopWidth: 13, borderRightWidth: 13 },
-    dots: { flexDirection: 'row', gap: 8 },
-    dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: authColors.white },
-    wave: {
-        position: 'absolute',
-        borderWidth: 3,
-        borderColor: authColors.cyan,
-        borderLeftColor: 'transparent',
-        borderBottomColor: 'transparent',
-        transform: [{ rotate: '-10deg' }],
-    },
-    waveLarge: { width: 74, height: 74, borderRadius: 40, right: 0, top: 0 },
-    waveLargeCompact: { width: 62, height: 62, borderRadius: 32, right: 2 },
-    waveMedium: { width: 52, height: 52, borderRadius: 28, right: 11, top: 11 },
-    waveMediumCompact: { width: 44, height: 44, borderRadius: 24, right: 11, top: 9 },
-    sparkle: { position: 'absolute', right: 17, top: 27 },
+    scrollContentCompact: { justifyContent: 'flex-start', paddingTop: space.md, paddingBottom: space.lg },
+    content: { width: '100%', maxWidth: MAX_WIDTH, alignSelf: 'center' },
+    brand: { alignItems: 'center', marginBottom: space.xl },
+    brandCompact: { marginBottom: space.md },
     wordmark: {
-        color: authColors.ink,
-        fontSize: 38,
-        fontWeight: '900',
-        letterSpacing: 8,
-        marginLeft: 8,
-        marginTop: 2,
+        fontFamily: fonts.bold,
+        fontSize: 30,
+        letterSpacing: 10,
+        marginLeft: 10,
+        marginTop: space.xs,
+        color: colors.text,
     },
-    wordmarkCompact: { fontSize: 31, letterSpacing: 7 },
-    tagline: { color: authColors.inkSoft, fontSize: 15, marginTop: 2 },
+    wordmarkCompact: { fontSize: 26, letterSpacing: 9 },
+    tagline: { ...type.subhead, textAlign: 'center', marginTop: space.xs, maxWidth: 300, lineHeight: 20 },
     buildLabel: {
-        color: '#795400',
-        backgroundColor: '#fff6d6',
-        borderColor: '#f5df8b',
-        borderWidth: 1,
+        ...type.caption,
+        color: colors.warning,
+        backgroundColor: colors.warningTint,
         paddingVertical: 5,
         paddingHorizontal: 10,
-        borderRadius: 999,
+        borderRadius: radius.full,
         alignSelf: 'center',
-        marginBottom: 12,
-        fontSize: 11,
-        fontWeight: '800',
+        marginBottom: space.md,
+        overflow: 'hidden',
     },
-    card: {
-        backgroundColor: authColors.surface,
-        borderColor: 'rgba(199,207,238,0.72)',
-        borderWidth: 1,
-        borderRadius: authLayout.radiusCard,
-        padding: 20,
-        shadowColor: '#263b97',
-        shadowOpacity: 0.13,
-        shadowRadius: 26,
-        shadowOffset: { width: 0, height: 14 },
-        elevation: 8,
-    },
+    card: { borderRadius: radius.xl, padding: space.xl },
     segmented: {
         flexDirection: 'row',
-        backgroundColor: '#f3f5fd',
-        borderRadius: 16,
-        padding: 4,
-        marginBottom: 18,
+        backgroundColor: colors.glassDim,
+        borderRadius: radius.md,
+        padding: 3,
+        marginBottom: space.lg,
     },
-    segment: {
-        flex: 1,
-        minHeight: 46,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 13,
-    },
+    segment: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm + 1 },
     segmentSelected: {
-        backgroundColor: authColors.white,
-        shadowColor: '#384b9d',
-        shadowOpacity: 0.11,
-        shadowRadius: 9,
-        shadowOffset: { width: 0, height: 3 },
-        elevation: 2,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
     },
-    segmentText: { color: authColors.inkSoft, fontSize: 15, fontWeight: '600' },
-    segmentTextSelected: { color: authColors.primary, fontWeight: '800' },
-    segmentIndicator: {
-        position: 'absolute',
-        height: 3,
-        width: '72%',
-        borderRadius: 2,
-        bottom: 0,
-        backgroundColor: authColors.primary,
-    },
+    segmentText: { fontFamily: fonts.medium, fontSize: 14, color: colors.textFaint },
+    segmentTextSelected: { fontFamily: fonts.semibold, color: colors.text },
     field: {
-        minHeight: 58,
-        borderWidth: 1.5,
-        borderColor: authColors.border,
-        borderRadius: authLayout.radiusControl,
-        backgroundColor: authColors.white,
+        minHeight: 52,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+        borderRadius: radius.md,
+        backgroundColor: colors.glassDim,
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: space.md,
     },
-    fieldIcon: { marginLeft: 16, marginRight: 11 },
+    fieldFocused: { borderColor: colors.accentBright },
+    fieldIcon: { marginLeft: space.lg, marginRight: space.md },
     fieldInput: {
         flex: 1,
         minWidth: 0,
-        paddingVertical: 15,
-        paddingRight: 12,
-        color: authColors.ink,
+        paddingVertical: 14,
+        paddingRight: space.md,
+        fontFamily: fonts.regular,
         fontSize: 16,
+        color: colors.text,
     },
-    eyeButton: { paddingHorizontal: 15, minHeight: 56, justifyContent: 'center' },
-    primaryButtonFrame: {
-        borderRadius: 17,
-        marginTop: 6,
-        shadowColor: authColors.primary,
-        shadowOpacity: 0.27,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 9 },
-        elevation: 7,
-    },
+    eyeButton: { paddingHorizontal: space.lg, minHeight: 50, justifyContent: 'center' },
+    primaryButtonFrame: { borderRadius: radius.full, overflow: 'hidden', marginTop: space.xs },
     primaryButton: {
-        minHeight: 58,
-        borderRadius: 17,
+        minHeight: 52,
+        flexDirection: 'row',
+        gap: space.sm,
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: 18,
+        paddingHorizontal: space.xl,
     },
-    primaryButtonText: { color: authColors.white, fontSize: 17, fontWeight: '800' },
-    primaryButtonIcon: {
-        position: 'absolute',
-        right: 10,
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: 'rgba(255,255,255,0.13)',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    disabled: { opacity: 0.68, shadowOpacity: 0 },
-    pressed: { opacity: 0.86, transform: [{ scale: 0.995 }] },
+    primaryButtonText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.onAccent },
+    disabled: { opacity: 0.5 },
+    pressed: { opacity: 0.86, transform: [{ scale: 0.99 }] },
     message: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        gap: 8,
+        gap: space.sm,
         padding: 11,
-        borderRadius: 12,
-        marginBottom: 12,
+        borderRadius: radius.sm,
+        marginBottom: space.md,
     },
-    message_error: { backgroundColor: authColors.dangerSurface },
-    message_warning: { backgroundColor: authColors.warningSurface },
-    message_success: { backgroundColor: authColors.successSurface },
-    message_info: { backgroundColor: '#eef3ff' },
-    messageText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: '600' },
-    messageText_error: { color: authColors.danger },
-    messageText_warning: { color: authColors.warning },
-    messageText_success: { color: authColors.success },
-    messageText_info: { color: '#3650a3' },
-    privacy: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, marginTop: 18 },
-    privacyText: { color: authColors.inkSoft, fontSize: 12, lineHeight: 17, maxWidth: 260, textAlign: 'center' },
+    messageText: { flex: 1, fontFamily: fonts.medium, fontSize: 13, lineHeight: 18 },
+    privacy: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.xl },
+    privacyText: { ...type.caption, color: colors.textFaint, lineHeight: 17, maxWidth: 260, textAlign: 'center' },
 });
