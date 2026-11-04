@@ -316,15 +316,12 @@ export default function ProfileScreen() {
                 </Glass>
             </Reanimated.View>
 
-            {/* INTEGRATIONS */}
-            <Section title="INTEGRACIONES Y CALENDARIO" order={1}>
+            {/* SETTINGS: one grouped card, like a phone's settings menu. */}
+            {/* Privacidad and Avisos start closed with a one-line summary. */}
+            <Section order={1}>
                 <Row icon="calendar-outline" title="Cuentas y calendarios" subtitle={integrationsSub} onPress={() => setCalendarsVisible(true)} />
-            </Section>
-
-            {/* PRIVACY & SECURITY */}
-            {/* Closed by default, like the notices. */}
-            <Section title="PRIVACIDAD Y SEGURIDAD" order={2}>
                 <Row
+                    divider
                     icon="shield-checkmark-outline"
                     title="Privacidad"
                     subtitle={privacySummary(hasBiometricHw && biometricEnabled, readReceiptsEnabled, lastSeenEnabled)}
@@ -344,12 +341,8 @@ export default function ProfileScreen() {
                     <Toggle value={lastSeenEnabled} onValueChange={handleToggleLastSeen} />
                 </Row>
                 </>)}
-            </Section>
-
-            {/* PING NOTICES */}
-            {/* Closed by default: one line says how they are set. */}
-            <Section title="AVISOS DE PING" order={3}>
                 <Row
+                    divider
                     icon="notifications-outline"
                     title="Avisos de Ping"
                     subtitle={noticesSummary(dailySummaryEnabled, summaryHour, overdueNoticesEnabled)}
@@ -386,22 +379,14 @@ export default function ProfileScreen() {
                     <Toggle value={overdueNoticesEnabled} onValueChange={handleToggleOverdueNotices} />
                 </Row>
                 </>)}
-            </Section>
-
-            {/* MEMORY */}
-            <Section title="MEMORIA DE PING" order={4}>
-                <Row icon="bulb-outline" title="Lo que Ping recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
-            </Section>
-
-            {/* PREFERENCES */}
-            <Section title="PREFERENCIAS" order={5}>
-                <Row icon="moon-outline" title="Modo foco" accessibilityLabel="Modo foco" onPress={() => setFocusModeVisible(true)}>
+                <Row divider icon="bulb-outline" title="Lo que Ping recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
+                <Row divider icon="moon-outline" title="Modo foco" accessibilityLabel="Modo foco" onPress={() => setFocusModeVisible(true)}>
                     <Text style={[styles.rowStatus, focusActive && styles.rowStatusActive]}>{focusStatusLabel}</Text>
                 </Row>
             </Section>
 
             {/* LOGOUT */}
-            <Section order={6}>
+            <Section order={2}>
                 <TouchableOpacity style={[styles.row, styles.logoutRow]} onPress={handleLogout} accessibilityLabel="Cerrar sesión">
                     <Ionicons name="log-out-outline" size={19} color={colors.danger} />
                     <Text style={styles.logoutText}>Cerrar sesión</Text>
@@ -453,7 +438,7 @@ const SUMMARY_HOURS = [6, 7, 8, 9, 10];
 
 // One group of settings: a label above a full-width glass band.
 export function noticesSummary(morning: boolean, hour: number, overdue: boolean): string {
-    const parts = [morning ? `Resumen a las ${hour}:00` : null, overdue ? 'Aviso de atrasados' : null].filter(Boolean);
+    const parts = [morning ? `Resumen ${hour}:00` : null, overdue ? 'Atrasados' : null].filter(Boolean);
     return parts.length ? parts.join(' · ') : 'Apagados';
 }
 
@@ -462,12 +447,11 @@ export function privacySummary(lock: boolean, receipts: boolean, lastSeen: boole
     return parts.length ? `Visible: ${parts.join(' · ')}` : 'Todo oculto';
 }
 
-function Section({ title, order, children }: { title?: string; order: number; children: React.ReactNode }) {
+function Section({ order, children }: { order: number; children: React.ReactNode }) {
     return (
         <Reanimated.View entering={FadeInDown.delay(order * 50).duration(380)} style={styles.section}>
-            {title && <Text style={styles.sectionTitle}>{title}</Text>}
-            <View>
-                <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+            <View style={styles.card}>
+                <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
                 {children}
             </View>
         </Reanimated.View>
@@ -581,22 +565,19 @@ const styles = StyleSheet.create({
     },
     editBtnText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.onAccent },
 
-    section: { marginTop: space.xxl },
-    sectionTitle: { ...type.overline, marginBottom: space.sm, marginLeft: space.xl },
-    band: {
-        borderLeftWidth: 0,
-        borderRightWidth: 0,
-    },
+    section: { marginTop: space.lg, paddingHorizontal: space.lg },
+    card: { borderRadius: radius.lg, overflow: 'hidden' },
+    cardGlass: { borderRadius: radius.lg, borderTopColor: colors.glassEdge },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: space.xl,
+        paddingHorizontal: space.lg,
         paddingVertical: 13,
     },
     divider: {
         position: 'absolute',
         top: 0,
-        left: space.xl + 34 + space.md,
+        left: space.lg + 34 + space.md,
         right: 0,
         height: StyleSheet.hairlineWidth,
         backgroundColor: colors.separator,
@@ -617,7 +598,7 @@ const styles = StyleSheet.create({
     rowStatusActive: { color: colors.accentBright },
     chevron: { marginLeft: space.xs },
 
-    hourRow: { flexDirection: 'column', alignItems: 'flex-start', gap: space.sm, paddingTop: 0, paddingLeft: space.xl + 34 + space.md },
+    hourRow: { flexDirection: 'column', alignItems: 'flex-start', gap: space.sm, paddingTop: 0, paddingLeft: space.lg + 34 + space.md },
     hourChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
     hourChip: {
         minWidth: 34,
