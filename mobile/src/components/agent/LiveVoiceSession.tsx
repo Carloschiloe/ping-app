@@ -13,6 +13,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { colors, gradients, radius, space } from '../../design/tokens';
 import { fonts, type } from '../../design/typography';
+import { GlassBackdrop } from '../../design/Glass';
+
+// The voice page draws over the app's own glass background, keeping only its blue glow.
+const SEE_THROUGH_PAGE = `(function(){var s=document.createElement('style');s.textContent='html,body{background:radial-gradient(120% 60% at 50% 46%,${colors.accentTint},transparent 60%) transparent!important}';document.documentElement.appendChild(s)})();`;
 
 interface LiveVoiceSessionProps {
     visible: boolean;
@@ -184,8 +188,8 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
         }
     }, []);
 
-    return <Modal visible={visible} animationType={instant ? 'none' : 'fade'} statusBarTranslucent onRequestClose={requestClose}>
-        <View style={styles.container}>
+    return <Modal visible={visible} animationType={instant ? 'none' : 'fade'} statusBarTranslucent navigationBarTranslucent onRequestClose={requestClose}>
+        <GlassBackdrop>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
                 <TouchableOpacity onPress={requestClose} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz" hitSlop={8}>
                     <Ionicons name="chevron-back" size={26} color={colors.text} />
@@ -205,7 +209,7 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
                 key={sessionKey}
                 ref={webViewRef}
                 source={source}
-                injectedJavaScriptBeforeContentLoaded={injected}
+                injectedJavaScriptBeforeContentLoaded={SEE_THROUGH_PAGE + injected}
                 onLoadEnd={injectConfig}
                 onMessage={handleMessage}
                 onError={() => setError('No se pudo cargar la interfaz de voz.')}
@@ -218,12 +222,11 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
                 originWhitelist={buildCallPageOriginWhitelist(API_URL)}
                 style={styles.webview}
             /> : <ActivityIndicator style={styles.loading} color={colors.accentBright} />)}
-        </View>
+        </GlassBackdrop>
     </Modal>;
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.ink },
     topbar: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -235,8 +238,8 @@ const styles = StyleSheet.create({
     },
     title: { flex: 1, fontFamily: fonts.semibold, fontSize: 17, color: colors.text },
     backBtn: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
-    // Same dark as the frame, so the voice page never flashes white while it loads.
-    webview: { backgroundColor: colors.ink },
+    // Transparent, so the page never flashes a different color while it loads.
+    webview: { backgroundColor: 'transparent' },
     loading: { flex: 1 },
     error: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: space.xxl },
     errorIcon: {
