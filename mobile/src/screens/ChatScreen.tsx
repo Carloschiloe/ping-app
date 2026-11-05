@@ -765,6 +765,11 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 onBack={() => navigation.goBack()}
                 onPing={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
                 onInfo={() => navigation.navigate('ChatInfo', { conversationId, otherUser, isGroup: !!isGroup, isSelf: !!isSelf, mode: conversationMode })}
+                onCommitments={() => navigation.navigate('TaskHistory', {
+                    conversationId,
+                    isGroup: !!isGroup,
+                    title: isSelf ? 'Para mí' : (isGroup ? groupMetadata?.name : otherUser?.full_name?.split(' ')[0]),
+                })}
                 onMenu={() => setHeaderMenuVisible(true)}
                 onAvatarPress={(url) => setViewerMedia({ url, type: 'image' })}
             />
@@ -990,16 +995,6 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     <TouchableOpacity style={[styles.headerMenuOverlay, { paddingTop: safeAreaInsets.top + 58 }]} activeOpacity={1} onPress={() => setHeaderMenuVisible(false)}>
                         <View style={styles.headerMenuCard}>
                             <SheetFill />
-                            <TouchableOpacity
-                                style={styles.headerMenuItem}
-                                onPress={() => {
-                                    setHeaderMenuVisible(false);
-                                    navigation.navigate('TaskHistory', { conversationId, isGroup: !!isGroup });
-                                }}
-                            >
-                                <Ionicons name="time-outline" size={18} color={colors.text} />
-                                <Text style={styles.headerMenuText}>Historial de tareas</Text>
-                            </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.headerMenuItem}
                                 onPress={() => {

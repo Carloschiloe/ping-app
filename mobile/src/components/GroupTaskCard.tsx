@@ -12,7 +12,10 @@ import {
     useAcceptCommitment, useRejectCommitment, useUpdateCommitment, useSetActiveOperationCommitment,
     useReopenCommitment,
     useContacts, useCancelCommitment, useRespondToCommitmentProposal, useGroupParticipants,
+    useSendConversationMessage,
 } from '../api/queries';
+import { confirmAction } from '../design/ConfirmDialog';
+import { chatReminderText, nudgeTarget, useNudgeRest } from '../utils/chatNudge';
 import * as Haptics from 'expo-haptics';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { getWaitingLabel, isActionCompletedPendingResolution as computeActionCompletedPendingResolution, resolveConversationId, getRejectionReason, getStatusLabel } from '../utils/commitmentDisplay';
@@ -64,6 +67,8 @@ export default function GroupTaskCard({
     const { mutateAsync: respondToProposal, isPending: isRespondingToProposal } = useRespondToCommitmentProposal();
     const { mutate: setActiveCommitment, isPending: isSettingActiveCommitment } = useSetActiveOperationCommitment(conversationId || '');
     const { data: myContacts } = useContacts();
+    const { mutateAsync: sendChatMessage } = useSendConversationMessage(conversationId || '');
+    const { resting: nudgeResting, markSent: markNudgeSent } = useNudgeRest(commitment.id);
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [showActions, setShowActions] = useState(false);
     const [showClose, setShowClose] = useState(false);
@@ -383,6 +388,21 @@ export default function GroupTaskCard({
             Alert.alert('No se pudo poner la fecha', 'Intenta nuevamente.');
         }
     };
+    // Waiting on someone else: a friendly reminder goes into this same chat.
+    const nudge = !hideActions && !isCompactOperationCard && conversationId ? nudgeTarget(commitment, user?.id) : null;
+    const handleNudge = async () => {
+        if (!nudge) return;
+        const text = chatReminderText(commitment, nudge);
+        const ok = await confirmAction({ title: 'Enviar recordatorio', message: text, confirmLabel: 'Enviar', destructive: false });
+        if (!ok) return;
+        try {
+            await sendChatMessage({ text, client_message_id: `nudge-${commitment.id}-${Date.now()}` });
+            markNudgeSent();
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+            Alert.alert('No se pudo enviar el recordatorio', 'Intenta nuevamente.');
+        }
+    };
     const canOpenMenu = !hideActions && !isCompactOperationCard && (!isFinished || (isReopenable && (isOwner || isAssignee)));
 
     return (
@@ -441,6 +461,25 @@ export default function GroupTaskCard({
                         <Text style={{ color: colors.accent, fontFamily: fonts.bold }}>{' · En operación'}</Text>
                     )}
                 </Text>
+                {!!nudge && (
+                    nudgeResting ? (
+                        <View style={styles.nudgeSent}>
+                            <Ionicons name="checkmark" size={13} color={colors.textFaint} />
+                            <Text style={[styles.nudgeText, { color: colors.textFaint }]}>Recordatorio enviado</Text>
+                        </View>
+                    ) : (
+                        <TouchableOpacity
+                            onPress={handleNudge}
+                            style={styles.nudgeBtn}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Recordarle"
+                        >
+                            <Ionicons name="notifications-outline" size={13} color={colors.accentBright} />
+                            <Text style={[styles.nudgeText, { color: colors.accentBright }]}>Recordarle</Text>
+                        </TouchableOpacity>
+                    )
+                )}
             </View>
 
             {canOpenMenu && (
@@ -822,6 +861,21 @@ const styles = StyleSheet.create({
     dayBadgeDetail: { fontSize: 10.5, fontFamily: fonts.semibold, marginTop: 1 },
     textStruck: { textDecorationLine: 'line-through' },
     metaLine: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
+    nudgeBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: 4,
+        marginTop: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+        backgroundColor: colors.accentTint,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.accent,
+    },
+    nudgeSent: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+    nudgeText: { fontFamily: fonts.semibold, fontSize: 12 },
     statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
     statusBadgeText: { fontSize: 10, fontFamily: fonts.extrabold, textTransform: 'uppercase' },
     timelineCard: {
