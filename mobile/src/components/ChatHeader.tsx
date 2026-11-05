@@ -4,6 +4,8 @@ import { CachedImage } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
+import { PingOrb } from '../design/PingOrb';
 import { Glass } from '../design/Glass';
 import { colors, gradients, space } from '../design/tokens';
 import { fonts } from '../design/typography';
@@ -29,7 +31,8 @@ interface ChatHeaderProps {
 }
 
 // The conversation's frosted top bar: back, photo, name with a live status
-// line, and the commitments, Ping and the menu on the right.
+// line; on the right the commitments, the menu and Ping's orb, last, the
+// same place it has in Hoy.
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
     chatTitle,
     subtitle,
@@ -46,6 +49,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     onAvatarPress,
 }) => {
     const insets = useSafeAreaInsets();
+    const isFocused = useIsFocused();
     const resolvedAvatarUrl = useProfileAvatarUrl(
         isGroup ? null : profileId,
         avatarUrl
@@ -95,30 +99,32 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 ) : null}
             </TouchableOpacity>
 
-            <TouchableOpacity
-                onPress={onCommitments}
-                style={styles.iconBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Ver los compromisos de esta conversación"
-            >
-                <Ionicons name="checkmark-done-outline" size={19} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-                onPress={onPing}
-                style={styles.iconBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Hablar con Ping en esta conversación"
-            >
-                <Ionicons name="sparkles" size={18} color={colors.accentBright} />
-            </TouchableOpacity>
-            <TouchableOpacity
-                onPress={onMenu}
-                style={styles.iconBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Más opciones"
-            >
-                <Ionicons name="ellipsis-horizontal" size={18} color={colors.text} />
-            </TouchableOpacity>
+            <View style={styles.actions}>
+                <TouchableOpacity
+                    onPress={onCommitments}
+                    style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ver los compromisos de esta conversación"
+                >
+                    <Ionicons name="checkmark-done-outline" size={18} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={onMenu}
+                    style={styles.iconBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Más opciones"
+                >
+                    <Ionicons name="ellipsis-horizontal" size={18} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={onPing}
+                    style={styles.orbBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Hablar con Ping en esta conversación"
+                >
+                    <PingOrb size={38} paused={!isFocused} />
+                </TouchableOpacity>
+            </View>
         </Glass>
     );
 };
@@ -159,10 +165,12 @@ const styles = StyleSheet.create({
     title: { fontFamily: fonts.semibold, fontSize: 16, letterSpacing: -0.2, color: colors.text },
     subtitle: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint, marginTop: 1 },
     subtitleOnline: { color: colors.online },
+    actions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    orbBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
     iconBtn: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: colors.glassRaised,

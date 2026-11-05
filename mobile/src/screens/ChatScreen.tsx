@@ -813,7 +813,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                                 message: error instanceof Error ? error.message : 'unknown',
                             });
                             Alert.alert(
-                                'No se pudo agendar',
+                                'No se pudo crear el compromiso',
                                 isSelf
                                     ? 'El compromiso no fue guardado. Revisa los datos e inténtalo nuevamente.'
                                     : 'La propuesta no fue enviada. Revisa los datos e inténtalo nuevamente.'
