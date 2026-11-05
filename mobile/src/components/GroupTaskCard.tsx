@@ -363,9 +363,11 @@ export default function GroupTaskCard({
             : (agreementWaitingLabel || waitingLabel || (!isAccepted ? statusInfo.label : null));
     const hintIsMine = canRespondToAgreement || isWaitingOnMe;
     const metaParts = [isMeeting ? 'Reunión' : null, `Para ${assigneeShort}`].filter(Boolean).join(' · ');
-    // Something without a date can get one right here, like in Hoy.
+    // Something without a date can get one right here, like in Hoy. On a
+    // shared proposal any participant may propose the date, even after
+    // approving: the others are then asked again.
     const canSetDate = !commitment.due_at && !isFinished && !hideActions && !isCompactOperationCard
-        && (isAgreementProposal ? canRespondToAgreement : isOwner);
+        && (isAgreementProposal ? !!currentAgreementResponse : isOwner);
     const handleSaveDate = async (id: string, newDateIso: string) => {
         try {
             if (isAgreementProposal) {
@@ -688,7 +690,19 @@ export default function GroupTaskCard({
 
                     <View style={styles.detailRow}>
                         <Text style={[styles.detailLabel]}>Fecha</Text>
-                        <Text style={[styles.detailValue]}>{dueDateFull || 'Sin fecha'}</Text>
+                        {canSetDate ? (
+                            <TouchableOpacity
+                                onPress={() => { setShowDetails(false); setShowDatePicker(true); }}
+                                style={styles.detailDateBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Poner fecha"
+                            >
+                                <Ionicons name="calendar-outline" size={15} color={colors.accent} />
+                                <Text style={[styles.detailValue, { color: colors.accent }]}>Poner fecha</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <Text style={[styles.detailValue]}>{dueDateFull || 'Sin fecha'}</Text>
+                        )}
                     </View>
 
                     <AgreementParticipantsList
@@ -802,6 +816,7 @@ const styles = StyleSheet.create({
         borderWidth: StyleSheet.hairlineWidth,
     },
     cardFinished: { opacity: 0.55 },
+    detailDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: colors.accentTint },
     dayBadge: { width: 52, borderRadius: 8, paddingVertical: 4, alignItems: 'center' },
     dayBadgeDay: { fontSize: 12, fontFamily: fonts.extrabold, textTransform: 'capitalize' },
     dayBadgeDetail: { fontSize: 10.5, fontFamily: fonts.semibold, marginTop: 1 },
