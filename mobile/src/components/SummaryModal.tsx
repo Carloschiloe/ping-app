@@ -1,39 +1,105 @@
 import React from 'react';
 import { Modal, TouchableOpacity, View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../design/tokens';
-import { fonts } from '../design/typography';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors, gradients, radius, space } from '../design/tokens';
+import { fonts, type } from '../design/typography';
 import { SheetFill, sheetSurface } from '../design/Sheet';
+import { Glass } from '../design/Glass';
+import { PingOrb } from '../design/PingOrb';
+
+// "Resumen de este chat": what was agreed, what each person still owes and
+// where the talk ended, so nobody has to read a hundred messages.
+
+export type ChatSummarySections = {
+    overview: string;
+    agreements: string[];
+    pending: Array<{ person: string; items: string[] }>;
+    latest: string;
+};
+
+export type ChatSummary = { text: string; sections: ChatSummarySections | null; messageCount?: number };
 
 type SummaryModalProps = {
-    visible: boolean;
-    summary: string | null;
+    summary: ChatSummary | null;
     onClose: () => void;
     onAskPing?: () => void;
 };
 
-export function SummaryModal({ visible, summary, onClose, onAskPing }: SummaryModalProps) {
+function Section({ icon, title, children }: { icon: keyof typeof Ionicons.glyphMap; title: string; children: React.ReactNode }) {
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.card}>
+            <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
+            <View style={styles.cardHeader}>
+                <Ionicons name={icon} size={16} color={colors.accentBright} />
+                <Text style={styles.cardTitle}>{title}</Text>
+            </View>
+            {children}
+        </View>
+    );
+}
+
+const Bullet = ({ text }: { text: string }) => (
+    <View style={styles.bulletRow}>
+        <View style={styles.bulletDot} />
+        <Text style={styles.bulletText}>{text}</Text>
+    </View>
+);
+
+export function SummaryModal({ summary, onClose, onAskPing }: SummaryModalProps) {
+    const sections = summary?.sections;
+    return (
+        <Modal visible={!!summary} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.backdrop}>
                 <View style={styles.sheet}>
                     <SheetFill />
                     <View style={styles.header}>
-                        <Ionicons name="sparkles" size={20} color={colors.accentBright} />
-                        <Text style={styles.title}>Resumen</Text>
-                        <TouchableOpacity onPress={onClose}>
+                        <PingOrb size={30} />
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.title}>Resumen de este chat</Text>
+                            {!!summary?.messageCount && <Text style={styles.subtitle}>Últimos {summary.messageCount} mensajes</Text>}
+                        </View>
+                        <TouchableOpacity onPress={onClose} accessibilityLabel="Cerrar" hitSlop={8}>
                             <Ionicons name="close" size={22} color={colors.textSoft} />
                         </TouchableOpacity>
                     </View>
-                    <ScrollView style={styles.scroll}>
-                        <Text style={styles.content}>{summary}</Text>
+                    <ScrollView style={styles.scroll} contentContainerStyle={{ gap: space.md }}>
+                        {sections ? (
+                            <>
+                                {!!sections.overview && <Text style={styles.overview}>{sections.overview}</Text>}
+                                {sections.agreements.length > 0 && (
+                                    <Section icon="checkmark-circle-outline" title="Acuerdos">
+                                        {sections.agreements.map((a, i) => <Bullet key={i} text={a} />)}
+                                    </Section>
+                                )}
+                                {sections.pending.length > 0 && (
+                                    <Section icon="time-outline" title="Pendientes">
+                                        {sections.pending.map((p) => (
+                                            <View key={p.person} style={styles.person}>
+                                                <Text style={styles.personName}>{p.person}</Text>
+                                                {p.items.map((item, i) => <Bullet key={i} text={item} />)}
+                                            </View>
+                                        ))}
+                                    </Section>
+                                )}
+                                {!!sections.latest && (
+                                    <Section icon="chatbubble-ellipses-outline" title="Lo último">
+                                        <Text style={styles.bulletText}>{sections.latest}</Text>
+                                    </Section>
+                                )}
+                            </>
+                        ) : (
+                            <Text style={styles.overview}>{summary?.text}</Text>
+                        )}
                     </ScrollView>
                     {onAskPing && (
                         <TouchableOpacity style={styles.askBtn} onPress={onAskPing}>
+                            <Ionicons name="chatbubbles-outline" size={17} color={colors.accentBright} />
                             <Text style={styles.askText}>Preguntarle a Ping sobre este chat</Text>
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity style={styles.doneBtn} onPress={onClose}>
+                        <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                         <Text style={styles.doneText}>Entendido</Text>
                     </TouchableOpacity>
                 </View>
@@ -44,13 +110,27 @@ export function SummaryModal({ visible, summary, onClose, onAskPing }: SummaryMo
 
 const styles = StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
-    sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%', ...sheetSurface },
-    header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
-    title: { fontSize: 18, fontFamily: fonts.bold, flex: 1, color: colors.text },
-    scroll: { marginBottom: 20 },
-    content: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, color: colors.text },
-    doneBtn: { backgroundColor: colors.accentBright, borderRadius: 12, padding: 16, alignItems: 'center' },
-    doneText: { color: colors.onAccent, fontFamily: fonts.bold },
-    askBtn: { borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 10, backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
-    askText: { color: colors.accentBright, fontFamily: fonts.semibold },
+    sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: space.xl, maxHeight: '85%', ...sheetSurface },
+    header: { flexDirection: 'row', alignItems: 'center', marginBottom: space.lg, gap: space.md },
+    title: { fontSize: 18, fontFamily: fonts.bold, color: colors.text },
+    subtitle: { ...type.caption, color: colors.textFaint, marginTop: 1 },
+    scroll: { marginBottom: space.lg },
+    overview: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: colors.text },
+    card: { borderRadius: radius.lg, overflow: 'hidden', padding: space.lg, gap: space.sm },
+    cardGlass: { borderRadius: radius.lg, borderTopColor: colors.glassEdge },
+    cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+    cardTitle: { fontFamily: fonts.semibold, fontSize: 14, color: colors.accentBright },
+    bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+    bulletDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.textSoft, marginTop: 8 },
+    bulletText: { flex: 1, fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: colors.text },
+    person: { gap: 4 },
+    personName: { fontFamily: fonts.semibold, fontSize: 14, color: colors.text },
+    askBtn: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+        borderRadius: radius.md, padding: 14, marginBottom: space.sm,
+        backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
+    },
+    askText: { color: colors.accentBright, fontFamily: fonts.semibold, fontSize: 14 },
+    doneBtn: { borderRadius: radius.md, padding: 15, alignItems: 'center', overflow: 'hidden' },
+    doneText: { color: colors.onAccent, fontFamily: fonts.bold, fontSize: 15 },
 });

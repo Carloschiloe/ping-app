@@ -50,7 +50,6 @@ import { PingOrb } from '../design/PingOrb';
 type HoyView = 'mine' | 'theirs' | 'historial';
 type HistoryFilter = 'all' | 'resolved' | 'cancelled' | 'archived';
 type TypeFilter = 'all' | 'tasks' | 'meetings';
-type OriginFilter = 'all' | 'chat' | 'direct';
 
 type SectionTone = 'danger' | 'accent' | 'muted';
 // Every section starts closed and opens from its title, so the screen first
@@ -117,32 +116,14 @@ export default function HoyScreen() {
     const [searchVisible, setSearchVisible] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-    const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
     const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+    // Filters apply the moment they are tapped; the person list opens on its own.
+    const [personPickerVisible, setPersonPickerVisible] = useState(false);
 
-    const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
-    const [draftType, setDraftType] = useState<TypeFilter>('all');
-    const [draftOrigin, setDraftOrigin] = useState<OriginFilter>('all');
-    const [draftPersonId, setDraftPersonId] = useState<string | null>(null);
-
-    const openFilterDrawer = useCallback(() => {
-        setDraftType(typeFilter);
-        setDraftOrigin(originFilter);
-        setDraftPersonId(selectedPersonId);
-        setFilterDrawerVisible(true);
-    }, [typeFilter, originFilter, selectedPersonId]);
-
-    const applyFilters = useCallback(() => {
-        setTypeFilter(draftType);
-        setOriginFilter(draftOrigin);
-        setSelectedPersonId(draftPersonId);
-        setFilterDrawerVisible(false);
-    }, [draftType, draftOrigin, draftPersonId]);
 
     const clearFilters = useCallback(() => {
         setSearchQuery('');
         setTypeFilter('all');
-        setOriginFilter('all');
         setSelectedPersonId(null);
     }, []);
 
@@ -417,16 +398,34 @@ export default function HoyScreen() {
         });
     }, [navigation]);
 
-    const teamMembers = useMemo(() => {
-        const map = new Map<string, any>();
-        commitments.forEach((c: any) => {
-            if (c.assignee && c.assignee.id !== user?.id) map.set(c.assignee.id, c.assignee);
-            if (c.owner && c.owner.id !== user?.id) map.set(c.owner.id, c.owner);
-        });
-        return Array.from(map.values());
-    }, [commitments, user?.id]);
+    // Only what really shows in Yo debo or Me deben counts for a person, so
+    // the number next to a name always matches the list it opens.
+    const isListed = useCallback((c: any) => {
+        if (isFinishedStatus(normalizeCommitmentStatus(c.status))) return false;
+        if (c.owner_user_id === user?.id && c.assigned_to_user_id && c.assigned_to_user_id !== user?.id) return true;
+        if (!isActorRelevantCommitmentItem(c, user?.id)) return false;
+        if (c._isAgreementProposal !== true && c.due_at && classifyMeeting(c) && new Date(c.due_at) < startOfDay(new Date())) return false;
+        return true;
+    }, [user?.id]);
 
-    const hasFiltersActive = typeFilter !== 'all' || originFilter !== 'all' || !!selectedPersonId;
+    const people = useMemo(() => {
+        const map = new Map<string, { id: string; name: string; count: number }>();
+        const add = (id: string | null | undefined, name: string | null | undefined) => {
+            if (!id || id === user?.id || !name) return;
+            const entry = map.get(id) ?? { id, name, count: 0 };
+            entry.count += 1;
+            map.set(id, entry);
+        };
+        commitments.filter(isListed).forEach((c: any) => {
+            add(c.assigned_to_user_id, c.assignee?.full_name || c.assignee?.email?.split('@')[0]);
+            if (c.owner_user_id !== c.assigned_to_user_id) add(c.owner_user_id, c.owner?.full_name || c.owner?.email?.split('@')[0]);
+            add(c.counterparty_contact_id, contactNameMap[c.counterparty_contact_id]);
+        });
+        return Array.from(map.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }, [commitments, contactNameMap, isListed, user?.id]);
+    const selectedPerson = people.find((p) => p.id === selectedPersonId) ?? null;
+
+    const hasFiltersActive = typeFilter !== 'all' || !!selectedPersonId;
     const query = searchQuery.trim().toLowerCase();
 
     const matchesFilters = useCallback((c: any) => {
@@ -437,14 +436,12 @@ export default function HoyScreen() {
         }
         if (typeFilter === 'tasks' && classifyMeeting(c)) return false;
         if (typeFilter === 'meetings' && !classifyMeeting(c)) return false;
-        if (originFilter === 'chat' && !c.message_id) return false;
-        if (originFilter === 'direct' && c.message_id) return false;
         if (selectedPersonId) {
             const matchesPerson = c.assigned_to_user_id === selectedPersonId || c.owner_user_id === selectedPersonId || c.counterparty_contact_id === selectedPersonId;
             if (!matchesPerson) return false;
         }
         return true;
-    }, [query, typeFilter, originFilter, selectedPersonId, contactNameMap]);
+    }, [query, typeFilter, selectedPersonId, contactNameMap]);
 
     const filteredCommitments = useMemo(() => commitments.filter(matchesFilters), [commitments, matchesFilters]);
 
@@ -528,6 +525,13 @@ export default function HoyScreen() {
 
         return { sections, pendingCount: porAceptar.length + revisar.length + overdue.length + enCurso.length };
     }, [filteredCommitments, user?.id]);
+
+    // Picking a person never lands on an empty side when the other one has them.
+    useEffect(() => {
+        if (!selectedPersonId) return;
+        if (view === 'mine' && mineData.pendingCount === 0 && theirsData.pendingCount > 0) setView('theirs');
+        else if (view === 'theirs' && theirsData.pendingCount === 0 && mineData.pendingCount > 0) setView('mine');
+    }, [selectedPersonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ─── Terminados y cancelados ─────────────────────────────────────────────
     // One place for everything closed: done, cancelled, rejected and
@@ -670,58 +674,33 @@ export default function HoyScreen() {
         <SafeAreaView edges={['top']} style={styles.container}>
             <StatusBar barStyle={'light-content'} />
 
-            <Modal visible={filterDrawerVisible} transparent animationType="slide" onRequestClose={() => setFilterDrawerVisible(false)}>
-                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFilterDrawerVisible(false)}>
+            <Modal visible={personPickerVisible} transparent animationType="slide" onRequestClose={() => setPersonPickerVisible(false)}>
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPersonPickerVisible(false)}>
                     <TouchableOpacity activeOpacity={1} style={styles.filterSheet}>
                         <SheetFill />
                         <View style={styles.filterSheetHandle} />
-                        <Text style={[styles.filterSheetTitle, { color: colors.text }]}>Filtrar</Text>
-
-                        <Text style={[styles.filterGroupLabel, { color: colors.textFaint }]}>Tipo</Text>
-                        <View style={styles.filterChipsRow}>
-                            {([['all', 'Todo'], ['tasks', 'Tareas'], ['meetings', 'Reuniones']] as const).map(([v, l]) => (
-                                <FilterChip key={v} label={l} active={draftType === v} onPress={() => setDraftType(v)} />
-                            ))}
-                        </View>
-
-                        <Text style={[styles.filterGroupLabel, { color: colors.textFaint }]}>Origen</Text>
-                        <View style={styles.filterChipsRow}>
-                            {([['all', 'Todo'], ['chat', 'De un chat'], ['direct', 'Creado directo']] as const).map(([v, l]) => (
-                                <FilterChip key={v} label={l} active={draftOrigin === v} onPress={() => setDraftOrigin(v)} />
-                            ))}
-                        </View>
-
-                        {teamMembers.length > 0 && (
-                            <>
-                                <Text style={[styles.filterGroupLabel, { color: colors.textFaint }]}>Persona</Text>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
-                                    <FilterChip label="Todos" active={!draftPersonId} onPress={() => setDraftPersonId(null)} />
-                                    {teamMembers.map((m: any) => (
-                                        <FilterChip key={m.id} label={m.full_name?.split(' ')[0] || 'Usuario'} active={draftPersonId === m.id} onPress={() => setDraftPersonId(m.id)} />
-                                    ))}
-                                </ScrollView>
-                            </>
-                        )}
-
-                        <View style={[styles.sheetLinks, { borderTopColor: colors.glassBorder }]}>
-                            <TouchableOpacity style={styles.sheetLink} onPress={() => { openHistory('all'); setFilterDrawerVisible(false); }}>
-                                <Ionicons name="time-outline" size={18} color={colors.textSoft} />
-                                <Text style={[styles.sheetLinkText, { color: colors.text }]}>Terminados y cancelados</Text>
-                                <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.filterSheetFooter}>
-                            <TouchableOpacity
-                                style={[styles.filterSecondaryBtn, { borderColor: colors.glassBorder }]}
-                                onPress={() => { setDraftType('all'); setDraftOrigin('all'); setDraftPersonId(null); }}
-                            >
-                                <Text style={{ color: colors.textSoft, fontFamily: fonts.semibold, fontSize: 13 }}>Limpiar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.filterPrimaryBtn, { backgroundColor: colors.accent }]} onPress={applyFilters}>
-                                <Text style={{ color: colors.onAccent, fontFamily: fonts.bold, fontSize: 13 }}>Aplicar</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <Text style={[styles.filterSheetTitle, { color: colors.text }]}>Ver compromisos con…</Text>
+                        <ScrollView style={{ maxHeight: 420 }}>
+                            {[{ id: null as string | null, name: 'Todas las personas', count: 0 }, ...people].map((p) => {
+                                const active = selectedPersonId === p.id;
+                                return (
+                                    <TouchableOpacity
+                                        key={p.id ?? 'all'}
+                                        style={styles.personRow}
+                                        onPress={() => { setSelectedPersonId(p.id); setPersonPickerVisible(false); }}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ selected: active }}
+                                    >
+                                        <LinearGradient colors={gradients.avatar[0]} style={styles.personAvatar}>
+                                            {p.id ? <Text style={styles.personInitial}>{p.name.charAt(0).toUpperCase()}</Text> : <Ionicons name="people" size={16} color={colors.silver} />}
+                                        </LinearGradient>
+                                        <Text style={[styles.personName, active && { color: colors.accentBright }]} numberOfLines={1}>{p.name}</Text>
+                                        {p.id && <Text style={styles.personCount}>{p.count}</Text>}
+                                        {active && <Ionicons name="checkmark" size={18} color={colors.accentBright} />}
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
                     </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
@@ -786,14 +765,6 @@ export default function HoyScreen() {
                     <TouchableOpacity onPress={toggleSearch} style={styles.iconBtn} accessibilityLabel="Buscar" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <Ionicons name={searchVisible ? 'close' : 'search'} size={21} color={colors.text} />
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={openFilterDrawer}
-                        style={[styles.iconBtn, hasFiltersActive && styles.iconBtnActive]}
-                        accessibilityLabel="Filtros"
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                        <Ionicons name="options-outline" size={21} color={hasFiltersActive ? colors.accentBright : colors.text} />
-                    </TouchableOpacity>
                     {/* Same place and look as in Chats: Ping is always top right. */}
                     {!isSideView && (
                         <TouchableOpacity
@@ -855,6 +826,26 @@ export default function HoyScreen() {
                             </TouchableOpacity>
                         ))}
                     </Glass>
+                )}
+
+                {!isSideView && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickFilters}>
+                        {selectedPerson ? (
+                            <TouchableOpacity style={[styles.filterChip, styles.filterChipActive, styles.personChip]} onPress={() => setSelectedPersonId(null)} accessibilityLabel={`Quitar filtro ${selectedPerson.name}`}>
+                                <Text style={[styles.filterChipText, { color: colors.onAccent }]} numberOfLines={1}>{selectedPerson.name}</Text>
+                                <Ionicons name="close" size={14} color={colors.onAccent} />
+                            </TouchableOpacity>
+                        ) : people.length > 0 && (
+                            <TouchableOpacity style={[styles.filterChip, styles.personChip]} onPress={() => setPersonPickerVisible(true)}>
+                                <Ionicons name="person-outline" size={13} color={colors.textSoft} />
+                                <Text style={[styles.filterChipText, { color: colors.textSoft }]}>Persona</Text>
+                                <Ionicons name="chevron-down" size={13} color={colors.textSoft} />
+                            </TouchableOpacity>
+                        )}
+                        {([['all', 'Todo'], ['tasks', 'Tareas'], ['meetings', 'Reuniones']] as const).map(([v, l]) => (
+                            <FilterChip key={v} label={l} active={typeFilter === v} onPress={() => setTypeFilter(v)} />
+                        ))}
+                    </ScrollView>
                 )}
             </View>
 
@@ -1025,18 +1016,17 @@ const styles = StyleSheet.create({
     filterSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12, ...sheetSurface },
     filterSheetHandle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.glassBorder, marginBottom: 16 },
     filterSheetTitle: { fontSize: 17, fontFamily: fonts.bold, marginBottom: 6 },
-    filterGroupLabel: { fontSize: 12, fontFamily: fonts.bold, marginBottom: 8, marginTop: 12 },
-    filterChipsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
     filterChip: {
         paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.full,
         backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
     },
     filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     filterChipText: { fontSize: 13, fontFamily: fonts.semibold },
-    sheetLinks: { marginTop: 18, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 6 },
-    sheetLink: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11 },
-    sheetLinkText: { flex: 1, fontSize: 15, fontFamily: fonts.medium },
-    filterSheetFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
-    filterSecondaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.full, borderWidth: StyleSheet.hairlineWidth },
-    filterPrimaryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: radius.full },
+    quickFilters: { flexDirection: 'row', gap: 8, paddingTop: space.md },
+    personChip: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: 180 },
+    personRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 10 },
+    personAvatar: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    personInitial: { fontFamily: fonts.bold, fontSize: 15, color: colors.silver },
+    personName: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.text },
+    personCount: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textFaint },
 });

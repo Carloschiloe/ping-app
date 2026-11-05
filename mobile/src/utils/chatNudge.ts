@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { normalizeCommitmentStatus } from './commitmentStatus';
-import { isCommitmentOverdue } from './commitmentDisplay';
+import { isCommitmentOverdue, isProposalDatePassed } from './commitmentDisplay';
 import { getProposalParticipationState } from './agreement';
 
 // "Recordarle" inside a chat: when something is waiting on someone else
@@ -23,6 +23,9 @@ export function nudgeTarget(commitment: any, myId: string | null | undefined, no
     if (!myId) return null;
     const status = normalizeCommitmentStatus(commitment.status);
     if (['resolved', 'cancelled', 'rejected'].includes(status)) return null;
+    // Asking for an answer once the date went by makes no sense.
+    const unanswered = commitment._isAgreementProposal === true || status === 'proposed';
+    if (unanswered && isProposalDatePassed(commitment.due_at, now)) return null;
 
     if (commitment._isAgreementProposal === true) {
         const participation = getProposalParticipationState(commitment, myId);
@@ -59,6 +62,21 @@ export function chatReminderText(commitment: any, target: NudgeTarget): string {
     }
     const plural = target.names.length > 1;
     return `${greeting}, ¿${plural ? 'pudieron' : 'pudiste'} ver «${commitment.title}»${when ? ` del ${when}` : ''}? ${plural ? 'Faltan sus respuestas' : 'Falta tu respuesta'}. ¡Gracias!`;
+}
+
+export function combinedReminderText(items: any[], targets: NudgeTarget[]): string {
+    const names = Array.from(new Set(targets.flatMap((t) => t.names)));
+    const greeting = names.length ? `Hola ${joinNames(names)}` : 'Hola';
+    const lines = items.map((c) => {
+        const when = c.due_at ? ` (${format(new Date(c.due_at), "EEEE d 'a las' HH:mm", { locale: es })})` : '';
+        return `• ${c.title}${when}`;
+    });
+    return [`${greeting}, ${names.length === 1 ? 'te' : 'les'} recuerdo lo que tenemos pendiente:`, ...lines, '¡Gracias!'].join('\n');
+}
+
+export async function markNudged(ids: string[]) {
+    const now = String(Date.now());
+    await Promise.all(ids.map((id) => AsyncStorage.setItem(STORAGE_PREFIX + id, now).catch(() => {})));
 }
 
 export function useNudgeRest(commitmentId: string) {

@@ -745,12 +745,11 @@ describe('PING — ARCHIVE LIFECYCLE COMPLETION: useArchivedCommitments/useResto
         expect(src).toContain("? archivedCommitments.filter(matchesFilters)");
     });
 
-    it('"Terminados y cancelados" is reachable from the end of the list and from the filter sheet, never as a segment button', () => {
+    it('"Terminados y cancelados" is reachable from the end of the list, never as a segment button', () => {
         const src = readSrc('src/screens/HoyScreen.tsx');
         const segmentBlock = src.slice(src.indexOf("['mine', 'Yo debo'"), src.indexOf('<SectionList'));
         expect(segmentBlock).not.toContain('historial');
         expect(src).toContain("ListFooterComponent={renderListFooter}");
-        expect(src).toMatch(/onPress=\{\(\) => \{ openHistory\('all'\); setFilterDrawerVisible\(false\);/);
         expect(src).toContain("[['all', 'Todos'], ['resolved', 'Hechos'], ['cancelled', 'Cancelados'], ['archived', 'Archivados']]");
     });
 

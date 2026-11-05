@@ -47,3 +47,22 @@ describe('Calls and the chat bar', () => {
         expect(chat).toContain('onAskPing={() => {');
     });
 });
+
+describe('Hoy filters apply the moment they are tapped', () => {
+    const hoy = read('screens/HoyScreen.tsx');
+    it('no Aplicar/Limpiar sheet and no Origen filter', () => {
+        expect(hoy).not.toContain('Aplicar');
+        expect(hoy).not.toContain('originFilter');
+        expect(hoy).not.toContain('openFilterDrawer');
+    });
+
+    it('people show by their real name with how many they share, never "Usuario"', () => {
+        expect(hoy).not.toContain("'Usuario'");
+        expect(hoy).toContain('Ver compromisos con…');
+        expect(hoy).toContain('<Text style={styles.personCount}>{p.count}</Text>');
+    });
+
+    it('the chosen person shows as a chip that removes the filter', () => {
+        expect(hoy).toContain('accessibilityLabel={`Quitar filtro ${selectedPerson.name}`}');
+    });
+});

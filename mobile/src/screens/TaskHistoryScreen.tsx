@@ -1,11 +1,20 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SectionList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SectionList, ActivityIndicator, Alert } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useConversationGroupTasks } from '../api/queries';
+import {
+    useConversationGroupTasks, useSendConversationMessage, useUpdateCommitment, useCancelCommitment,
+    useReopenCommitment, useRespondToCommitmentProposal,
+} from '../api/queries';
+import { useCloseCommitment } from '../hooks/useCloseCommitment';
+import { chatReminderText, combinedReminderText, markNudged, nudgeTarget, type NudgeTarget } from '../utils/chatNudge';
+import { confirmAction } from '../design/ConfirmDialog';
+import { RescheduleModal } from '../components/compromisos/RescheduleModal';
+import { CloseCommitmentSheet, type CloseOutcome } from '../components/compromisos/CloseCommitmentSheet';
 import { useAuth } from '../context/AuthContext';
 import { normalizeCommitmentStatus } from '../utils/commitmentStatus';
 import { getStatusLabel } from '../utils/commitmentDisplay';
@@ -18,18 +27,32 @@ import { CommitmentDetailSheet } from '../components/compromisos/CommitmentDetai
 import type { TaskHistoryScreenProps } from '../navigation/types';
 
 // Everything agreed in one chat or group, old and new: what got done, what
-// is still open, what is late and what was not accepted.
+// is still open, what is late and what was not accepted. Each one can be
+// acted on from here, and the late or unanswered ones can be reminded at once.
 
 type KindFilter = 'all' | 'tasks' | 'meetings';
 
 const whenOf = (item: any) => item.due_at || item.created_at;
 
-const TILES: Array<{ key: Outcome; label: string; icon: keyof typeof Ionicons.glyphMap; tone: string; tint: string }> = [
+type Look = { label: string; icon: keyof typeof Ionicons.glyphMap; tone: string; tint: string };
+
+const TILES: Array<Look & { key: Outcome }> = [
     { key: 'pending', label: 'Pendientes', icon: 'time-outline', tone: colors.accentBright, tint: colors.accentTint },
     { key: 'overdue', label: 'Atrasados', icon: 'alert-circle-outline', tone: colors.warning, tint: colors.warningTint },
     { key: 'done', label: 'Cumplidos', icon: 'checkmark-circle-outline', tone: colors.success, tint: colors.successTint },
     { key: 'declined', label: 'Anulados', icon: 'close-circle-outline', tone: colors.danger, tint: colors.dangerTint },
 ];
+
+// Pendientes also holds the unanswered ones whose date went by.
+const inTile = (tile: Outcome, result: Outcome) => tile === result || (tile === 'pending' && result === 'expired');
+
+const PILLS: Record<Outcome, Look> = {
+    pending: { label: 'Pendiente', icon: 'time-outline', tone: colors.accentBright, tint: colors.accentTint },
+    expired: { label: 'Sin respuesta', icon: 'hourglass-outline', tone: colors.textSoft, tint: colors.glassRaised },
+    overdue: { label: 'Atrasado', icon: 'alert-circle-outline', tone: colors.warning, tint: colors.warningTint },
+    done: { label: 'Cumplido', icon: 'checkmark-circle-outline', tone: colors.success, tint: colors.successTint },
+    declined: { label: 'Anulado', icon: 'close-circle-outline', tone: colors.danger, tint: colors.dangerTint },
+};
 
 export default function TaskHistoryScreen() {
     const route = useRoute<TaskHistoryScreenProps['route']>();
@@ -43,6 +66,63 @@ export default function TaskHistoryScreen() {
     const [kind, setKind] = useState<KindFilter>('all');
     const [personId, setPersonId] = useState<string | null>(null);
     const [detailItem, setDetailItem] = useState<any | null>(null);
+    const [closeItem, setCloseItem] = useState<any | null>(null);
+    const [dateItem, setDateItem] = useState<any | null>(null);
+
+    const { mutateAsync: sendChatMessage } = useSendConversationMessage(conversationId);
+    const { mutateAsync: updateCommitment } = useUpdateCommitment();
+    const { mutateAsync: cancelCommitment } = useCancelCommitment();
+    const { mutate: reopenCommitment } = useReopenCommitment();
+    const { mutateAsync: respondToProposal } = useRespondToCommitmentProposal();
+    const { close: closeCommitment, isSaving: isClosing } = useCloseCommitment();
+
+    const sendReminder = async (text: string, ids: string[]) => {
+        const ok = await confirmAction({ title: 'Enviar recordatorio', message: text, confirmLabel: 'Enviar', destructive: false });
+        if (!ok) return;
+        try {
+            await sendChatMessage({ text, client_message_id: `nudge-${Date.now()}` });
+            await markNudged(ids);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+            Alert.alert('No se pudo enviar el recordatorio', 'Intenta nuevamente.');
+        }
+    };
+
+    const handleNudge = (item: any) => {
+        const target = nudgeTarget(item, user?.id);
+        if (target) sendReminder(chatReminderText(item, target), [item.id]);
+    };
+
+    const handleCancel = async (id: string) => {
+        const ok = await confirmAction({ title: 'Cancelar compromiso', message: 'Quedará en Anulados. Puedes reabrirlo después.', confirmLabel: 'Cancelar compromiso' });
+        if (!ok) return;
+        try {
+            await cancelCommitment({ id });
+        } catch {
+            Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
+        }
+    };
+
+    const handleCloseSubmit = async (result: CloseOutcome, note: string, dueAt: Date | null) => {
+        if (!closeItem) return;
+        try {
+            await closeCommitment(closeItem, result, note, dueAt);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setCloseItem(null);
+        } catch {
+            Alert.alert('No se pudo guardar', 'Intenta nuevamente.');
+        }
+    };
+
+    // A proposal gets a new date by proposing it; a commitment by changing it.
+    const handleSaveDate = async (id: string, iso: string) => {
+        try {
+            if (dateItem?._isAgreementProposal) await respondToProposal({ id, decision: 'counter_propose', proposedDueAt: iso });
+            else await updateCommitment({ id, data: { due_at: iso } });
+        } catch {
+            Alert.alert('No se pudo poner la fecha', 'Intenta nuevamente.');
+        }
+    };
 
     const people = useMemo(() => {
         const map = new Map<string, any>();
@@ -60,10 +140,21 @@ export default function TaskHistoryScreen() {
     }), [items, kind, personId]);
 
     const { counts, keptPercent } = useMemo(() => summarize(scoped), [scoped]);
+    const tileCount = (key: Outcome) => counts[key] + (key === 'pending' ? counts.expired : 0);
+
+    // With Atrasados or Pendientes picked, everything there that waits on
+    // someone else can be reminded in one friendly message.
+    const remindable = useMemo(() => {
+        if (outcome !== 'overdue' && outcome !== 'pending') return [];
+        return scoped
+            .filter((t: any) => inTile(outcome, outcomeOf(t)))
+            .map((t: any) => ({ item: t, target: nudgeTarget(t, user?.id) }))
+            .filter((x): x is { item: any; target: NudgeTarget } => !!x.target);
+    }, [scoped, outcome, user?.id]);
 
     const sections = useMemo(() => {
         const shown = scoped
-            .filter((t: any) => !outcome || outcomeOf(t) === outcome)
+            .filter((t: any) => !outcome || inTile(outcome, outcomeOf(t)))
             .sort((a: any, b: any) => new Date(whenOf(b)).getTime() - new Date(whenOf(a)).getTime());
         const byMonth = new Map<string, any[]>();
         shown.forEach((t: any) => {
@@ -103,15 +194,30 @@ export default function TaskHistoryScreen() {
                                 onPress={() => setOutcome(active ? null : tile.key)}
                                 accessibilityRole="button"
                                 accessibilityState={{ selected: active }}
-                                accessibilityLabel={`${tile.label}: ${counts[tile.key]}`}
+                                accessibilityLabel={`${tile.label}: ${tileCount(tile.key)}`}
                             >
                                 <Ionicons name={tile.icon} size={18} color={tile.tone} />
-                                <Text style={styles.tileCount}>{counts[tile.key]}</Text>
+                                <Text style={styles.tileCount}>{tileCount(tile.key)}</Text>
                                 <Text style={styles.tileLabel} numberOfLines={1}>{tile.label}</Text>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
+                {remindable.length > 0 && (
+                    <TouchableOpacity
+                        style={styles.remindAll}
+                        onPress={() => sendReminder(
+                            remindable.length === 1
+                                ? chatReminderText(remindable[0].item, remindable[0].target)
+                                : combinedReminderText(remindable.map((x) => x.item), remindable.map((x) => x.target)),
+                            remindable.map((x) => x.item.id),
+                        )}
+                        accessibilityRole="button"
+                    >
+                        <Ionicons name="notifications-outline" size={16} color={colors.accentBright} />
+                        <Text style={styles.remindAllText}>{remindable.length === 1 ? 'Recordarle' : `Recordar a todos (${remindable.length})`}</Text>
+                    </TouchableOpacity>
+                )}
             </View>
 
             <View style={styles.filterRow}>
@@ -131,7 +237,7 @@ export default function TaskHistoryScreen() {
 
     const renderItem = ({ item, index, section }: { item: any; index: number; section: { data: any[] } }) => {
         const result = outcomeOf(item);
-        const tile = TILES.find((t) => t.key === result)!;
+        const tile = PILLS[result];
         const when = whenOf(item) ? new Date(whenOf(item)) : null;
         const who = item.assignee?.id === user?.id ? 'Para ti' : item.assignee?.full_name ? `Para ${item.assignee.full_name.split(' ')[0]}` : null;
         const meta = [item.type === 'meeting' ? 'Reunión' : 'Tarea', who, item.due_at ? format(new Date(item.due_at), 'HH:mm') : 'Sin fecha'].filter(Boolean).join(' · ');
@@ -143,7 +249,7 @@ export default function TaskHistoryScreen() {
                 onPress={() => setDetailItem(item)}
                 style={[styles.row, first && styles.rowFirst, last && styles.rowLast]}
                 accessibilityRole="button"
-                accessibilityLabel={`${item.title}, ${result === 'overdue' ? 'Atrasado' : getStatusLabel(normalizeCommitmentStatus(item.status))}`}
+                accessibilityLabel={`${item.title}, ${tile.label}`}
             >
                 <Glass style={[StyleSheet.absoluteFill, styles.rowGlass]} intensity={22} tint={colors.glassTintLight} />
                 {!first && <View pointerEvents="none" style={styles.divider} />}
@@ -157,7 +263,7 @@ export default function TaskHistoryScreen() {
                 </View>
                 <View style={[styles.pill, { backgroundColor: tile.tint }]}>
                     <Ionicons name={tile.icon} size={13} color={tile.tone} />
-                    <Text style={[styles.pillText, { color: tile.tone }]}>{result === 'overdue' ? 'Atrasado' : result === 'pending' ? 'Pendiente' : getStatusLabel(normalizeCommitmentStatus(item.status))}</Text>
+                    <Text style={[styles.pillText, { color: tile.tone }]}>{result === 'declined' ? getStatusLabel(normalizeCommitmentStatus(item.status)) : tile.label}</Text>
                 </View>
             </TouchableOpacity>
         );
@@ -190,7 +296,25 @@ export default function TaskHistoryScreen() {
                     }
                 />
             )}
-            <CommitmentDetailSheet item={detailItem} currentUserId={user?.id} onClose={() => setDetailItem(null)} />
+            <CommitmentDetailSheet
+                item={detailItem}
+                currentUserId={user?.id}
+                onClose={() => setDetailItem(null)}
+                onMarkDone={(id) => setCloseItem(items.find((t: any) => t.id === id) ?? null)}
+                onReschedule={(item) => setDateItem(item)}
+                onCancel={handleCancel}
+                onReopen={(id) => reopenCommitment(id)}
+                onNudge={detailItem && nudgeTarget(detailItem, user?.id) ? handleNudge : undefined}
+            />
+            <CloseCommitmentSheet
+                item={closeItem}
+                canCancel={!!closeItem && closeItem.owner_user_id === user?.id}
+                isSaving={isClosing}
+                onClose={() => setCloseItem(null)}
+                onSubmit={handleCloseSubmit}
+                onReschedule={(item) => { setCloseItem(null); setDateItem(item); }}
+            />
+            <RescheduleModal item={dateItem} onClose={() => setDateItem(null)} onSaveDate={handleSaveDate} />
         </View>
     );
 }
@@ -244,6 +368,12 @@ const styles = StyleSheet.create({
     rowBody: { flex: 1, gap: 2 },
     rowTitle: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
     rowMeta: { ...type.caption, color: colors.textFaint },
+    remindAll: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+        paddingVertical: 10, borderRadius: radius.md,
+        backgroundColor: colors.accentTint, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.accent,
+    },
+    remindAllText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.accentBright },
     pill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.full },
     pillText: { fontFamily: fonts.semibold, fontSize: 11 },
     loadingWrap: { paddingTop: space.xl, alignItems: 'center' },

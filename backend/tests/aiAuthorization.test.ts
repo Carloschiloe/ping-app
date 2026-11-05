@@ -37,7 +37,7 @@ describe('AI route authorization', () => {
             messages: [{ data: messages, error: null }],
         }));
         const synthesis = await import('../src/services/synthesis.service');
-        vi.mocked(synthesis.summarizeConversation).mockResolvedValue('resumen autorizado');
+        vi.mocked(synthesis.summarizeConversation).mockResolvedValue({ text: 'resumen autorizado', sections: null });
         const { summarize } = await import('../src/controllers/ai.controller');
         const req: any = { user: { id: 'participant' }, body: { conversationId: 'c1' } };
         const res = responseMock();
@@ -48,6 +48,6 @@ describe('AI route authorization', () => {
         expect(next).not.toHaveBeenCalled();
         expect(synthesis.summarizeConversation).toHaveBeenCalledWith(messages);
         expect(res.status).toHaveBeenCalledWith(200);
-        expect(res.json).toHaveBeenCalledWith({ summary: 'resumen autorizado' });
+        expect(res.json).toHaveBeenCalledWith({ summary: 'resumen autorizado', sections: null, messageCount: 1 });
     });
 });

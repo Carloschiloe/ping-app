@@ -6,7 +6,9 @@ import { assertConversationParticipant } from '../utils/authz';
 export const summarize = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = req.user!.id;
-        const { conversationId, limit = 50 } = req.body;
+        const { conversationId } = req.body;
+        // Enough to cover a busy day of the chat without reading it all.
+        const limit = Math.min(Math.max(Number(req.body.limit) || 150, 1), 200);
 
         if (!conversationId) {
             res.status(400).json({ error: 'Conversation ID is required' });
@@ -27,14 +29,14 @@ export const summarize = async (req: Request, res: Response, next: NextFunction)
         if (msgError) throw msgError;
 
         if (!messages || messages.length === 0) {
-            res.status(200).json({ summary: 'No hay mensajes para resumir.' });
+            res.status(200).json({ summary: 'No hay mensajes para resumir.', sections: null, messageCount: 0 });
             return;
         }
 
         // 2. Call AI Service (reverse to keep chronological order for the AI)
-        const summary = await summarizeConversation([...messages].reverse());
+        const result = await summarizeConversation([...messages].reverse());
 
-        res.status(200).json({ summary });
+        res.status(200).json({ summary: result.text, sections: result.sections, messageCount: messages.length });
     } catch (error: any) {
         next(error);
     }

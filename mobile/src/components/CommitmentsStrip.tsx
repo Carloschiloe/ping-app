@@ -12,7 +12,8 @@ import { summarize } from '../utils/commitmentOutcome';
 export function stripLabel(items: any[], now: Date = new Date()): { pending: string | null; late: string | null; text: string } | null {
     if (!items.length) return null;
     const { counts } = summarize(items, now);
-    const pending = counts.pending ? `${counts.pending} pendiente${counts.pending > 1 ? 's' : ''}` : null;
+    const open = counts.pending + counts.expired;
+    const pending = open ? `${open} pendiente${open > 1 ? 's' : ''}` : null;
     const late = counts.overdue ? `${counts.overdue} atrasado${counts.overdue > 1 ? 's' : ''}` : null;
     const text = [pending, late].filter(Boolean).join(' · ') || 'Compromisos al día';
     return { pending, late, text };

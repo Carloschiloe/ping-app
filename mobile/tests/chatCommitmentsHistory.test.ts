@@ -6,7 +6,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem
 
 import { outcomeOf, summarize } from '../src/utils/commitmentOutcome';
 import { ALL_REACTIONS, QUICK_COUNT, rankReactions } from '../src/utils/reactionUsage';
-import { chatReminderText, nudgeTarget } from '../src/utils/chatNudge';
+import { chatReminderText, combinedReminderText, nudgeTarget } from '../src/utils/chatNudge';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', 'src', rel), 'utf-8');
 const now = new Date('2026-11-04T12:00:00Z');
@@ -22,12 +22,28 @@ describe('Compromisos of one chat', () => {
         expect(outcomeOf({ status: 'accepted', due_at: future }, now)).toBe('pending');
     });
 
+    it('an unanswered one whose date went by is "Sin respuesta", never late work', () => {
+        expect(outcomeOf({ status: 'proposed', due_at: past }, now)).toBe('expired');
+        expect(outcomeOf({ _isAgreementProposal: true, status: 'proposed', due_at: past }, now)).toBe('expired');
+        expect(outcomeOf({ status: 'proposed', due_at: future }, now)).toBe('pending');
+        expect(summarize([{ status: 'proposed', due_at: past }, { status: 'resolved' }], now).keptPercent).toBe(100);
+    });
+
+    it('each commitment can be acted on from the list, and the late ones reminded at once', () => {
+        const screen = read('screens/TaskHistoryScreen.tsx');
+        expect(screen).toContain('onMarkDone={(id) => setCloseItem(');
+        expect(screen).toContain('onReschedule={(item) => setDateItem(item)}');
+        expect(screen).toContain('onCancel={handleCancel}');
+        expect(screen).toContain('onNudge={detailItem && nudgeTarget(detailItem, user?.id) ? handleNudge : undefined}');
+        expect(screen).toContain('`Recordar a todos (${remindable.length})`');
+    });
+
     it('counts how many were kept out of those already due', () => {
         const { counts, keptPercent } = summarize([
             { status: 'resolved' }, { status: 'resolved' }, { status: 'resolved' },
             { status: 'accepted', due_at: past }, { status: 'accepted', due_at: future }, { status: 'rejected' },
         ], now);
-        expect(counts).toEqual({ pending: 1, overdue: 1, done: 3, declined: 1 });
+        expect(counts).toEqual({ pending: 1, expired: 0, overdue: 1, done: 3, declined: 1 });
         expect(keptPercent).toBe(75);
         expect(summarize([{ status: 'accepted', due_at: future }], now).keptPercent).toBeNull();
     });
@@ -64,6 +80,7 @@ describe('Recordarle inside the chat', () => {
         expect(nudgeTarget({ ...asked, status: 'accepted', due_at: past }, me, now)).toEqual({ reason: 'late', names: ['Ana'] });
         expect(nudgeTarget({ ...asked, status: 'accepted', due_at: future }, me, now)).toBeNull();
         expect(nudgeTarget({ ...asked, status: 'resolved' }, me, now)).toBeNull();
+        expect(nudgeTarget({ ...asked, status: 'proposed', due_at: past }, me, now)).toBeNull();
         // The person who has to act never gets a "remind" button for themselves.
         expect(nudgeTarget({ ...asked, status: 'proposed' }, 'ana', now)).toBeNull();
     });
@@ -90,5 +107,17 @@ describe('Recordarle inside the chat', () => {
         const card = read('components/GroupTaskCard.tsx');
         expect(card).toContain("confirmAction({ title: 'Enviar recordatorio'");
         expect(card).toContain('Recordatorio enviado');
+    });
+});
+
+describe('One reminder for several', () => {
+    it('lists each pending item with its date in one message', () => {
+        const text = combinedReminderText(
+            [{ title: 'Informe', due_at: null }, { title: 'Muestras', due_at: null }],
+            [{ reason: 'late', names: ['Ana'] }, { reason: 'answer', names: ['Ana', 'Luis'] }],
+        );
+        expect(text.split('\n')).toEqual(['Hola Ana y Luis, les recuerdo lo que tenemos pendiente:', '• Informe', '• Muestras', '¡Gracias!']);
+        expect(combinedReminderText([{ title: 'Informe', due_at: null }], [{ reason: 'late', names: ['Ana'] }]).split('\n')[0])
+            .toBe('Hola Ana, te recuerdo lo que tenemos pendiente:');
     });
 });
