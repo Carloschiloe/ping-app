@@ -23,16 +23,17 @@ interface ChatHeaderProps {
     isGroup: boolean;
     isSelf?: boolean;
     onBack: () => void;
-    onPing: () => void;
-    onCommitments: () => void;
     onInfo: () => void;
-    onMenu: () => void;
+    onSummary: () => void;
+    summarizing?: boolean;
+    onVoiceCall?: () => void;
+    onVideoCall?: () => void;
     onAvatarPress?: (url: string) => void;
 }
 
 // The conversation's frosted top bar: back, photo, name with a live status
-// line; on the right the commitments, the menu and Ping's orb, last, the
-// same place it has in Hoy.
+// line; on the right the calls and Ping's orb, last, the same place it has
+// in Hoy. The orb sums the conversation up; the name opens the chat's info.
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
     chatTitle,
     subtitle,
@@ -42,10 +43,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     isGroup,
     isSelf = false,
     onBack,
-    onPing,
-    onCommitments,
     onInfo,
-    onMenu,
+    onSummary,
+    summarizing = false,
+    onVoiceCall,
+    onVideoCall,
     onAvatarPress,
 }) => {
     const insets = useSafeAreaInsets();
@@ -100,29 +102,34 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             </TouchableOpacity>
 
             <View style={styles.actions}>
+                {onVoiceCall && (
+                    <TouchableOpacity
+                        onPress={onVoiceCall}
+                        style={styles.iconBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Llamar"
+                    >
+                        <Ionicons name="call-outline" size={18} color={colors.text} />
+                    </TouchableOpacity>
+                )}
+                {onVideoCall && (
+                    <TouchableOpacity
+                        onPress={onVideoCall}
+                        style={styles.iconBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Videollamada"
+                    >
+                        <Ionicons name="videocam-outline" size={19} color={colors.text} />
+                    </TouchableOpacity>
+                )}
                 <TouchableOpacity
-                    onPress={onCommitments}
-                    style={styles.iconBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Ver los compromisos de esta conversación"
-                >
-                    <Ionicons name="checkmark-done-outline" size={18} color={colors.text} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={onMenu}
-                    style={styles.iconBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Más opciones"
-                >
-                    <Ionicons name="ellipsis-horizontal" size={18} color={colors.text} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={onPing}
+                    onPress={onSummary}
+                    disabled={summarizing}
                     style={styles.orbBtn}
                     accessibilityRole="button"
-                    accessibilityLabel="Hablar con Ping en esta conversación"
+                    accessibilityLabel="Resumen de esta conversación"
                 >
-                    <PingOrb size={38} paused={!isFocused} />
+                    <PingOrb size={38} state={summarizing ? 'thinking' : 'idle'} paused={!isFocused} />
                 </TouchableOpacity>
             </View>
         </Glass>

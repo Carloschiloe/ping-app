@@ -139,7 +139,7 @@ describe('feature gates', () => {
 
     it.each([
         'ENABLE_CALENDAR_INTEGRATION',
-        'ENABLE_CALLS',
+        'ENABLE_CALL_RECORDING',
         'ENABLE_OPERATION_MODULE',
     ])('mantiene %s bloqueado sin el master no-MVP', (envName) => {
         const { status, json, next } = createMiddlewareContext();
@@ -176,16 +176,16 @@ describe('feature gates', () => {
         expect(enabled.next).toHaveBeenCalledTimes(1);
     });
 
-    it('puede habilitar llamadas en staging sin abrir Calendar ni Operation', () => {
+    it('puede habilitar la grabación de llamadas sin abrir Calendar ni Operation', () => {
         const calls = createMiddlewareContext();
         const calendar = createMiddlewareContext();
         const operation = createMiddlewareContext();
         process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
-        process.env.ENABLE_CALLS = 'true';
+        process.env.ENABLE_CALL_RECORDING = 'true';
         process.env.ENABLE_CALENDAR_INTEGRATION = 'false';
         process.env.ENABLE_OPERATION_MODULE = 'false';
 
-        requireFeature('ENABLE_CALLS')(
+        requireFeature('ENABLE_CALL_RECORDING')(
             {} as any,
             { status: calls.status, json: calls.json } as any,
             calls.next
@@ -207,7 +207,7 @@ describe('feature gates', () => {
     });
 
     it.each([
-        ['ENABLE_CALLS', 'Calls'],
+        ['ENABLE_CALL_RECORDING', 'Calls'],
         ['ENABLE_OPERATION_MODULE', 'Operation'],
         ['ENABLE_CALENDAR_INTEGRATION', 'Calendar'],
     ] as const)('mantiene cerrado el writer legacy de %s por defecto', (capability, writerName) => {
@@ -222,7 +222,7 @@ describe('feature gates', () => {
     });
 
     it.each([
-        'ENABLE_CALLS',
+        'ENABLE_CALL_RECORDING',
         'ENABLE_OPERATION_MODULE',
         'ENABLE_CALENDAR_INTEGRATION',
     ] as const)('abre el writer legacy de %s sólo con capability, flag explícito y master', (capability) => {
@@ -237,10 +237,10 @@ describe('feature gates', () => {
     });
 
     it('no acepta valores no booleanos para abrir writers legacy', () => {
-        process.env.ENABLE_CALLS = 'true';
+        process.env.ENABLE_CALL_RECORDING = 'true';
         process.env.ENABLE_LEGACY_SATELLITE_WRITERS = '1';
         process.env.ENABLE_NON_MVP_CAPABILITIES = 'true';
 
-        expect(isLegacySatelliteWriterEnabled('ENABLE_CALLS')).toBe(false);
+        expect(isLegacySatelliteWriterEnabled('ENABLE_CALL_RECORDING')).toBe(false);
     });
 });

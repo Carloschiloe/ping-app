@@ -102,7 +102,7 @@ Transcripción:
             status: 'processed'
         }).eq('id', callId);
 
-        if (!isLegacySatelliteWriterEnabled('ENABLE_CALLS')) {
+        if (!isLegacySatelliteWriterEnabled('ENABLE_CALL_RECORDING')) {
             console.info('[Call Processing] Legacy Calls writers are disabled; call processing stopped before chat/commitment writes');
             return;
         }
