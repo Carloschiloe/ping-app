@@ -707,7 +707,7 @@ const MessageItemComponent = ({
                                         style={styles.reactionPill}
                                         onPress={() => onViewReactions(item)}
                                     >
-                                        <Text style={{ fontSize: 13 }}>{emoji}</Text>
+                                        <Text style={styles.reactionEmoji}>{emoji}</Text>
                                         {counts[emoji] > 1 && <Text style={styles.reactionCount}>{counts[emoji]}</Text>}
                                     </TouchableOpacity>
                                 ));
@@ -901,8 +901,9 @@ const styles = StyleSheet.create({
     reactionsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: -8, marginBottom: 2, zIndex: 2 },
     reactionsMe: { alignSelf: 'flex-end', marginRight: 10 },
     reactionsThem: { alignSelf: 'flex-start', marginLeft: 10 },
-    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSolid, borderRadius: radius.md, paddingHorizontal: 6, paddingVertical: 2, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder, gap: 2 },
-    reactionCount: { fontFamily: fonts.semibold, fontSize: 11, color: colors.textSoft },
+    reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSolid, borderRadius: radius.md, paddingHorizontal: 7, paddingVertical: 3, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder, gap: 3 },
+    reactionEmoji: { fontSize: 17 },
+    reactionCount: { fontFamily: fonts.semibold, fontSize: 12, color: colors.textSoft },
     // "Agendar": a small quiet pill under the message, not a big button.
     suggestionChip: {
         flexDirection: 'row',

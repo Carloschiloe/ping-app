@@ -22,13 +22,14 @@ interface ChatHeaderProps {
     isSelf?: boolean;
     onBack: () => void;
     onPing: () => void;
+    onCommitments: () => void;
     onInfo: () => void;
     onMenu: () => void;
     onAvatarPress?: (url: string) => void;
 }
 
 // The conversation's frosted top bar: back, photo, name with a live status
-// line, and Ping and the menu on the right.
+// line, and the commitments, Ping and the menu on the right.
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
     chatTitle,
     subtitle,
@@ -39,6 +40,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     isSelf = false,
     onBack,
     onPing,
+    onCommitments,
     onInfo,
     onMenu,
     onAvatarPress,
@@ -93,6 +95,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 ) : null}
             </TouchableOpacity>
 
+            <TouchableOpacity
+                onPress={onCommitments}
+                style={styles.iconBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Ver los compromisos de esta conversación"
+            >
+                <Ionicons name="checkmark-done-outline" size={19} color={colors.text} />
+            </TouchableOpacity>
             <TouchableOpacity
                 onPress={onPing}
                 style={styles.iconBtn}

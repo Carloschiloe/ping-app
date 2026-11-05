@@ -31,6 +31,7 @@ export type ConversationsStackParamList = {
     TaskHistory: {
         conversationId: string;
         isGroup?: boolean;
+        title?: string;
     };
     ChatInfo: {
         conversationId: string;
