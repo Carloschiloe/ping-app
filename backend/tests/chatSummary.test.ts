@@ -24,3 +24,10 @@ describe('Chat summary comes back in parts, without markdown', () => {
         expect(parseChatSummary('{}')).toBeNull();
     });
 });
+
+describe('Chat summary uses real dates', () => {
+    it('stamps each message with its own day in Chile time', async () => {
+        const { messageStamp } = await import('../src/services/synthesis.service');
+        expect(messageStamp('2026-03-13T18:00:00Z')).toBe('viernes, 13 de marzo de 2026, 15:00');
+    });
+});
