@@ -59,18 +59,23 @@ const agreementText = (value: any, now: Date): string => {
 // Words that only make sense on the day they were written.
 const RELATIVE_WORDS = /\b(pasado\s+mañana|mañana|hoy|ayer|(este|el|próximo|proximo)\s+(lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)(\s+(próximo|proximo|que\s+viene))?)\b/giu;
 
+// "el 30 de marzo", "sábado 14 de marzo de 2026": the day is written after the colon instead.
+const CALENDAR_DATE = /\b(el\s+)?((lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)\s+)?\d{1,2}\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(\s+de\s+\d{4})?\b/giu;
+
 /**
  * The model copies the exact day and hour words from one message; the same
  * date reader used for commitments turns them into a real date counted from
  * the day that message was sent. The model never does the arithmetic.
  */
-export function resolveAgreement(value: any, sentAt: string | null | undefined): { what: string; date: string | null; time: string | null } {
-    const said = clean(value?.said);
+export function resolveAgreement(value: any, source?: { text?: string | null; created_at?: string | null }): { what: string; date: string | null; time: string | null } {
+    // When the model leaves the words out, the message itself still has them.
+    const said = clean(value?.said) || clean(source?.text);
+    const sentAt = source?.created_at;
     let what = clean(value?.what);
     if (said) what = what.replace(said, ' ');
     const time = said ? extractExplicitTimeHint(said) : null;
     if (time) what = what.replace(time, ' ');
-    what = what.replace(RELATIVE_WORDS, ' ').replace(/\s+([,.;:])/g, '$1').replace(/;\s*/g, ', ').replace(/\s+/g, ' ').replace(/^[,;:\s]+|[,;:\s]+$/g, '').trim();
+    what = what.replace(RELATIVE_WORDS, ' ').replace(CALENDAR_DATE, ' ').replace(/\s+([,.;:])/g, '$1').replace(/;\s*/g, ', ').replace(/\s+/g, ' ').replace(/^[,;:\s]+|[,;:\s]+$/g, '').trim();
     const reference = sentAt ? new Date(sentAt) : null;
     const parsed = said && reference && !Number.isNaN(reference.getTime()) ? parseDateFromText(said, reference, TIME_ZONE) : null;
     if (!parsed) return { what, date: null, time: null };
@@ -123,6 +128,7 @@ const INSTRUCTIONS = [
     '"pending": [{"person": first name, "items": what that person still has to do}],',
     '"latest": one sentence on where the conversation ended, without dates}.',
     'Use only what the messages say; leave a list empty when there is nothing for it.',
+    'List every agreement in the chat, up to 20, so none of the recent ones is left out.',
 ].join(' ');
 
 
@@ -133,6 +139,11 @@ export const summarizeConversation = async (messages: any[]): Promise<ChatSummar
     const formattedMessages = withText
         .map((m, i) => `#${i} ${m.profiles?.full_name || m.profiles?.email || 'Alguien'}: ${m.text}`)
         .join('\n');
+    // The model may answer 12, "12" or "#12".
+    const messageAt = (ref: unknown) => {
+        const digits = String(ref ?? '').replace(/\D/g, '');
+        return digits ? withText[Number(digits)] : undefined;
+    };
 
     try {
         const response = await getOpenAiClient().chat.completions.create({
@@ -143,13 +154,13 @@ export const summarizeConversation = async (messages: any[]): Promise<ChatSummar
             ],
             response_format: { type: 'json_object' },
             temperature: 0.3,
-            max_tokens: 700,
+            max_tokens: 1400,
         });
 
         const raw = JSON.parse(response.choices[0]?.message?.content || '{}');
         if (Array.isArray(raw?.agreements)) {
             raw.agreements = raw.agreements.map((a: any) =>
-                typeof a === 'string' ? a : resolveAgreement(a, withText[Number(a?.message)]?.created_at));
+                typeof a === 'string' ? a : resolveAgreement(a, messageAt(a?.message)));
         }
         const sections = parseChatSummary(JSON.stringify(raw));
         if (!sections) return { text: 'No se pudo generar el resumen.', sections: null };
