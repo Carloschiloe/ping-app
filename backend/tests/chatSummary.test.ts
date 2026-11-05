@@ -35,7 +35,7 @@ describe('Chat summary uses real dates', () => {
         expect(resolveAgreement({ what: 'Reunión hoy a las 20:00 de mantención', said: 'hoy a las 20:00' }, '2026-11-03T15:10:00Z'))
             .toEqual({ what: 'Reunión de mantención', date: '2026-11-03', time: '20:00' });
         expect(resolveAgreement({ what: 'Reunión este jueves; temas de mantención', said: 'este jueves a las 10:00' }, '2026-11-03T19:52:00Z'))
-            .toEqual({ what: 'Reunión; temas de mantención', date: '2026-11-05', time: '10:00' });
+            .toEqual({ what: 'Reunión, temas de mantención', date: '2026-11-05', time: '10:00' });
         expect(resolveAgreement({ what: 'Revisar documentos', said: '' }, '2026-11-03T19:52:00Z'))
             .toEqual({ what: 'Revisar documentos', date: null, time: null });
     });

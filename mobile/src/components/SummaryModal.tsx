@@ -5,7 +5,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 import { SheetFill, sheetSurface } from '../design/Sheet';
-import { Glass } from '../design/Glass';
 import { PingOrb } from '../design/PingOrb';
 
 // "Resumen de este chat": what was agreed, what each person still owes and
@@ -29,7 +28,8 @@ type SummaryModalProps = {
 function Section({ icon, title, children }: { icon: keyof typeof Ionicons.glyphMap; title: string; children: React.ReactNode }) {
     return (
         <View style={styles.card}>
-            <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
+            {/* No blur here: a sheet is its own window and its blur turns grey once the phone rests. */}
+            <LinearGradient colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.03)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />
             <View style={styles.cardHeader}>
                 <Ionicons name={icon} size={16} color={colors.accentBright} />
                 <Text style={styles.cardTitle}>{title}</Text>
@@ -116,8 +116,10 @@ const styles = StyleSheet.create({
     subtitle: { ...type.caption, color: colors.textFaint, marginTop: 1 },
     scroll: { marginBottom: space.lg },
     overview: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: colors.text },
-    card: { borderRadius: radius.lg, overflow: 'hidden', padding: space.lg, gap: space.sm },
-    cardGlass: { borderRadius: radius.lg, borderTopColor: colors.glassEdge },
+    card: {
+        borderRadius: radius.lg, overflow: 'hidden', padding: space.lg, gap: space.sm,
+        borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder, borderTopColor: colors.glassEdge,
+    },
     cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
     cardTitle: { fontFamily: fonts.semibold, fontSize: 14, color: colors.accentBright },
     bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
