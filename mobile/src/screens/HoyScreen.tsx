@@ -595,7 +595,8 @@ export default function HoyScreen() {
             : colors.textSoft;
 
     const suggestion = view === 'mine' && !query && !hasFiltersActive ? pingSuggestion(mineData.overdue, mineData.hoy) : null;
-    const todayLabel = capitalize(format(new Date(), "EEEE d 'de' MMMM", { locale: es }));
+    // Short enough to stay on one line next to the buttons: "MIÉRCOLES 4 NOV".
+    const todayLabel = capitalize(format(new Date(), 'EEEE d MMM', { locale: es }).replace('.', ''));
 
     const renderListHeader = () => {
         if (view === 'historial') return null;
@@ -766,7 +767,7 @@ export default function HoyScreen() {
                 )}
                 <View style={styles.headerTop}>
                     <View style={{ flex: 1 }}>
-                        {!isSideView && <Text style={type.overline}>{todayLabel.toUpperCase()}</Text>}
+                        {!isSideView && <Text style={type.overline} numberOfLines={1}>{todayLabel.toUpperCase()}</Text>}
                         <Text style={isSideView ? styles.sideTitle : styles.headerTitle}>
                             {isSideView ? 'Terminados y cancelados' : 'Hoy'}
                         </Text>

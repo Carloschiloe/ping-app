@@ -261,7 +261,7 @@ export function CommitmentRow({
                     <TouchableOpacity
                         style={[styles.primaryBtn, { backgroundColor: colors.accentTint }]}
                         onPress={() => onOpenReschedule(c)}
-                        accessibilityLabel="Agendar"
+                        accessibilityLabel="Poner fecha"
                     >
                         <Ionicons name="calendar-outline" size={13} color={colors.accent} />
                     </TouchableOpacity>
@@ -276,7 +276,7 @@ export function CommitmentRow({
                     onPress={() => onOpenReschedule(c)}
                 >
                     <Ionicons name="calendar-outline" size={13} color={colors.accent} />
-                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Agendar</Text>
+                    <Text style={[styles.primaryBtnText, { color: colors.accent }]}>Poner fecha</Text>
                 </TouchableOpacity>
             );
         }

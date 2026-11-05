@@ -82,9 +82,16 @@ const InlineVideoThumbnail = React.memo(function InlineVideoThumbnail({
         return () => { active = false; };
     }, [still, stillKey, uri]);
 
-    return still
-        ? <ExpoImage source={still} style={style} contentFit="cover" />
-        : <View style={[style, { backgroundColor: colors.glassDim }]} />;
+    if (still) return <ExpoImage source={still} style={style} contentFit="cover" />;
+    // Until the first frame arrives: a soft glass card that says it is a video.
+    return (
+        <LinearGradient colors={[colors.glassRaised, colors.accentTint]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={style}>
+            <View style={styles.videoLoadingTag}>
+                <Ionicons name="videocam" size={13} color={colors.textSoft} />
+                <Text style={styles.videoLoadingText}>Video</Text>
+            </View>
+        </LinearGradient>
+    );
 });
 
 /** Regex matching http/https URLs within text (same pattern as backend link extractor). */
@@ -724,7 +731,7 @@ const MessageItemComponent = ({
                         >
                             <Ionicons name="sparkles" size={12} color={colors.accentBright} style={styles.suggestionIcon} />
                             <Text style={styles.suggestionText} numberOfLines={1}>
-                                Agendar
+                                Crear compromiso
                             </Text>
                         </TouchableOpacity>
                     )}
@@ -860,6 +867,8 @@ const styles = StyleSheet.create({
     timeThem: { color: colors.textFaint },
     msgImage: { width: 250, height: 250 },
     inlineVideoWrap: { position: 'relative', width: 250, height: 250, overflow: 'hidden' },
+    videoLoadingTag: { position: 'absolute', left: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
+    videoLoadingText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.textSoft },
     videoPlayOverlay: {
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: colors.glassTintLight,
@@ -904,7 +913,7 @@ const styles = StyleSheet.create({
     reactionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSolid, borderRadius: radius.md, paddingHorizontal: 7, paddingVertical: 3, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder, gap: 3 },
     reactionEmoji: { fontSize: 17 },
     reactionCount: { fontFamily: fonts.semibold, fontSize: 12, color: colors.textSoft },
-    // "Agendar": a small quiet pill under the message, not a big button.
+    // "Crear compromiso": a small quiet pill under the message, not a big button.
     suggestionChip: {
         flexDirection: 'row',
         alignItems: 'center',

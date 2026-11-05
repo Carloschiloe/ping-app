@@ -177,7 +177,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 ? 'Sugerir otro horario'
                                 : isEditing
                                     ? `✏️ Editar ${typeLabel}`
-                                    : suggestionData.messageId ? 'Agendar' : 'Nuevo compromiso'}
+                                    : suggestionData.messageId ? 'Crear compromiso' : 'Nuevo compromiso'}
                         </Text>
                         <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
                             <Ionicons name="close" size={24} color={colors.textFaint} />
@@ -381,7 +381,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 style={StyleSheet.absoluteFill}
                             />
                             <Text style={styles.acceptBtnText}>
-                                {isCounterProposal ? 'Enviar nuevo horario' : isEditing ? 'Guardar cambios' : 'Agendar'}
+                                {isCounterProposal ? 'Enviar nuevo horario' : isEditing ? 'Guardar cambios' : 'Crear'}
                             </Text>
                         </TouchableOpacity>
 

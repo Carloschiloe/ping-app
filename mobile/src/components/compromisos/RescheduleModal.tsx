@@ -78,7 +78,7 @@ export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalPr
                 <SheetFill />
                 <View style={styles.header}>
                     <Text style={[styles.title, { color: colors.text }]}>
-                        {item.due_at ? 'Reprogramar fecha' : 'Agendar compromiso'}
+                        {item.due_at ? 'Reprogramar fecha' : 'Poner fecha'}
                     </Text>
                     <TouchableOpacity onPress={onClose}>
                         <Ionicons name="close" size={20} color={colors.textSoft} />
