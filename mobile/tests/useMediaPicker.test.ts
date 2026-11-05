@@ -880,9 +880,9 @@ describe('useMediaPicker — CAMERA UI PHYSICALLY UNUSABLE (segunda causa raíz)
         expect(src).not.toMatch(/Alert\.alert\(\s*['"]Enviar archivo/);
     });
 
-    it('MediaSourceSheet.tsx: es un overlay de React plano — nunca usa Alert.alert ni <Modal> (import ni JSX)', () => {
+    it('el panel del + (ChatInput.tsx) es un overlay de React plano — nunca usa Alert.alert ni <Modal> (import ni JSX)', () => {
         const src = fs.readFileSync(
-            path.join(__dirname, '..', 'src', 'components', 'MediaSourceSheet.tsx'),
+            path.join(__dirname, '..', 'src', 'components', 'ChatInput.tsx'),
             'utf-8'
         );
         const importLine = src.split('\n').find((line) => line.includes("from 'react-native'"));
@@ -896,6 +896,7 @@ describe('useMediaPicker — CAMERA UI PHYSICALLY UNUSABLE (segunda causa raíz)
         expect(importLine).toContain('TouchableOpacity');
         expect(src).not.toMatch(/Alert\.alert\(/);
         expect(src).not.toMatch(/<Modal\b/);
+        expect(src).toContain('onPress={() => { setShowActions(false); item.run(); }}');
     });
 
     // (A) diagnóstico: openCamera('video') invocado directamente — sin

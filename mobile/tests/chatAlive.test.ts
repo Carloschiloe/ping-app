@@ -21,6 +21,18 @@ describe('Chat feels alive and matches the app', () => {
         expect(card).toContain('<RescheduleModal');
     });
 
+    it('the + opens one panel with every option a single tap away', () => {
+        const input = read('components/ChatInput.tsx');
+        for (const label of ['Cámara', 'Galería', 'Video', 'Documento', 'Ubicación', 'Compromiso']) {
+            expect(input).toContain(`label: '${label}'`);
+        }
+        expect(read('screens/ChatScreen.tsx')).toContain('onCreateCommitment={startNewCommitment}');
+        const form = read('components/AISuggestionModal.tsx');
+        expect(form).toContain("{kind === 'meeting' ? 'Reunión' : 'Tarea'}");
+        expect(form).toContain('const missingTitle = !isCounterProposal && !suggestionData.title?.trim();');
+        expect(form).toContain("'Sin fecha · toca para elegir'");
+    });
+
     it('deleting a file or a message asks with Ping\'s own card, not the system alert', () => {
         for (const file of ['screens/SharedContentScreen.tsx', 'screens/SharedVisualContentScreen.tsx', 'screens/ChatScreen.tsx']) {
             expect(read(file), file).toContain('await confirmAction({');
