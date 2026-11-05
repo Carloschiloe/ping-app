@@ -17,7 +17,7 @@ describe('M10 — Ping notices', () => {
         for (const column of ['assistant_daily_summary', 'assistant_summary_hour', 'assistant_overdue_notices']) {
             expect(profile).toContain(`update({ ${column}: `);
         }
-        expect(profile).toContain('AVISOS DE PING');
+        expect(profile).toContain('title="Avisos de Ping"');
         expect(profile).toContain('const SUMMARY_HOURS = [6, 7, 8, 9, 10];');
     });
 });

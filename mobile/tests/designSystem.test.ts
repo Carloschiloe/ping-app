@@ -114,9 +114,9 @@ describe('Perfil in the new design', () => {
         }
     });
 
-    it('shows settings on full-width glass bands and its sheets as lit glass', () => {
+    it('groups its settings in one glass card and shows its sheets as lit glass', () => {
         const profile = read('screens/ProfileScreen.tsx');
-        expect(profile).toContain('<Glass style={[StyleSheet.absoluteFill, styles.band]}');
+        expect(profile).toContain('<Glass style={[StyleSheet.absoluteFill, styles.cardGlass]}');
         expect(profile).toContain('TAB_BAR_CLEARANCE');
         for (const file of files.slice(1)) {
             expect(read(file), file).toContain('<SheetFill />');

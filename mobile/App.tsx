@@ -12,6 +12,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { API_URL } from './src/api/client';
 import { getBackendHealthUrl } from './src/utils/backendHealth';
 import { useDesignFonts } from './src/design/typography';
+import { ConfirmHost } from './src/design/ConfirmDialog';
 
 const queryClient = new QueryClient();
 const BACKEND_HEALTH_URL = getBackendHealthUrl(API_URL);
@@ -124,6 +125,7 @@ export default function App() {
             <QueryClientProvider client={queryClient}>
                 <AuthProvider>
                     <AppContent />
+                    <ConfirmHost />
                 </AuthProvider>
             </QueryClientProvider>
         </SafeAreaProvider>
