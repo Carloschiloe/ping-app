@@ -70,7 +70,7 @@ export function resolveAgreement(value: any, sentAt: string | null | undefined):
     if (said) what = what.replace(said, ' ');
     const time = said ? extractExplicitTimeHint(said) : null;
     if (time) what = what.replace(time, ' ');
-    what = what.replace(RELATIVE_WORDS, ' ').replace(/\s+([,.;:])/g, '$1').replace(/\s+/g, ' ').replace(/^[,;:\s]+|[,;:\s]+$/g, '').trim();
+    what = what.replace(RELATIVE_WORDS, ' ').replace(/\s+([,.;:])/g, '$1').replace(/;\s*/g, ', ').replace(/\s+/g, ' ').replace(/^[,;:\s]+|[,;:\s]+$/g, '').trim();
     const reference = sentAt ? new Date(sentAt) : null;
     const parsed = said && reference && !Number.isNaN(reference.getTime()) ? parseDateFromText(said, reference, TIME_ZONE) : null;
     if (!parsed) return { what, date: null, time: null };
