@@ -47,6 +47,8 @@ interface CommitmentDetailSheetProps {
     // (ver Riesgos del reporte) -- ya existen vía GroupTaskCard.tsx en el
     // contexto de chat.
     onConfirmRequest?: (item: any) => void;
+    // Waiting on someone else: a friendly reminder in the chat it came from.
+    onNudge?: (item: any) => void;
 }
 
 function formatDetailDate(iso?: string | null) {
@@ -67,6 +69,7 @@ export function CommitmentDetailSheet({
     onConfirmRequest,
     onArchive,
     onRestore,
+    onNudge,
 }: CommitmentDetailSheetProps) {
     const navigation = useNavigation<ChatsTabNavigationProp>();
 
@@ -220,10 +223,17 @@ export function CommitmentDetailSheet({
                         a cada guard de mutación de este footer -- un commitment
                         archivado (activo, resuelto o cancelado) sólo ofrece
                         Ver en chat/Restaurar, nunca estas acciones. */}
+                    {!isFinished && !isArchived && onNudge && (
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.accentTint }]} onPress={() => { onClose(); onNudge(item); }}>
+                            <Ionicons name="notifications-outline" size={16} color={colors.accentBright} />
+                            <Text style={[styles.actionBtnText, { color: colors.accentBright }]}>Recordarle</Text>
+                        </TouchableOpacity>
+                    )}
+
                     {!isFinished && !isProposal && !isArchived && onReschedule && (
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.glassRaised }]} onPress={() => { onClose(); onReschedule(item); }}>
                             <Ionicons name="calendar-outline" size={16} color={colors.accent} />
-                            <Text style={[styles.actionBtnText, { color: colors.accent }]}>Reprogramar</Text>
+                            <Text style={[styles.actionBtnText, { color: colors.accent }]}>{item.due_at ? 'Cambiar fecha' : 'Poner fecha'}</Text>
                         </TouchableOpacity>
                     )}
 

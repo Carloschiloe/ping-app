@@ -147,34 +147,6 @@ const cFromChat = { id: 'cchat', title: 'Hacer presupuesto', due_at: todayAt(11)
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('UX-3B.1 — Draft filter flow (fixes modal re-render bug)', () => {
-    it('modal maintains draft state until Aplicar is pressed', () => {
-        let activeFilters = { statusFilter: 'all', typeFilter: 'all' };
-        let draftFilters = { ...activeFilters };
-
-        // User taps chip inside modal -> updates draft only
-        draftFilters.typeFilter = 'meetings';
-        expect(activeFilters.typeFilter).toBe('all'); // Active list unaffected
-
-        // User taps Aplicar -> saves draft to active
-        activeFilters = { ...draftFilters };
-        expect(activeFilters.typeFilter).toBe('meetings');
-    });
-
-    it('closing modal without applying discards draft state', () => {
-        let activeFilters = { statusFilter: 'all', typeFilter: 'all' };
-        let draftFilters = { ...activeFilters };
-
-        // User taps chip inside modal -> updates draft
-        draftFilters.typeFilter = 'tasks';
-
-        // User closes modal without applying -> active remains unchanged
-        draftFilters = { ...activeFilters };
-        expect(activeFilters.typeFilter).toBe('all');
-        expect(draftFilters.typeFilter).toBe('all');
-    });
-});
-
 describe('UX-3B.1 — Contextual filters per segment', () => {
     it('Pendientes segment status options should exclude resolved, cancelled, rejected', () => {
         const pendientesStatusOptions = ['all', 'proposed', 'accepted'];

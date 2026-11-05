@@ -45,7 +45,7 @@ import { ChatInput, ChatInputHandle } from '../components/ChatInput';
 import { AISuggestionModal } from '../components/AISuggestionModal';
 import { OperationPanel } from '../components/OperationPanel';
 import { ReactionsModal } from '../components/ReactionsModal';
-import { SummaryModal } from '../components/SummaryModal';
+import { SummaryModal, type ChatSummary } from '../components/SummaryModal';
 import { CommitmentsStrip } from '../components/CommitmentsStrip';
 import { MessageActionsModal } from '../components/MessageActionsModal';
 import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
@@ -157,7 +157,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         }
     }, [videoDraft, draftVideoPlayer]);
 
-    const [summary, setSummary] = useState<string | null>(null);
+    const [summary, setSummary] = useState<ChatSummary | null>(null);
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [multiSelect, setMultiSelect] = useState<string[]>([]);
     const [forwardModalVisible, setForwardModalVisible] = useState(false);
@@ -296,10 +296,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         setIsSummarizing(true);
         try {
             const res = await apiClient.post('/ai/summarize', { conversationId });
-            setSummary(res.summary || 'No se pudo generar el resumen.');
+            setSummary({ text: res.summary || 'No se pudo generar el resumen.', sections: res.sections ?? null, messageCount: res.messageCount });
         } catch {
             console.error('[AI] Summarize failed');
-            Alert.alert('Error', 'No se pudo generar el resumen.');
+            Alert.alert('No se pudo hacer el resumen', 'Inténtalo nuevamente.');
         } finally {
             setIsSummarizing(false);
         }
@@ -1065,7 +1065,6 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 </Modal>
 
                 <SummaryModal
-                    visible={!!summary}
                     summary={summary}
                     onClose={() => setSummary(null)}
                     onAskPing={() => {
