@@ -22,6 +22,7 @@ import {
 } from '../services/messagingApplication.service';
 import { getLegacyConversationMedia, getSharedContent } from '../services/sharedContent.service';
 import { TtlCache } from '../utils/ttlCache';
+import { assertDirectChatNotBlocked } from '../services/accountSafety.service';
 
 const conversationListCache = new TtlCache<{ conversations: any[] }>(3_000, 512);
 const conversationListCacheEnabled = process.env.NODE_ENV !== 'test';
@@ -432,6 +433,8 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             return;
         }
 
+        await assertDirectChatNotBlocked(userId, conversationId as string);
+
         const result = await processUserMessage(
             userId,
             text,
@@ -520,6 +523,8 @@ export const forwardMessage = async (req: Request, res: Response): Promise<void>
             res.status(400).json({ error: 'clientMessageId must be a valid UUID' });
             return;
         }
+
+        await assertDirectChatNotBlocked(actorUserId, destinationConversationId);
 
         const result = await forwardMessageApplication({
             actorUserId,
@@ -675,6 +680,7 @@ export const pingConversation = async (req: Request, res: Response): Promise<voi
         const conversationId = req.params.id as string;
 
         await assertConversationParticipant(userId, conversationId);
+        await assertDirectChatNotBlocked(userId, conversationId);
 
         // 1. Get recipients (all participants except sender)
         const { data: recipients } = await supabaseAdmin

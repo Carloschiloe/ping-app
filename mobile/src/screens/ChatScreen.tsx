@@ -30,7 +30,9 @@ import {
     useSetActiveOperationCommitment,
     useConversations,
     useDeleteMessage,
+    useChatBlock,
 } from '../api/queries';
+import { ReportSheet, type ReportTarget } from '../components/safety/ReportSheet';
 import { useAuth } from '../context/AuthContext';
 import MentionPopup from '../components/MentionPopup';
 import MessageItemCard from '../components/MessageItem';
@@ -65,6 +67,7 @@ import {
     canDeleteMessages,
     isForwardableMessage,
     orderMessagesForForward,
+    isConfirmedMessageId,
 } from '../utils/messageActions';
 import {
     resolveMessageAttachmentPresentation,
@@ -115,6 +118,10 @@ function avatarColor(str: string) {
 export default function ChatScreen({ route }: ChatScreenProps) {
     const navigation = useNavigation<ChatCompositeNavigationProp>();
     const { conversationId, otherUser, isSelf, isGroup, groupMetadata } = route.params;
+    // A block between the two people of a direct chat replaces the composer.
+    const { data: chatBlock } = useChatBlock(conversationId, !isGroup && !isSelf);
+    const chatBlocked = !!(chatBlock?.blockedByMe || chatBlock?.blockedMe);
+    const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
     const [messageWindowTarget, setMessageWindowTarget] = useState(route.params.scrollToMessageId);
     const handledScrollTargetRef = useRef<string | null>(null);
     const { user, profile } = useAuth();
@@ -959,34 +966,45 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     </View>
                 )}
 
-                <ChatInput
-                    ref={chatInputRef}
-                    text={text}
-                    onTextChange={handleTextChange}
-                    onSend={handleSend}
-                    isSelf={!!isSelf}
-                    isPending={isSending || isPendingCommitment || isPendingSharedProposal}
-                    sendingMedia={sendingMedia}
-                    recordingUri={recordingUri}
-                    isRecording={isRecording}
-                    recordingDurationMs={recordingDurationMs}
-                    onOpenAttachments={prewarmAppConfig}
-                    onTakePhoto={() => void openCamera('photo')}
-                    onPickGallery={() => void openGallery()}
-                    onRecordVideo={() => void openCamera('video')}
-                    onPickDocument={() => void openDocumentPicker()}
-                    onShareLocation={handleShareLocation}
-                    onCreateCommitment={startNewCommitment}
-                    onStartRecording={startRecording}
-                    onStopRecording={stopRecording}
-                    onCancelAudio={cancelAudio}
-                    onUploadAudio={uploadAudio}
-                    onFocus={() => {
-                        setTimeout(() => {
-                            listRef.current?.scrollToOffset({ offset: 0, animated: true });
-                        }, 120);
-                    }}
-                />
+{chatBlocked ? (
+                    <View style={[styles.blockedBar, { paddingBottom: Math.max(safeAreaInsets.bottom, 12) }]}>
+                        <Ionicons name="hand-left-outline" size={18} color={colors.textSoft} />
+                        <Text style={styles.blockedText}>
+                            {chatBlock?.blockedByMe
+                                ? 'Bloqueaste a esta persona. Desbloquéala en Info del chat para volver a escribirle.'
+                                : 'No puedes enviar mensajes a este chat.'}
+                        </Text>
+                    </View>
+                ) : (
+                                <ChatInput
+                        ref={chatInputRef}
+                        text={text}
+                        onTextChange={handleTextChange}
+                        onSend={handleSend}
+                        isSelf={!!isSelf}
+                        isPending={isSending || isPendingCommitment || isPendingSharedProposal}
+                        sendingMedia={sendingMedia}
+                        recordingUri={recordingUri}
+                        isRecording={isRecording}
+                        recordingDurationMs={recordingDurationMs}
+                        onOpenAttachments={prewarmAppConfig}
+                        onTakePhoto={() => void openCamera('photo')}
+                        onPickGallery={() => void openGallery()}
+                        onRecordVideo={() => void openCamera('video')}
+                        onPickDocument={() => void openDocumentPicker()}
+                        onShareLocation={handleShareLocation}
+                        onCreateCommitment={startNewCommitment}
+                        onStartRecording={startRecording}
+                        onStopRecording={stopRecording}
+                        onCancelAudio={cancelAudio}
+                        onUploadAudio={uploadAudio}
+                        onFocus={() => {
+                            setTimeout(() => {
+                                listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                            }, 120);
+                        }}
+                    />
+                )}
 
 
                 <LocationConfirmModal
@@ -1079,6 +1097,11 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         setSummary(null);
                         navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() });
                     }}
+                    onReport={() => {
+                        const excerpt = summary?.text || '';
+                        setSummary(null);
+                        setReportTarget({ kind: 'assistant', excerpt: excerpt || 'Resumen del chat', conversationId });
+                    }}
                 />
 
                 <MessageActionsModal
@@ -1150,6 +1173,16 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         setPinnedMessage(nextPinnedId);
                         setSelectedMsg(null);
                     }}
+                    onReport={isConfirmedMessageId(selectedMsg?.id) ? () => {
+                        const message = selectedMsg;
+                        setSelectedMsg(null);
+                        setReportTarget({
+                            kind: 'message',
+                            conversationId,
+                            messageId: message.id,
+                            name: message.profiles?.full_name || null,
+                        });
+                    } : undefined}
                     onDelete={() => {
                         const message = selectedMsg;
                         setSelectedMsg(null);
@@ -1160,6 +1193,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                         confirmDelete([message.id]);
                     }}
                 />
+
+                <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
 
                 <ForwardMessagesModal
                     visible={forwardModalVisible}
@@ -1267,4 +1302,6 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
     },
     sendStatusText: { fontFamily: fonts.medium, fontSize: 12, color: colors.textFaint },
+    blockedBar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.glassBorder, backgroundColor: colors.glassRaised },
+    blockedText: { flex: 1, fontFamily: fonts.medium, fontSize: 13.5, lineHeight: 19, color: colors.textSoft },
 });

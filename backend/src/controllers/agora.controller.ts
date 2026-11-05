@@ -1,5 +1,6 @@
 
 import { Request, Response } from 'express';
+import { assertDirectChatNotBlocked } from '../services/accountSafety.service';
 import { randomBytes } from 'crypto';
 import * as agoraService from '../services/agora.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
@@ -157,6 +158,7 @@ export const notifyCall = async (req: Request, res: Response): Promise<void> => 
         }
 
         await assertConversationParticipant(callerId, conversationId);
+        await assertDirectChatNotBlocked(callerId, conversationId);
 
         // 1. Get caller's profile
         const { data: callerProfile } = await supabaseAdmin

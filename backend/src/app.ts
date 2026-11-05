@@ -11,6 +11,7 @@ import { getEnvConfig } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
 import { isAllowedRequestOrigin, isStrictCorsEnvironment } from './security/corsPolicy';
 import { AppError } from './utils/AppError';
+import { DELETE_ACCOUNT_PAGE, PRIVACY_PAGE, TERMS_PAGE } from './legal/pages';
 
 dotenv.config();
 
@@ -112,6 +113,18 @@ app.get('/invite', (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.type('html').send(PING_INVITE_PAGE);
 });
+
+// Public legal pages linked from the app and from the Google Play listing.
+for (const [path, html] of [
+  ['/privacidad', PRIVACY_PAGE],
+  ['/terminos', TERMS_PAGE],
+  ['/cuenta/eliminar', DELETE_ACCOUNT_PAGE],
+] as const) {
+  app.get(path, (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.type('html').send(html);
+  });
+}
 
 // Main router
 app.use('/api', router);

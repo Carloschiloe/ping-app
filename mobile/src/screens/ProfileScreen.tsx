@@ -22,6 +22,10 @@ import { EditProfileSheet } from '../components/perfil/EditProfileSheet';
 import { CalendarsSheet } from '../components/perfil/CalendarsSheet';
 import { FocusModeSheet } from '../components/perfil/FocusModeSheet';
 import { MemorySheet } from '../components/perfil/MemorySheet';
+import { FeedbackSheet } from '../components/perfil/FeedbackSheet';
+import { BlockedPeopleSheet } from '../components/perfil/BlockedPeopleSheet';
+import { DeleteAccountSheet } from '../components/perfil/DeleteAccountSheet';
+import { openLegal } from '../utils/legalLinks';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
@@ -52,6 +56,9 @@ export default function ProfileScreen() {
     const [summaryHour, setSummaryHour] = useState(8);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
     const [privacyOpen, setPrivacyOpen] = useState(false);
+    const [feedbackVisible, setFeedbackVisible] = useState(false);
+    const [blockedVisible, setBlockedVisible] = useState(false);
+    const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
     const [noticesOpen, setNoticesOpen] = useState(false);
 
     // Focus Mode State (kept from original implementation)
@@ -385,13 +392,24 @@ export default function ProfileScreen() {
                 </Row>
             </Section>
 
-            {/* LOGOUT */}
+            {/* HELP AND LEGAL */}
             <Section order={2}>
+                <Row icon="chatbox-ellipses-outline" title="Comentarios y sugerencias" subtitle="Cuéntanos qué mejorar" onPress={() => setFeedbackVisible(true)} />
+                <Row divider icon="hand-left-outline" title="Personas bloqueadas" onPress={() => setBlockedVisible(true)} />
+                <Row divider icon="document-lock-outline" title="Política de privacidad" onPress={() => openLegal('privacy')} />
+                <Row divider icon="document-text-outline" title="Términos de uso" onPress={() => openLegal('terms')} />
+            </Section>
+
+            {/* LOGOUT */}
+            <Section order={3}>
                 <TouchableOpacity style={[styles.row, styles.logoutRow]} onPress={handleLogout} accessibilityLabel="Cerrar sesión">
                     <Ionicons name="log-out-outline" size={19} color={colors.danger} />
                     <Text style={styles.logoutText}>Cerrar sesión</Text>
                 </TouchableOpacity>
             </Section>
+            <TouchableOpacity onPress={() => setDeleteAccountVisible(true)} accessibilityLabel="Eliminar mi cuenta" style={styles.deleteAccountLink}>
+                <Text style={styles.deleteAccountText}>Eliminar mi cuenta</Text>
+            </TouchableOpacity>
             <Text style={styles.versionText}>Ping v{appVersion}</Text>
 
             {/* SHEETS */}
@@ -429,6 +447,9 @@ export default function ProfileScreen() {
             />
 
             <MemorySheet visible={memoryVisible} onClose={() => setMemoryVisible(false)} />
+            <FeedbackSheet visible={feedbackVisible} onClose={() => setFeedbackVisible(false)} />
+            <BlockedPeopleSheet visible={blockedVisible} onClose={() => setBlockedVisible(false)} />
+            <DeleteAccountSheet visible={deleteAccountVisible} onClose={() => setDeleteAccountVisible(false)} />
         </ScrollView>
     );
 }
@@ -616,4 +637,6 @@ const styles = StyleSheet.create({
     logoutRow: { justifyContent: 'center', gap: space.sm, paddingVertical: 15 },
     logoutText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.danger },
     versionText: { ...type.caption, color: colors.textFaint, textAlign: 'center', marginTop: space.lg },
+    deleteAccountLink: { alignSelf: 'center', paddingVertical: space.sm, paddingHorizontal: space.lg, marginTop: space.sm },
+    deleteAccountText: { fontFamily: fonts.medium, fontSize: 13.5, color: colors.textFaint, textDecorationLine: 'underline' },
 });

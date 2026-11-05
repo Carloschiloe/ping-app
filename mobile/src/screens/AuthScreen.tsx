@@ -13,6 +13,7 @@ import {
     PrivacyNote,
 } from '../components/auth/AuthKit';
 import { supabase } from '../lib/supabase';
+import { openLegal } from '../utils/legalLinks';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
 import {
@@ -42,6 +43,8 @@ export default function AuthScreen() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<AuthMode>('login');
+    // A new account needs the person to accept the terms and confirm their age.
+    const [acceptedTerms, setAcceptedTerms] = useState(false);
     const [signupCooldown, setSignupCooldown] = useState(0);
     const [signupSubmitted, setSignupSubmitted] = useState(false);
     const [signupEmail, setSignupEmail] = useState('');
@@ -223,7 +226,7 @@ export default function AuthScreen() {
     }
 
     const signupBlocked = mode === 'signup' && signupCooldown > 0;
-    const buttonDisabled = loading || signupBlocked;
+    const buttonDisabled = loading || signupBlocked || (mode === 'signup' && !acceptedTerms);
 
     return (
         <AuthScaffold buildLabel={buildLabel}>
@@ -324,6 +327,29 @@ export default function AuthScreen() {
                             <AuthMessage tone="warning">
                                 {getSignupCooldownMessage(false, signupCooldown)}
                             </AuthMessage>
+                        )}
+
+                        {mode === 'signup' && (
+                            <Pressable
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: acceptedTerms }}
+                                accessibilityLabel="Tengo 14 años o más y acepto los Términos de uso y la Política de privacidad"
+                                onPress={() => setAcceptedTerms((value) => !value)}
+                                disabled={loading}
+                                style={styles.termsRow}
+                            >
+                                <Ionicons
+                                    name={acceptedTerms ? 'checkbox' : 'square-outline'}
+                                    size={22}
+                                    color={acceptedTerms ? colors.accentBright : colors.textFaint}
+                                />
+                                <Text style={styles.termsText}>
+                                    Tengo 14 años o más y acepto los{' '}
+                                    <Text style={styles.termsLink} onPress={() => openLegal('terms')}>Términos de uso</Text>
+                                    {' '}y la{' '}
+                                    <Text style={styles.termsLink} onPress={() => openLegal('privacy')}>Política de privacidad</Text>.
+                                </Text>
+                            </Pressable>
                         )}
 
                         <AuthPrimaryButton
@@ -550,6 +576,9 @@ const styles = StyleSheet.create({
     switchText: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 14 },
     switchTextStrong: { color: colors.accentBright, fontFamily: fonts.semibold },
     forgotLink: { alignItems: 'center', paddingVertical: 10 },
+    termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 4 },
+    termsText: { flex: 1, color: colors.textSoft, fontSize: 13, lineHeight: 19, fontFamily: fonts.regular },
+    termsLink: { color: colors.accentBright, fontFamily: fonts.semibold },
     forgotLinkText: { color: colors.accentBright, fontSize: 13, fontFamily: fonts.semibold },
     recoveryIntro: { alignItems: 'center', marginBottom: 16, paddingHorizontal: 8 },
     recoveryIcon: {
