@@ -31,7 +31,38 @@ const clean = (value: unknown): string =>
 const cleanList = (value: unknown): string[] =>
     Array.isArray(value) ? value.map(clean).filter(Boolean).slice(0, 8) : [];
 
-export function parseChatSummary(raw: string): ChatSummary | null {
+// Chile time, so a date always reads the way the people in the chat said it.
+const TIME_ZONE = 'America/Santiago';
+const isoDay = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
+const longDay = new Intl.DateTimeFormat('es-CL', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
+const hourFormat = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false });
+
+// The model only says which day and hour; the words are always written here,
+// so a summary never says "mañana" about a message from March.
+export function formatWhen(date: unknown, time: unknown, now: Date = new Date()): string {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
+    const day = new Date(`${date}T12:00:00Z`);
+    if (Number.isNaN(day.getTime())) return '';
+    const year = date.slice(0, 4) === isoDay.format(now).slice(0, 4) ? '' : ` de ${date.slice(0, 4)}`;
+    const hour = typeof time === 'string' && /^\d{1,2}:\d{2}$/.test(time) ? ` a las ${time.padStart(5, '0')}` : '';
+    return `${longDay.format(day)}${year}${hour}`;
+}
+
+const agreementText = (value: any, now: Date): string => {
+    if (typeof value === 'string') return clean(value);
+    const when = formatWhen(value?.date, value?.time, now);
+    // The day and hour are written once, here, even if the model repeats them.
+    const what = when ? clean(value?.what).replace(/,?\s*(a las|a la)\s+\d{1,2}(:\d{2})?\s*(hrs?\.?|am|pm)?/gi, '').trim() : clean(value?.what);
+    return what && when ? `${what}: ${when}` : what;
+};
+
+// Newest agreed day first; the ones without a day go last.
+const byNewest = (a: any, b: any) => {
+    const key = (v: any) => (typeof v?.date === 'string' ? `${v.date} ${typeof v.time === 'string' ? v.time.padStart(5, '0') : ''}` : '');
+    return key(b).localeCompare(key(a));
+};
+
+export function parseChatSummary(raw: string, now: Date = new Date()): ChatSummary | null {
     try {
         const data = JSON.parse(raw);
         const pending = Array.isArray(data?.pending)
@@ -42,7 +73,9 @@ export function parseChatSummary(raw: string): ChatSummary | null {
             : [];
         const summary: ChatSummary = {
             overview: clean(data?.overview),
-            agreements: cleanList(data?.agreements),
+            agreements: Array.isArray(data?.agreements)
+                ? [...data.agreements].sort(byNewest).map((a: any) => agreementText(a, now)).filter(Boolean).slice(0, 8)
+                : [],
             pending,
             latest: clean(data?.latest),
         };
@@ -64,23 +97,20 @@ const INSTRUCTIONS = [
     'You summarize a work chat for someone who does not want to read every message.',
     'Write in the chat\'s language (usually Chilean Spanish), plain and brief, no markdown, no emojis.',
     'Reply with JSON only: {"overview": one or two sentences on what the chat is about,',
-    '"agreements": short sentences with what was agreed, newest first,',
+    '"agreements": [{"what": what was agreed, without any date or time words, "date": "YYYY-MM-DD" or null, "time": "HH:MM" or null}], newest first,',
     '"pending": [{"person": first name, "items": what that person still has to do}],',
-    '"latest": one sentence on where the conversation ended}.',
+    '"latest": one sentence on where the conversation ended, without dates}.',
     'Use only what the messages say; leave a list empty when there is nothing for it.',
-    'Every message starts with the day it was sent. Turn words like hoy, mañana or el lunes into the real date',
-    'counted from that day, written like "viernes 13 de marzo a las 15:00"; never write hoy, mañana or ayer.',
+    'Every message starts with the date it was sent (YYYY-MM-DD and weekday). For each agreement work out the real date',
+    'from that message\'s own date: "mañana" in a message of 2026-03-12 is 2026-03-13, "este jueves" is the next Thursday from it.',
 ].join(' ');
 
-// Each message carries its own day in Chile time, so "mañana" in a March
-// message becomes a March date instead of looking like tomorrow.
-const TIME_ZONE = 'America/Santiago';
-const dayFormat = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-const hourFormat = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false });
+// Each message carries its own day, so the model can count from it.
+const weekday = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, weekday: 'long' });
 
 export const messageStamp = (iso: string) => {
     const date = new Date(iso);
-    return `${dayFormat.format(date)}, ${hourFormat.format(date)}`;
+    return `${isoDay.format(date)} ${weekday.format(date)} ${hourFormat.format(date)}`;
 };
 
 export const summarizeConversation = async (messages: any[]): Promise<ChatSummaryResult> => {
