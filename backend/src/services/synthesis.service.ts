@@ -64,11 +64,24 @@ const INSTRUCTIONS = [
     'You summarize a work chat for someone who does not want to read every message.',
     'Write in the chat\'s language (usually Chilean Spanish), plain and brief, no markdown, no emojis.',
     'Reply with JSON only: {"overview": one or two sentences on what the chat is about,',
-    '"agreements": short sentences with what was agreed (dates and times included),',
+    '"agreements": short sentences with what was agreed, newest first,',
     '"pending": [{"person": first name, "items": what that person still has to do}],',
     '"latest": one sentence on where the conversation ended}.',
     'Use only what the messages say; leave a list empty when there is nothing for it.',
+    'Every message starts with the day it was sent. Turn words like hoy, mañana or el lunes into the real date',
+    'counted from that day, written like "viernes 13 de marzo a las 15:00"; never write hoy, mañana or ayer.',
 ].join(' ');
+
+// Each message carries its own day in Chile time, so "mañana" in a March
+// message becomes a March date instead of looking like tomorrow.
+const TIME_ZONE = 'America/Santiago';
+const dayFormat = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const hourFormat = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false });
+
+export const messageStamp = (iso: string) => {
+    const date = new Date(iso);
+    return `${dayFormat.format(date)}, ${hourFormat.format(date)}`;
+};
 
 export const summarizeConversation = async (messages: any[]): Promise<ChatSummaryResult> => {
     if (!process.env.OPENAI_API_KEY) return { text: 'El resumen no está disponible en este momento.', sections: null };
@@ -77,8 +90,7 @@ export const summarizeConversation = async (messages: any[]): Promise<ChatSummar
         .filter((m) => typeof m.text === 'string' && m.text.trim())
         .map((m) => {
             const sender = m.profiles?.full_name || m.profiles?.email || 'Alguien';
-            const when = m.created_at ? new Date(m.created_at).toISOString().slice(0, 16).replace('T', ' ') : '';
-            return `[${when}] ${sender}: ${m.text}`;
+            return `[${m.created_at ? messageStamp(m.created_at) : 'sin fecha'}] ${sender}: ${m.text}`;
         })
         .join('\n');
 
@@ -87,7 +99,7 @@ export const summarizeConversation = async (messages: any[]): Promise<ChatSummar
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: INSTRUCTIONS },
-                { role: 'user', content: formattedMessages },
+                { role: 'user', content: `Hoy es ${messageStamp(new Date().toISOString())}.\n\n${formattedMessages}` },
             ],
             response_format: { type: 'json_object' },
             temperature: 0.3,
