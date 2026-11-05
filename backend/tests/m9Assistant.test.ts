@@ -408,7 +408,7 @@ describe('M9 assistant — Confirm/Cancel buttons', () => {
         expect(model.seen).toHaveLength(0);
         expect(world.executed).toHaveLength(1);
         expect(pressed.memory.actions[0].state).toBe('confirmed');
-        expect(pressed.result.response.answer).toMatch(/^Listo\. /);
+        expect(pressed.result.response.answer).toMatch(/^Listo, marqué «/);
         expect(pressed.result.pendingActions).toBeUndefined();
         expect(pressed.result.changed).toBe(true);
         expect(pressed.memory.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);

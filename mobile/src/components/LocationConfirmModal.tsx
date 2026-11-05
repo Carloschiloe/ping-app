@@ -9,9 +9,8 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { CachedImage } from '../design/CachedImage';
 import { Ionicons } from '@expo/vector-icons';
-import { latLngToOsmTile } from '../utils/mapTiles';
+import { LocationArt } from './LocationArt';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
 import { SheetFill, sheetSurface } from '../design/Sheet';
@@ -97,12 +96,7 @@ export default function LocationConfirmModal({
                                     style={{ flex: 1 }}
                                     onPress={() => openInMaps(location.latitude, location.longitude)}
                                 >
-                                    <CachedImage uri={latLngToOsmTile(location.latitude, location.longitude, 16)} style={styles.mapImage} />
-                                    {/* Center Marker */}
-                                    <View style={styles.markerContainer}>
-                                        <View style={styles.markerShadow} />
-                                        <Ionicons name="location-sharp" size={36} color={colors.danger} style={styles.markerIcon} />
-                                    </View>
+                                    <LocationArt latitude={location.latitude} longitude={location.longitude} pinSize={36} />
                                 </TouchableOpacity>
 
                                 <View style={styles.mapActionsOverlay}>
@@ -216,33 +210,6 @@ const styles = StyleSheet.create({
         padding: 20,
     },
     hint: { fontFamily: fonts.regular, fontSize: 14, marginTop: 4 },
-    mapImage: {
-        width: '100%',
-        height: '100%',
-    },
-    markerContainer: {
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        marginLeft: -18,
-        marginTop: -32,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    markerShadow: {
-        position: 'absolute',
-        bottom: 4,
-        width: 12,
-        height: 6,
-        borderRadius: 6,
-        backgroundColor: colors.scrim,
-        transform: [{ scaleX: 2 }],
-    },
-    markerIcon: {
-        textShadowColor: colors.ink,
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 2,
-    },
     mapActionsOverlay: {
         position: 'absolute',
         bottom: 12,

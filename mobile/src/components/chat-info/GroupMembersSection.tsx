@@ -25,15 +25,18 @@ export function GroupMembersSection({
     if (!members.length) return null;
 
     return (
-        <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{members.length} INTEGRANTES</Text>
-            <View>
-                <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
-                {members.map((member, index) => {
+        <View style={styles.card}>
+            <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
+            {/* The title lives inside the card, as its first line. */}
+            <View style={styles.header}>
+                <Text style={styles.headerTitle}>Participantes</Text>
+                <Text style={styles.headerCount}>{members.length}</Text>
+            </View>
+            {members.map((member) => {
                     const label = member.full_name || member.email || '?';
                     return (
                         <View key={member.id} style={styles.memberRow}>
-                            {index > 0 && <View pointerEvents="none" style={styles.divider} />}
+                            <View pointerEvents="none" style={styles.divider} />
                             {member.avatar_url ? (
                                 <CachedImage uri={member.avatar_url} style={styles.memberAvatar} />
                             ) : (
@@ -60,20 +63,21 @@ export function GroupMembersSection({
                         </View>
                     );
                 })}
-            </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    section: { marginTop: space.xxl },
-    sectionTitle: { ...type.overline, marginBottom: space.sm, marginLeft: space.xl },
-    band: { borderLeftWidth: 0, borderRightWidth: 0 },
-    memberRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.md },
+    card: { marginTop: space.lg, marginHorizontal: space.lg, borderRadius: radius.lg, overflow: 'hidden' },
+    cardGlass: { borderRadius: radius.lg, borderTopColor: colors.glassEdge },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.lg, paddingVertical: space.md },
+    headerTitle: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text },
+    headerCount: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft },
+    memberRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.md },
     divider: {
         position: 'absolute',
         top: 0,
-        left: space.xl + 44 + space.md,
+        left: space.lg + 44 + space.md,
         right: 0,
         height: StyleSheet.hairlineWidth,
         backgroundColor: colors.separator,

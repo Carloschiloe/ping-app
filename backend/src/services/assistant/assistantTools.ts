@@ -214,7 +214,7 @@ async function propose(
         action: ref,
         summary,
         status: 'waiting_for_user_confirmation',
-        instruction: 'Tell the user exactly this summary and ask whether to go ahead. It runs only if the user agrees in their next message.',
+        instruction: 'In one natural Spanish sentence, tell the user what you will do (e.g. "Voy a crear «…» para el jueves 5 a las 18:00"), keeping the title, person and date exactly as in the summary, and ask whether to go ahead. It runs only if the user agrees in their next message.',
     };
 }
 

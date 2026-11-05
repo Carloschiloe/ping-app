@@ -32,6 +32,7 @@ import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 import { Glass } from '../design/Glass';
 import { ScreenHeader } from '../design/ScreenHeader';
+import { confirmAction } from '../design/ConfirmDialog';
 
 export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProps) {
     const insets = useSafeAreaInsets();
@@ -111,27 +112,28 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
         updateGroup({ name: nextName }, { onSuccess: () => setIsEditingName(false) });
     };
 
-    const toggleAdmin = (member: any) => {
-        const role = member.role === 'admin' ? 'member' : 'admin';
-        Alert.alert('Administradores', `¿Confirmas cambiar el rol de ${member.full_name || member.email}?`, [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Confirmar', onPress: () => updateParticipantRole({ userId: member.id, role }) },
-        ]);
+    const toggleAdmin = async (member: any) => {
+        const makeAdmin = member.role !== 'admin';
+        const ok = await confirmAction({
+            title: makeAdmin ? 'Hacer administrador' : 'Quitar administrador',
+            message: `${member.full_name || member.email} ${makeAdmin ? 'podrá' : 'ya no podrá'} administrar el grupo.`,
+            confirmLabel: 'Confirmar',
+            destructive: false,
+        });
+        if (ok) updateParticipantRole({ userId: member.id, role: makeAdmin ? 'admin' : 'member' });
     };
 
-    const confirmDeleteGroup = () => Alert.alert(
-        'Eliminar grupo',
-        '¿Estás seguro? Esta acción no se puede deshacer.',
-        [
-            { text: 'Cancelar', style: 'cancel' },
-            {
-                text: 'Eliminar', style: 'destructive', onPress: () => deleteGroup(conversationId, {
-                    onSuccess: () => navigation.navigate('ConversationsList'),
-                    onError: () => Alert.alert('Error', 'No se pudo eliminar el grupo.'),
-                }),
-            },
-        ],
-    );
+    const confirmDeleteGroup = async () => {
+        const ok = await confirmAction({
+            title: 'Eliminar grupo',
+            message: 'Se eliminará para todos los participantes. Esta acción no se puede deshacer.',
+        });
+        if (!ok) return;
+        deleteGroup(conversationId, {
+            onSuccess: () => navigation.navigate('ConversationsList'),
+            onError: () => Alert.alert('No se pudo eliminar el grupo', 'Inténtalo nuevamente.'),
+        });
+    };
 
     return (
         <View style={styles.container}>
@@ -181,9 +183,9 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
                     </Glass>
                 </View>
 
-                <Text style={styles.sectionTitle}>ARCHIVOS Y CONTENIDO</Text>
-                <View>
-                    <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+                {/* Grouped cards, like Perfil: the rows say what they are. */}
+                <View style={styles.card}>
+                    <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
                     {summaryQuery.isError && (
                         <TouchableOpacity style={styles.errorRow} onPress={() => summaryQuery.refetch()}>
                             <Ionicons name="refresh" size={15} color={colors.danger} />
@@ -221,8 +223,8 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
                 )}
 
                 {isAdmin && (
-                    <View style={styles.deleteWrap}>
-                        <Glass style={[StyleSheet.absoluteFill, styles.band]} intensity={22} tint={colors.glassTintLight} />
+                    <View style={[styles.card, styles.deleteWrap]}>
+                        <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
                         <TouchableOpacity style={styles.deleteButton} onPress={confirmDeleteGroup} disabled={isDeleting}>
                             <Ionicons name="trash-outline" size={19} color={colors.danger} />
                             <Text style={styles.deleteText}>{isDeleting ? 'Eliminando…' : 'Eliminar grupo'}</Text>
@@ -295,20 +297,20 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
     },
     compactActionText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.onAccent },
-    sectionTitle: { ...type.overline, marginTop: space.xxl, marginBottom: space.sm, marginLeft: space.xl },
-    band: { borderLeftWidth: 0, borderRightWidth: 0 },
+    card: { marginTop: space.lg, marginHorizontal: space.lg, borderRadius: radius.lg, overflow: 'hidden' },
+    cardGlass: { borderRadius: radius.lg, borderTopColor: colors.glassEdge },
     contentRow: {
         minHeight: 68,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: space.xl,
+        paddingHorizontal: space.lg,
         paddingVertical: space.md,
         gap: space.md,
     },
     divider: {
         position: 'absolute',
         top: 0,
-        left: space.xl + 40 + space.md,
+        left: space.lg + 40 + space.md,
         right: 0,
         height: StyleSheet.hairlineWidth,
         backgroundColor: colors.separator,
@@ -319,9 +321,9 @@ const styles = StyleSheet.create({
     contentEmpty: { ...type.caption, color: colors.textFaint, marginTop: 3 },
     previewRow: { flexDirection: 'row', gap: 5, marginTop: space.sm },
     count: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft, minWidth: 24, textAlign: 'right' },
-    errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: space.xl, marginTop: space.md, padding: 10, borderRadius: radius.md, backgroundColor: colors.dangerTint },
+    errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: space.lg, marginTop: space.md, padding: 10, borderRadius: radius.md, backgroundColor: colors.dangerTint },
     errorText: { ...type.caption, color: colors.danger },
-    deleteWrap: { marginTop: space.xxl },
+    deleteWrap: { marginBottom: space.xxl },
     deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, paddingVertical: 15 },
     deleteText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.danger },
 });
