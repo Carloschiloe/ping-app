@@ -29,15 +29,27 @@ describe('Chat summary uses real dates', () => {
     it('counts hoy, mañana and weekdays from the day each message was sent', async () => {
         const { resolveAgreement } = await import('../src/services/synthesis.service');
         // 12 de marzo, 12:00 en Chile.
-        expect(resolveAgreement({ what: 'Reunión de producción mañana a las 15:00', said: 'mañana a las 15:00' }, '2026-03-12T15:00:00Z'))
+        expect(resolveAgreement({ what: 'Reunión de producción mañana a las 15:00', said: 'mañana a las 15:00' }, { created_at: '2026-03-12T15:00:00Z' }))
             .toEqual({ what: 'Reunión de producción', date: '2026-03-13', time: '15:00' });
         // Martes 3 de noviembre, 12:10 en Chile.
-        expect(resolveAgreement({ what: 'Reunión hoy a las 20:00 de mantención', said: 'hoy a las 20:00' }, '2026-11-03T15:10:00Z'))
+        expect(resolveAgreement({ what: 'Reunión hoy a las 20:00 de mantención', said: 'hoy a las 20:00' }, { created_at: '2026-11-03T15:10:00Z' }))
             .toEqual({ what: 'Reunión de mantención', date: '2026-11-03', time: '20:00' });
-        expect(resolveAgreement({ what: 'Reunión este jueves; temas de mantención', said: 'este jueves a las 10:00' }, '2026-11-03T19:52:00Z'))
+        expect(resolveAgreement({ what: 'Reunión este jueves; temas de mantención', said: 'este jueves a las 10:00' }, { created_at: '2026-11-03T19:52:00Z' }))
             .toEqual({ what: 'Reunión, temas de mantención', date: '2026-11-05', time: '10:00' });
-        expect(resolveAgreement({ what: 'Revisar documentos', said: '' }, '2026-11-03T19:52:00Z'))
+        expect(resolveAgreement({ what: 'Revisar documentos', said: '' }, { text: 'Hay que revisar los documentos', created_at: '2026-11-03T19:52:00Z' }))
             .toEqual({ what: 'Revisar documentos', date: null, time: null });
+    });
+
+    it('writes a calendar date only once', async () => {
+        const { resolveAgreement } = await import('../src/services/synthesis.service');
+        expect(resolveAgreement({ what: 'Reunión el 30 de marzo', said: 'el 30 de marzo a las 08:00' }, { created_at: '2026-03-29T13:00:00Z' }).what)
+            .toBe('Reunión');
+    });
+
+    it('reads the day from the message itself when the model leaves the words out', async () => {
+        const { resolveAgreement } = await import('../src/services/synthesis.service');
+        expect(resolveAgreement({ what: 'Mantención de motores', said: '' }, { text: 'Mantención de motores mañana a las 9', created_at: '2026-11-03T15:10:00Z' }))
+            .toEqual({ what: 'Mantención de motores', date: '2026-11-04', time: '09:00' });
     });
 
     it('writes the agreed day itself, newest first', async () => {
