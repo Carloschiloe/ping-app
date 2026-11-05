@@ -44,6 +44,8 @@ describe('Chat summary uses real dates', () => {
         const { resolveAgreement } = await import('../src/services/synthesis.service');
         expect(resolveAgreement({ what: 'Reunión el 30 de marzo', said: 'el 30 de marzo a las 08:00' }, { created_at: '2026-03-29T13:00:00Z' }).what)
             .toBe('Reunión');
+        expect(resolveAgreement({ what: 'Reunión a las', said: 'el viernes a las 7' }, { created_at: '2026-03-18T13:00:00Z' }).what)
+            .toBe('Reunión');
     });
 
     it('reads the day from the message itself when the model leaves the words out', async () => {
