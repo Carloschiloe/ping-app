@@ -6,9 +6,11 @@ import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 import { SheetFill, sheetSurface } from '../design/Sheet';
 import { PingOrb } from '../design/PingOrb';
+import { summaryCommitments, type SummaryCommitment } from '../utils/chatSummaryCommitments';
 
-// "Resumen de este chat": what was agreed, what each person still owes and
-// where the talk ended, so nobody has to read a hundred messages.
+// "Resumen de este chat": what the talk was about, the chat's real
+// commitments (with their real date and state) and where the talk ended,
+// so nobody has to read a hundred messages.
 
 export type ChatSummarySections = {
     overview: string;
@@ -23,6 +25,9 @@ type SummaryModalProps = {
     summary: ChatSummary | null;
     onClose: () => void;
     onAskPing?: () => void;
+    commitments?: any[];
+    currentUserId?: string | null;
+    onOpenCommitments?: () => void;
 };
 
 function Section({ icon, title, children }: { icon: keyof typeof Ionicons.glyphMap; title: string; children: React.ReactNode }) {
@@ -39,6 +44,29 @@ function Section({ icon, title, children }: { icon: keyof typeof Ionicons.glyphM
     );
 }
 
+const STATE_LOOK: Record<SummaryCommitment['state'], { label: string; tone: string }> = {
+    overdue: { label: 'Atrasado', tone: colors.warning },
+    pending: { label: 'Pendiente', tone: colors.accentBright },
+    expired: { label: 'Sin respuesta', tone: colors.textSoft },
+    done: { label: 'Cumplido', tone: colors.success },
+};
+
+function CommitmentLine({ item }: { item: SummaryCommitment }) {
+    const look = STATE_LOOK[item.state];
+    const meta = [item.when, item.who].filter(Boolean).join(' · ');
+    return (
+        <View style={styles.bulletRow}>
+            <View style={[styles.bulletDot, { backgroundColor: look.tone }]} />
+            <View style={{ flex: 1 }}>
+                <Text style={styles.bulletText}>{item.title}</Text>
+                <Text style={styles.metaText}>
+                    {meta ? `${meta} · ` : ''}<Text style={{ color: look.tone }}>{look.label}</Text>
+                </Text>
+            </View>
+        </View>
+    );
+}
+
 const Bullet = ({ text }: { text: string }) => (
     <View style={styles.bulletRow}>
         <View style={styles.bulletDot} />
@@ -46,8 +74,11 @@ const Bullet = ({ text }: { text: string }) => (
     </View>
 );
 
-export function SummaryModal({ summary, onClose, onAskPing }: SummaryModalProps) {
+export function SummaryModal({ summary, onClose, onAskPing, commitments, currentUserId, onOpenCommitments }: SummaryModalProps) {
     const sections = summary?.sections;
+    // A chat with commitments shows them as they really are; only a chat with
+    // none falls back to what Ping read in the messages.
+    const real = commitments?.length ? summaryCommitments(commitments, currentUserId) : null;
     return (
         <Modal visible={!!summary} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.backdrop}>
@@ -67,12 +98,31 @@ export function SummaryModal({ summary, onClose, onAskPing }: SummaryModalProps)
                         {sections ? (
                             <>
                                 {!!sections.overview && <Text style={styles.overview}>{sections.overview}</Text>}
-                                {sections.agreements.length > 0 && (
+                                {real ? (
+                                    <>
+                                        {real.open.length > 0 && (
+                                            <Section icon="time-outline" title="Compromisos de este chat">
+                                                {real.open.map((c) => <CommitmentLine key={c.id} item={c} />)}
+                                                {onOpenCommitments && (
+                                                    <TouchableOpacity onPress={onOpenCommitments} style={styles.seeAll} accessibilityRole="button">
+                                                        <Text style={styles.seeAllText}>{real.openTotal > real.open.length ? `Ver los ${real.openTotal}` : 'Ver compromisos'}</Text>
+                                                        <Ionicons name="chevron-forward" size={15} color={colors.accentBright} />
+                                                    </TouchableOpacity>
+                                                )}
+                                            </Section>
+                                        )}
+                                        {real.recentlyDone.length > 0 && (
+                                            <Section icon="checkmark-circle-outline" title="Cumplidos hace poco">
+                                                {real.recentlyDone.map((c) => <CommitmentLine key={c.id} item={c} />)}
+                                            </Section>
+                                        )}
+                                    </>
+                                ) : sections.agreements.length > 0 && (
                                     <Section icon="checkmark-circle-outline" title="Acuerdos">
                                         {sections.agreements.map((a, i) => <Bullet key={i} text={a} />)}
                                     </Section>
                                 )}
-                                {sections.pending.length > 0 && (
+                                {!real && sections.pending.length > 0 && (
                                     <Section icon="time-outline" title="Pendientes">
                                         {sections.pending.map((p) => (
                                             <View key={p.person} style={styles.person}>
@@ -125,6 +175,9 @@ const styles = StyleSheet.create({
     bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
     bulletDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.textSoft, marginTop: 8 },
     bulletText: { flex: 1, fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: colors.text },
+    metaText: { fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 1 },
+    seeAll: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', paddingTop: 4 },
+    seeAllText: { fontFamily: fonts.semibold, fontSize: 13.5, color: colors.accentBright },
     person: { gap: 4 },
     personName: { fontFamily: fonts.semibold, fontSize: 14, color: colors.text },
     askBtn: {
