@@ -55,7 +55,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             // Native permission changes require a real Android update. Keep
             // the production version code monotonic so the final APK can be
             // installed over the current production baseline.
-            versionCode: 18,
+            versionCode: 19,
             // Contacts and camera are read/capture capabilities used by the
             // product. Media selection itself uses Android's system picker and
             // must not request READ_MEDIA_* permissions.
