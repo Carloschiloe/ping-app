@@ -58,3 +58,20 @@ describe('a Ping reply offers copy and report', () => {
         expect(screen).toContain("setReportTarget({ kind: 'assistant', excerpt: text })");
     });
 });
+
+describe('portability and file privacy', () => {
+    it('Perfil can download a copy of my data as a file', () => {
+        expect(read('screens/ProfileScreen.tsx')).toContain('Descargar mis datos');
+        expect(read('utils/exportMyData.ts')).toContain("apiClient.get('/user/data-export'");
+    });
+
+    it('old file addresses are accepted only in their signed form', () => {
+        const compat = read('utils/messageCompat.ts');
+        expect(compat).toContain("'/storage/v1/object/sign/chat-media/'");
+    });
+
+    it('Android backups never copy the chats or the session', () => {
+        const config = fs.readFileSync(path.join(__dirname, '..', 'app.config.ts'), 'utf-8');
+        expect(config).toContain('allowBackup: false');
+    });
+});

@@ -155,6 +155,7 @@ router.post(
 );
 router.patch('/user/profile', requireAuth, userController.updateProfile);
 router.post('/user/account/delete', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.deleteAccountSchema), accountSafetyController.deleteAccount);
+router.get('/user/data-export', requireAuth, safetyRateLimiter, accountSafetyController.exportData);
 router.get('/blocks', requireAuth, accountSafetyController.listBlocks);
 router.post('/blocks/:userId', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.blockSchema), accountSafetyController.block);
 router.delete('/blocks/:userId', requireAuth, validateRequest(accountSafetySchema.blockSchema), accountSafetyController.unblock);

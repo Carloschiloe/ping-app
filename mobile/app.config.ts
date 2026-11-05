@@ -52,6 +52,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         android: {
             ...base.android,
             package: 'com.carloschiloe.ping',
+            // Chats and the session never go to Google Drive backups.
+            allowBackup: false,
             // Native permission changes require a real Android update. Keep
             // the production version code monotonic so the final APK can be
             // installed over the current production baseline.

@@ -87,7 +87,7 @@ export const PRIVACY_PAGE = page('Política de privacidad', `
 
 <h2>7. Tus derechos</h2>
 <p>Puedes pedir en cualquier momento: <strong>acceso</strong> a tus datos, <strong>rectificación</strong> de datos inexactos, <strong>supresión</strong>, <strong>oposición</strong> a un tratamiento, <strong>portabilidad</strong> (una copia en formato de uso común) y <strong>bloqueo</strong> temporal de tus datos. También puedes oponerte a decisiones basadas únicamente en tratamiento automatizado.</p>
-<p>Puedes corregir tu perfil y eliminar tu cuenta directamente en Perfil dentro de la app. Para lo demás escribe a ${mail} desde el correo o indicando el teléfono con que te registraste. Responderemos en un plazo máximo de 30 días corridos. Si no quedas conforme, puedes reclamar ante la Agencia de Protección de Datos Personales.</p>
+<p>Dentro de la app, en Perfil, puedes corregir tus datos, <strong>descargar una copia de tus datos</strong> y eliminar tu cuenta. Para lo demás escribe a ${mail} desde el correo o indicando el teléfono con que te registraste. Responderemos en un plazo máximo de 30 días corridos. Si no quedas conforme, puedes reclamar ante la Agencia de Protección de Datos Personales.</p>
 
 <h2>8. Seguridad</h2>
 <p>Las conexiones van cifradas, los archivos se guardan de forma privada y solo se abren con enlaces temporales, cada persona accede solo a sus propios chats y las claves del servidor nunca están en la app. Si ocurre un incidente que afecte tus datos, lo informaremos a la Agencia de Protección de Datos Personales y, cuando corresponda, a las personas afectadas.</p>

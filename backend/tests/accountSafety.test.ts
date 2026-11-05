@@ -145,3 +145,13 @@ describe('before the database change is applied', () => {
         await expect(assertDirectChatNotBlocked('me', 'chat-1')).resolves.toBeUndefined();
     });
 });
+
+describe('data export', () => {
+    it('includes my own data and never calendar tokens', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'accountSafety.service.ts'), 'utf-8');
+        const exportFn = source.slice(source.indexOf('export async function exportAccountData'));
+        expect(exportFn).toContain(".eq('sender_id', userId)");
+        expect(exportFn).toContain(".select('provider, email, created_at')");
+        expect(exportFn).not.toMatch(/token/i);
+    });
+});
