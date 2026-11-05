@@ -749,6 +749,12 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         ? (remoteRecorder ? 'grabando audio…' : 'escribiendo…')
         : isSelf ? 'Solo tú' : isGroup ? 'Grupo' : isOtherOnline ? 'en línea' : null;
 
+    const taskHistoryParams = {
+        conversationId,
+        isGroup: !!isGroup,
+        title: isSelf ? 'Para mí' : (isGroup ? groupMetadata?.name : otherUser?.full_name?.split(' ')[0]),
+    };
+
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <GlassBackdrop>
@@ -772,11 +778,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             />
             <CommitmentsStrip
                 items={groupTasks}
-                onPress={() => navigation.navigate('TaskHistory', {
-                    conversationId,
-                    isGroup: !!isGroup,
-                    title: isSelf ? 'Para mí' : (isGroup ? groupMetadata?.name : otherUser?.full_name?.split(' ')[0]),
-                })}
+                onPress={() => navigation.navigate('TaskHistory', taskHistoryParams)}
             />
             <KeyboardAvoidingView
                 behavior={getChatKeyboardBehavior(Platform.OS)}
@@ -1067,6 +1069,12 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 <SummaryModal
                     summary={summary}
                     onClose={() => setSummary(null)}
+                    commitments={groupTasks}
+                    currentUserId={user?.id}
+                    onOpenCommitments={() => {
+                        setSummary(null);
+                        navigation.navigate('TaskHistory', taskHistoryParams);
+                    }}
                     onAskPing={() => {
                         setSummary(null);
                         navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() });
