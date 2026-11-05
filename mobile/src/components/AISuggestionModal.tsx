@@ -113,12 +113,20 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     // `onDismiss` (cancelación/back) como callbacks separados -- ya no hace
     // falta inspeccionar `event.type === 'dismissed'` manualmente, eso ahora
     // es exactamente lo que dispara `onDismiss`.
+    // Without a date yet, the picker starts at the next full hour.
+    const pickerBase = () => {
+        if (suggestionData?.dueAt) return new Date(suggestionData.dueAt);
+        const next = new Date();
+        next.setHours(next.getHours() + 1, 0, 0, 0);
+        return next;
+    };
+
     const onDateChange = (selectedDate: Date) => {
         if (Platform.OS === 'ios') {
             // In iOS datetime mode, selectedDate has everything
             onUpdateData({ ...suggestionData, dueAt: selectedDate.toISOString() });
         } else {
-            const currentSelected = new Date(suggestionData.dueAt);
+            const currentSelected = pickerBase();
             if (pickerMode === 'date') {
                 currentSelected.setFullYear(selectedDate.getFullYear());
                 currentSelected.setMonth(selectedDate.getMonth());
@@ -153,8 +161,10 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                 ? 'Para ti'
                 : (currentAssignee?.full_name || 'Sin asignar');
 
+    const missingTitle = !isCounterProposal && !suggestionData.title?.trim();
+
     // Safe date parsing
-    const formattedDate = formatSuggestionDueAt(suggestionData.dueAt);
+    const formattedDate = suggestionData.dueAt ? formatSuggestionDueAt(suggestionData.dueAt) : 'Sin fecha · toca para elegir';
 
     return (
         <Modal transparent visible={visible} animationType="slide">
@@ -167,7 +177,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 ? 'Sugerir otro horario'
                                 : isEditing
                                     ? `✏️ Editar ${typeLabel}`
-                                    : 'Agendar'}
+                                    : suggestionData.messageId ? 'Agendar' : 'Nuevo compromiso'}
                         </Text>
                         <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
                             <Ionicons name="close" size={24} color={colors.textFaint} />
@@ -180,6 +190,31 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         showsVerticalScrollIndicator={false}
                     >
                         <View style={styles.modalBody}>
+                            {!isCounterProposal && !isEditing && (
+                                <View style={styles.typeRow}>
+                                    {(['task', 'meeting'] as const).map((kind) => {
+                                        const selected = (kind === 'meeting') === isMeeting;
+                                        return (
+                                            <TouchableOpacity
+                                                key={kind}
+                                                style={[styles.typeChip, selected && styles.typeChipActive]}
+                                                onPress={() => onUpdateData({ ...suggestionData, type: kind })}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected }}
+                                            >
+                                                <Ionicons
+                                                    name={kind === 'meeting' ? 'people-outline' : 'checkbox-outline'}
+                                                    size={16}
+                                                    color={selected ? colors.onAccent : colors.textSoft}
+                                                />
+                                                <Text style={[styles.typeChipText, selected && styles.typeChipTextActive]}>
+                                                    {kind === 'meeting' ? 'Reunión' : 'Tarea'}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            )}
                             {!isCounterProposal && (
                                 <>
                                     <Text style={styles.inputLabel}>TÍTULO DE LA {typeLabel}</Text>
@@ -187,7 +222,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                         style={styles.modalInput}
                                         value={suggestionData.title}
                                         onChangeText={(t) => onUpdateData({ ...suggestionData, title: t })}
-                                        placeholder={`Escribe el nombre de la ${typeLabel.toLowerCase()}...`}
+                                        placeholder={`Nombre de la ${typeLabel.toLowerCase()}`}
                                     />
                                 </>
                             )}
@@ -210,7 +245,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             {showPicker && (
                                 <View style={styles.pickerWrapper}>
                                     <DateTimePicker
-                                        value={new Date(suggestionData.dueAt)}
+                                        value={pickerBase()}
                                         mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
                                         is24Hour={true}
                                         display={Platform.OS === 'ios' ? 'inline' : 'default'}
@@ -330,11 +365,11 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.acceptBtn, (!isCounterProposal && isGroup
+                            style={[styles.acceptBtn, missingTitle && { opacity: 0.5 }, (!isCounterProposal && isGroup
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId && { opacity: 0.5 })
                                 : (!isCounterProposal && !suggestionData.assignedToUserId && !suggestionData.counterpartyContactId && { opacity: 0.5 }))]}
                             onPress={onConfirm}
-                            disabled={!isCounterProposal && (isGroup
+                            disabled={missingTitle || !isCounterProposal && (isGroup
                                 ? (suggestionData.assignedToUserId === undefined && !suggestionData.counterpartyContactId)
                                 : (!suggestionData.assignedToUserId && !suggestionData.counterpartyContactId))}
                         >
@@ -441,6 +476,14 @@ const styles = StyleSheet.create({
         paddingBottom: 20,
     },
     modalBody: { marginBottom: 12 },
+    typeRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+    typeChip: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+        paddingVertical: 10, borderRadius: 12, backgroundColor: colors.glassRaised,
+    },
+    typeChipActive: { backgroundColor: colors.accent },
+    typeChipText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft },
+    typeChipTextActive: { color: colors.onAccent },
     inputLabel: { fontSize: 12, fontFamily: fonts.bold, color: colors.textFaint, marginBottom: 8, textTransform: 'uppercase' },
     modalInput: { fontFamily: fonts.regular,
         backgroundColor: colors.glassRaised, borderWidth: 1, borderColor: colors.glassBorder, borderRadius: 12, padding: 12, fontSize: 16, color: colors.text, marginBottom: 16,

@@ -42,7 +42,7 @@ describe('Conversation in the new design', () => {
         'components/ReactionsModal.tsx',
         'components/AISuggestionModal.tsx',
         'components/SummaryModal.tsx',
-        'components/MediaSourceSheet.tsx',
+        'components/ChatInput.tsx',
         'components/ForwardMessagesModal.tsx',
         'components/MentionPopup.tsx',
         'components/LocationConfirmModal.tsx',

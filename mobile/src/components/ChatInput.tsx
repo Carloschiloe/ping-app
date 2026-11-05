@@ -20,8 +20,13 @@ interface ChatInputProps {
     recordingUri: string | null;
     isRecording: boolean;
     recordingDurationMs: number;
-    onPickMedia: () => void;
+    onOpenAttachments: () => void;
+    onTakePhoto: () => void;
+    onPickGallery: () => void;
+    onRecordVideo: () => void;
+    onPickDocument: () => void;
     onShareLocation: () => void;
+    onCreateCommitment: () => void;
     onStartRecording: () => void;
     onStopRecording: () => void;
     onCancelAudio: () => void;
@@ -73,8 +78,13 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
     recordingUri,
     isRecording,
     recordingDurationMs,
-    onPickMedia,
+    onOpenAttachments,
+    onTakePhoto,
+    onPickGallery,
+    onRecordVideo,
+    onPickDocument,
     onShareLocation,
+    onCreateCommitment,
     onStartRecording,
     onStopRecording,
     onCancelAudio,
@@ -91,15 +101,22 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
         blurComposer: () => inputRef.current?.blur(),
     }), []);
 
-    const handlePickMedia = React.useCallback(() => {
-        setShowActions(false);
-        onPickMedia();
-    }, [onPickMedia]);
-
-    const handleShareLocation = React.useCallback(() => {
-        setShowActions(false);
-        onShareLocation();
-    }, [onShareLocation]);
+    // Everything the + offers, one tap each. The panel is plain views in
+    // this window, and closing it is a state update, so the camera or
+    // picker that opens next is the only native presentation in flight
+    // (two at once leave the iOS camera frozen).
+    const attachments: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; run: () => void }[] = [
+        { icon: 'camera-outline', label: 'Cámara', run: onTakePhoto },
+        { icon: 'images-outline', label: 'Galería', run: onPickGallery },
+        { icon: 'videocam-outline', label: 'Video', run: onRecordVideo },
+        { icon: 'document-text-outline', label: 'Documento', run: onPickDocument },
+        { icon: 'location-outline', label: 'Ubicación', run: onShareLocation },
+        { icon: 'calendar-outline', label: 'Compromiso', run: onCreateCommitment },
+    ];
+    const toggleActions = () => {
+        if (!showActions) onOpenAttachments();
+        setShowActions((prev) => !prev);
+    };
 
     if (recordingUri) {
         return (
@@ -134,24 +151,27 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
     return (
         <View style={[styles.container, { paddingBottom: bottomPadding }]}>
             {showActions && (
-                <View style={styles.actionsRow}>
-                    <TouchableOpacity onPress={handlePickMedia} disabled={sendingMedia || isPending}>
-                        <Glass style={styles.actionChip} intensity={50}>
-                            <Ionicons name="image-outline" size={17} color={colors.accentBright} />
-                            <Text style={styles.actionLabel}>Foto</Text>
-                        </Glass>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleShareLocation} disabled={sendingMedia || isPending}>
-                        <Glass style={styles.actionChip} intensity={50}>
-                            <Ionicons name="location-outline" size={17} color={colors.accentBright} />
-                            <Text style={styles.actionLabel}>Ubicación</Text>
-                        </Glass>
-                    </TouchableOpacity>
-                </View>
+                <Glass style={styles.attachPanel} intensity={60}>
+                    {attachments.map((item) => (
+                        <TouchableOpacity
+                            key={item.label}
+                            style={styles.attachTile}
+                            onPress={() => { setShowActions(false); item.run(); }}
+                            disabled={sendingMedia || isPending}
+                            accessibilityRole="button"
+                            accessibilityLabel={item.label}
+                        >
+                            <View style={styles.attachIcon}>
+                                <Ionicons name={item.icon} size={24} color={colors.accentBright} />
+                            </View>
+                            <Text style={styles.attachLabel}>{item.label}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </Glass>
             )}
             <View style={styles.inputBar}>
                 <TouchableOpacity
-                    onPress={() => setShowActions((prev) => !prev)}
+                    onPress={toggleActions}
                     disabled={sendingMedia || isPending}
                     accessibilityLabel={showActions ? 'Cerrar adjuntos' : 'Adjuntar'}
                 >
@@ -227,21 +247,25 @@ const FIELD_HEIGHT = 46;
 
 const styles = StyleSheet.create({
     container: { paddingHorizontal: space.sm + 2, paddingTop: space.xs },
-    actionsRow: {
+    attachPanel: {
         flexDirection: 'row',
-        gap: space.sm,
-        paddingTop: space.xs,
-        paddingBottom: space.sm,
+        flexWrap: 'wrap',
+        borderRadius: radius.xl,
+        borderTopColor: colors.glassEdge,
+        paddingVertical: space.md,
+        marginBottom: space.sm,
+        rowGap: space.md,
     },
-    actionChip: {
-        flexDirection: 'row',
+    attachTile: { width: '33.33%', alignItems: 'center', gap: 6 },
+    attachIcon: {
+        width: 54,
+        height: 54,
+        borderRadius: radius.lg,
         alignItems: 'center',
-        gap: 6,
-        borderRadius: radius.full,
-        paddingHorizontal: space.md,
-        paddingVertical: space.sm,
+        justifyContent: 'center',
+        backgroundColor: colors.accentTint,
     },
-    actionLabel: { fontFamily: fonts.medium, fontSize: 13, color: colors.text },
+    attachLabel: { fontFamily: fonts.medium, fontSize: 12.5, color: colors.text },
     inputBar: {
         flexDirection: 'row',
         alignItems: 'flex-end',
