@@ -63,7 +63,8 @@ const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry',
 
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
-const callsEnabled = requireFeature('ENABLE_CALLS');
+// Calls are a core feature; only recording a call stays switched off.
+const callRecordingEnabled = requireFeature('ENABLE_CALL_RECORDING');
 
 // Health
 router.get('/health', async (req, res) => {
@@ -385,8 +386,8 @@ router.delete('/calendar/accounts/:id', requireAuth, calendarEnabled, calendarCo
 router.post('/calendar/sync', requireAuth, calendarEnabled, calendarController.syncCommitment);
 
 // Agora
-router.get('/agora/token/:channelName', requireAuth, callsEnabled, agoraController.getToken);
-router.post('/agora/call/notify', requireAuth, callsEnabled, agoraController.notifyCall);
-router.post('/agora/recording/start', requireAuth, callsEnabled, agoraController.startRecording);
-router.post('/agora/recording/:callId/stop', requireAuth, callsEnabled, agoraController.stopRecording);
-router.get('/call', callsEnabled, agoraController.renderCallPage);
+router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);
+router.post('/agora/call/notify', requireAuth, agoraController.notifyCall);
+router.post('/agora/recording/start', requireAuth, callRecordingEnabled, agoraController.startRecording);
+router.post('/agora/recording/:callId/stop', requireAuth, callRecordingEnabled, agoraController.stopRecording);
+router.get('/call', agoraController.renderCallPage);

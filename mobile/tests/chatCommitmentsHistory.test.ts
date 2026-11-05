@@ -32,11 +32,12 @@ describe('Compromisos of one chat', () => {
         expect(summarize([{ status: 'accepted', due_at: future }], now).keptPercent).toBeNull();
     });
 
-    it('opens from a visible button in the chat bar, not a hidden menu', () => {
-        expect(read('components/ChatHeader.tsx')).toContain('accessibilityLabel="Ver los compromisos de esta conversación"');
+    it('opens from the strip under the chat bar, not a hidden menu', () => {
         const chat = read('screens/ChatScreen.tsx');
-        expect(chat).toContain("onCommitments={() => navigation.navigate('TaskHistory'");
+        expect(chat).toContain('<CommitmentsStrip');
+        expect(chat).toContain("onPress={() => navigation.navigate('TaskHistory'");
         expect(chat).not.toContain('Historial de tareas');
+        expect(chat).not.toContain('headerMenuVisible');
     });
 });
 

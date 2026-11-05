@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
 
 export type LegacySatelliteCapability =
-    | 'ENABLE_CALLS'
+    | 'ENABLE_CALL_RECORDING'
     | 'ENABLE_OPERATION_MODULE'
     | 'ENABLE_CALENDAR_INTEGRATION';
 
