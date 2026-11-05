@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { extractExplicitTimeHint, parseDateFromText } from './date-parser.service';
 
 let openai: OpenAI | null = null;
 
@@ -50,11 +51,31 @@ export function formatWhen(date: unknown, time: unknown, now: Date = new Date())
 
 const agreementText = (value: any, now: Date): string => {
     if (typeof value === 'string') return clean(value);
+    const what = clean(value?.what);
     const when = formatWhen(value?.date, value?.time, now);
-    // The day and hour are written once, here, even if the model repeats them.
-    const what = when ? clean(value?.what).replace(/,?\s*(a las|a la)\s+\d{1,2}(:\d{2})?\s*(hrs?\.?|am|pm)?/gi, '').trim() : clean(value?.what);
     return what && when ? `${what}: ${when}` : what;
 };
+
+// Words that only make sense on the day they were written.
+const RELATIVE_WORDS = /\b(pasado\s+mañana|mañana|hoy|ayer|(este|el|próximo|proximo)\s+(lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)(\s+(próximo|proximo|que\s+viene))?)\b/giu;
+
+/**
+ * The model copies the exact day and hour words from one message; the same
+ * date reader used for commitments turns them into a real date counted from
+ * the day that message was sent. The model never does the arithmetic.
+ */
+export function resolveAgreement(value: any, sentAt: string | null | undefined): { what: string; date: string | null; time: string | null } {
+    const said = clean(value?.said);
+    let what = clean(value?.what);
+    if (said) what = what.replace(said, ' ');
+    const time = said ? extractExplicitTimeHint(said) : null;
+    if (time) what = what.replace(time, ' ');
+    what = what.replace(RELATIVE_WORDS, ' ').replace(/\s+([,.;:])/g, '$1').replace(/\s+/g, ' ').replace(/^[,;:\s]+|[,;:\s]+$/g, '').trim();
+    const reference = sentAt ? new Date(sentAt) : null;
+    const parsed = said && reference && !Number.isNaN(reference.getTime()) ? parseDateFromText(said, reference, TIME_ZONE) : null;
+    if (!parsed) return { what, date: null, time: null };
+    return { what, date: isoDay.format(parsed.date), time: time ? hourFormat.format(parsed.date) : null };
+}
 
 // Newest agreed day first; the ones without a day go last.
 const byNewest = (a: any, b: any) => {
@@ -97,31 +118,20 @@ const INSTRUCTIONS = [
     'You summarize a work chat for someone who does not want to read every message.',
     'Write in the chat\'s language (usually Chilean Spanish), plain and brief, no markdown, no emojis.',
     'Reply with JSON only: {"overview": one or two sentences on what the chat is about,',
-    '"agreements": [{"what": what was agreed, without any date or time words, "date": "YYYY-MM-DD" or null, "time": "HH:MM" or null}], newest first,',
+    '"agreements": [{"what": what was agreed, without day or time words, "message": the # of the message that set it,',
+    '"said": the exact day and time words copied from that message, like "mañana a las 15:00", or ""}],',
     '"pending": [{"person": first name, "items": what that person still has to do}],',
     '"latest": one sentence on where the conversation ended, without dates}.',
     'Use only what the messages say; leave a list empty when there is nothing for it.',
-    'Every message starts with the date it was sent (YYYY-MM-DD and weekday). For each agreement work out the real date',
-    'from that message\'s own date: "mañana" in a message of 2026-03-12 is 2026-03-13, "este jueves" is the next Thursday from it.',
 ].join(' ');
 
-// Each message carries its own day, so the model can count from it.
-const weekday = new Intl.DateTimeFormat('es-CL', { timeZone: TIME_ZONE, weekday: 'long' });
-
-export const messageStamp = (iso: string) => {
-    const date = new Date(iso);
-    return `${isoDay.format(date)} ${weekday.format(date)} ${hourFormat.format(date)}`;
-};
 
 export const summarizeConversation = async (messages: any[]): Promise<ChatSummaryResult> => {
     if (!process.env.OPENAI_API_KEY) return { text: 'El resumen no está disponible en este momento.', sections: null };
 
-    const formattedMessages = messages
-        .filter((m) => typeof m.text === 'string' && m.text.trim())
-        .map((m) => {
-            const sender = m.profiles?.full_name || m.profiles?.email || 'Alguien';
-            return `[${m.created_at ? messageStamp(m.created_at) : 'sin fecha'}] ${sender}: ${m.text}`;
-        })
+    const withText = messages.filter((m) => typeof m.text === 'string' && m.text.trim());
+    const formattedMessages = withText
+        .map((m, i) => `#${i} ${m.profiles?.full_name || m.profiles?.email || 'Alguien'}: ${m.text}`)
         .join('\n');
 
     try {
@@ -129,14 +139,19 @@ export const summarizeConversation = async (messages: any[]): Promise<ChatSummar
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: INSTRUCTIONS },
-                { role: 'user', content: `Hoy es ${messageStamp(new Date().toISOString())}.\n\n${formattedMessages}` },
+                { role: 'user', content: formattedMessages },
             ],
             response_format: { type: 'json_object' },
             temperature: 0.3,
             max_tokens: 700,
         });
 
-        const sections = parseChatSummary(response.choices[0]?.message?.content || '');
+        const raw = JSON.parse(response.choices[0]?.message?.content || '{}');
+        if (Array.isArray(raw?.agreements)) {
+            raw.agreements = raw.agreements.map((a: any) =>
+                typeof a === 'string' ? a : resolveAgreement(a, withText[Number(a?.message)]?.created_at));
+        }
+        const sections = parseChatSummary(JSON.stringify(raw));
         if (!sections) return { text: 'No se pudo generar el resumen.', sections: null };
         return { text: summaryText(sections), sections };
     } catch (err) {

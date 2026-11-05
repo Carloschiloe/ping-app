@@ -97,9 +97,9 @@ const SPANISH_HOUR_WORD_PATTERN = '(?:una|uno|dos|tres|cuatro|cinco|seis|siete|o
 const ENGLISH_HOUR_WORD_PATTERN = '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|twenty[- ]one|twenty[- ]two|twenty[- ]three)';
 const CLOCK_TIME_SUFFIX_PATTERN = '(?:\\s+(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:ma[ñn]ana|tarde|noche)|hrs?\\.?|horas?|h\\.?))?';
 const EXPLICIT_TIME_PATTERN = new RegExp(
-    `\\b(?:a|para)\\s+las?\\s+(?:[01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?${CLOCK_TIME_SUFFIX_PATTERN}`
+    `\\b(?:a|para)\\s+las?\\s+(?:2[0-3]|[01]?\\d)(?:[:.]([0-5]\\d))?(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?${CLOCK_TIME_SUFFIX_PATTERN}`
     + `|\\b(?:a|para)\\s+las?\\s+${SPANISH_HOUR_WORD_PATTERN}(?:\\s+(?:y\\s+(?:media|cuarto)|menos\\s+cuarto))?${CLOCK_TIME_SUFFIX_PATTERN}`
-    + `|\\bat\\s+(?:[01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?)?`
+    + `|\\bat\\s+(?:2[0-3]|[01]?\\d)(?:[:.]([0-5]\\d))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?)?`
     + `|\\bat\\s+${ENGLISH_HOUR_WORD_PATTERN}\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?)?`,
     'iu',
 );
@@ -189,9 +189,9 @@ function explicitTimeFromText(text: string): { hour: number; minute: number } | 
     const normalized = normalizeSpanish(text);
     const meridiem = '(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|de\\s+la\\s+(?:manana|tarde|noche))';
     const withPrefix = normalized.match(
-        new RegExp(`\\b(?:a|para)\\s+las?\\s+([01]?\\d|2[0-3])(?:[:.]([0-5]\\d))?\\s*(${meridiem})?`, 'i')
+        new RegExp(`\\b(?:a|para)\\s+las?\\s+(2[0-3]|[01]?\\d)(?:[:.]([0-5]\\d))?\\s*(${meridiem})?`, 'i')
     );
-    const twentyFourHour = normalized.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    const twentyFourHour = normalized.match(/\b(2[0-3]|[01]?\d):([0-5]\d)\b/);
     if (withPrefix) {
         return {
             hour: applyMeridiem(Number(withPrefix[1]), withPrefix[3] || ''),
