@@ -24,6 +24,7 @@ type MessageActionsModalProps = {
     onToggleSelect: () => void;
     onTogglePin: () => void;
     onDelete: () => void;
+    onReport?: () => void;
 };
 
 export function MessageActionsModal({
@@ -44,6 +45,7 @@ export function MessageActionsModal({
     onToggleSelect,
     onTogglePin,
     onDelete,
+    onReport,
 }: MessageActionsModalProps) {
     const { ordered, recordReaction } = useReactionOrder();
     const [showAll, setShowAll] = useState(false);
@@ -118,6 +120,12 @@ export function MessageActionsModal({
                             <TouchableOpacity style={styles.actionRow} onPress={onTogglePin}>
                                 <Ionicons name={isPinned ? 'pin-outline' : 'pin'} size={22} color={colors.accentBright} />
                                 <Text style={styles.actionLabel}>{isPinned ? 'Desfijar principal' : 'Fijar principal'}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {!isOwnMessage && onReport && (
+                            <TouchableOpacity style={[styles.actionRow, styles.deleteRow]} onPress={onReport} accessibilityLabel="Denunciar mensaje">
+                                <Ionicons name="flag-outline" size={22} color={colors.danger} />
+                                <Text style={[styles.actionLabel, styles.deleteLabel]}>Denunciar</Text>
                             </TouchableOpacity>
                         )}
                         {isOwnMessage && (

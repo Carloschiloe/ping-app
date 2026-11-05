@@ -16,6 +16,7 @@ import * as Linking from 'expo-linking';
 import { apiClient } from '../api/client';
 import { mapDeviceContacts, type DeviceContact } from '../utils/deviceContacts';
 import { PING_PUBLIC_INVITE_URL } from '../utils/pingInvitation';
+import { openLegal } from '../utils/legalLinks';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 import { Glass } from '../design/Glass';
@@ -36,13 +37,16 @@ export default function NewChatScreen({ navigation }: any) {
     const [matchingContacts, setMatchingContacts] = useState(false);
     const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
 
-    const loadContacts = useCallback(async () => {
+    // Android's permission prompt only comes after the person has read, on
+    // this screen, what Ping does with their contacts (Google Play's
+    // prominent disclosure). Opening the screen never asks by itself.
+    const loadContacts = useCallback(async (askNow = false) => {
         setContactsLoading(true);
         setPermissionDenied(false);
         setDiscoveryWarning(null);
         try {
             let permission = await getPermissionsAsync();
-            if (permission.status !== 'granted' && permission.canAskAgain) {
+            if (askNow && permission.status !== 'granted' && permission.canAskAgain) {
                 permission = await requestPermissionsAsync();
             }
             setCanAskForContacts(permission.canAskAgain);
@@ -259,7 +263,7 @@ export default function NewChatScreen({ navigation }: any) {
                 title="Nuevo chat"
                 subtitle="Elige a alguien de tus contactos"
                 onBack={() => navigation.goBack()}
-                right={<HeaderButton icon="refresh" label="Actualizar contactos" onPress={loadContacts} disabled={contactsLoading} />}
+                right={<HeaderButton icon="refresh" label="Actualizar contactos" onPress={() => loadContacts()} disabled={contactsLoading} />}
             />
 
             <Glass style={styles.searchBar}>
@@ -297,13 +301,14 @@ export default function NewChatScreen({ navigation }: any) {
             ) : permissionDenied ? (
                 <View style={styles.centerState}>
                     <EmptyIcon name="people" />
-                    <Text style={styles.emptyTitle}>Permite el acceso a contactos</Text>
+                    <Text style={styles.emptyTitle}>¿Buscamos a tus contactos en Ping?</Text>
                     <Text style={styles.emptyText}>
-                        Ping necesita tu autorización para que puedas elegir a quién invitar o escribir.
+                        Para mostrarte quién ya usa Ping, la app lee los nombres, teléfonos y correos de tu agenda y envía los teléfonos y correos a nuestro servidor, de forma cifrada, solo para compararlos. No los guardamos ni los usamos para nada más.
                     </Text>
+                    <Text style={styles.disclosureLink} onPress={() => openLegal('privacy')}>Ver la Política de privacidad</Text>
                     <PrimaryButton
                         label={canAskForContacts ? 'Permitir contactos' : 'Abrir configuración'}
-                        onPress={() => canAskForContacts ? loadContacts() : Linking.openSettings()}
+                        onPress={() => canAskForContacts ? loadContacts(true) : Linking.openSettings()}
                     />
                 </View>
             ) : (
@@ -317,7 +322,7 @@ export default function NewChatScreen({ navigation }: any) {
                         <View style={styles.discoveryWarning}>
                             <Ionicons name="cloud-offline-outline" size={18} color={colors.warning} />
                             <Text style={styles.discoveryWarningText}>{discoveryWarning}</Text>
-                            <TouchableOpacity onPress={loadContacts}>
+                            <TouchableOpacity onPress={() => loadContacts()}>
                                 <Text style={styles.discoveryRetry}>Reintentar</Text>
                             </TouchableOpacity>
                         </View>
@@ -465,6 +470,7 @@ const styles = StyleSheet.create({
     },
     emptyTitle: { ...type.headline, fontSize: 17, marginBottom: space.sm, textAlign: 'center' },
     emptyText: { ...type.subhead, textAlign: 'center', lineHeight: 20 },
+    disclosureLink: { fontFamily: fonts.semibold, fontSize: 13.5, color: colors.accentBright, textAlign: 'center', marginTop: space.sm, marginBottom: space.md },
     primaryButton: {
         marginTop: space.xl,
         borderRadius: radius.full,

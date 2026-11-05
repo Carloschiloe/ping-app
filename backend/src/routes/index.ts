@@ -19,6 +19,8 @@ import * as agentConversationTurnController from '../controllers/agentConversati
 import * as memoryFactsController from '../controllers/memoryFacts.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
+import * as accountSafetyController from '../controllers/accountSafety.controller';
+import * as accountSafetySchema from '../schemas/accountSafety.schema';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
@@ -57,6 +59,8 @@ export const router = Router();
 const agentTurnRateLimiter = createAgentRateLimiter('turn');
 
 const agentVoiceRateLimiter = createAgentRateLimiter('voice', 10);
+// Reports and feedback are written by people, never in bursts.
+const safetyRateLimiter = createAgentRateLimiter('safety', 15);
 const agentVoiceCaptureRateLimiter = createAgentRateLimiter('voice-capture', 10);
 const agentVoiceSessionRateLimiter = createAgentRateLimiter('voice-session', 6);
 const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry', 240);
@@ -150,6 +154,13 @@ router.post(
     userController.syncContacts
 );
 router.patch('/user/profile', requireAuth, userController.updateProfile);
+router.post('/user/account/delete', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.deleteAccountSchema), accountSafetyController.deleteAccount);
+router.get('/blocks', requireAuth, accountSafetyController.listBlocks);
+router.post('/blocks/:userId', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.blockSchema), accountSafetyController.block);
+router.delete('/blocks/:userId', requireAuth, validateRequest(accountSafetySchema.blockSchema), accountSafetyController.unblock);
+router.get('/conversations/:id/block', requireAuth, validateRequest(accountSafetySchema.chatBlockSchema), accountSafetyController.chatBlock);
+router.post('/reports', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.reportSchema), accountSafetyController.report);
+router.post('/feedback', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.feedbackSchema), accountSafetyController.feedback);
 
 
 // Conversations

@@ -532,7 +532,7 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: Ping -> external copy for Agent 
         expect(renderItemMatch).not.toBeNull();
         const body = renderItemMatch![0];
         expect(body).toMatch(/const isCopyable = !!item\.text;/);
-        expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
+        expect(body).toMatch(/onLongPress: \(\) => \(isUser \? handleCopyMessage\(item\.text\) : handleReplyLongPress\(item\.text\)\)/);
     });
 
     it('the copyable bubble container still renders the pending-action/follow-up/citations/retry children -- copy affordance wraps the existing bubble, it does not replace its content', () => {
@@ -559,7 +559,7 @@ describe('PING — COPY / PASTE / CLIPBOARD UX: copy content invariant -- clipbo
     it('copy is wired to item.text exclusively -- never item.status, item.pendingActions, or any other structured/internal field', () => {
         const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
         const body = renderItemMatch![0];
-        expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
+        expect(body).toMatch(/onLongPress: \(\) => \(isUser \? handleCopyMessage\(item\.text\) : handleReplyLongPress\(item\.text\)\)/);
         expect(body).not.toMatch(/onLongPress: \(\) => handleCopyMessage\(JSON\.stringify/);
         expect(body).not.toMatch(/handleCopyMessage\(item\.status\)/);
         expect(body).not.toMatch(/handleCopyMessage\(item\.rawPlan/);
@@ -592,7 +592,7 @@ describe('PING — USER-WRITTEN TEXT COPY / PASTE: Agent composer text-before-se
     it('the copyable bubble long-press uses delayLongPress={350}, matching the proven ChatScreen.tsx/MessageItem.tsx pattern exactly (not RN\'s 500ms default)', () => {
         const renderItemMatch = screenSource.match(/const renderItem = \(\{ item \}[^]*?\n    \};/);
         const body = renderItemMatch![0];
-        expect(body).toMatch(/onLongPress: \(\) => handleCopyMessage\(item\.text\)/);
+        expect(body).toMatch(/onLongPress: \(\) => \(isUser \? handleCopyMessage\(item\.text\) : handleReplyLongPress\(item\.text\)\)/);
         expect(body).toMatch(/delayLongPress: 350/);
     });
 

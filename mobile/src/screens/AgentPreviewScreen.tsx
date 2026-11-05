@@ -3,6 +3,7 @@
 // idempotent self-chat while semantic dialogue scope remains Core-owned.
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ReportSheet, type ReportTarget } from '../components/safety/ReportSheet';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
     KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
@@ -252,6 +253,15 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         await Clipboard.setStringAsync(text);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     };
+    // A Ping reply can also be reported, as Google Play asks of AI apps.
+    const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+    const handleReplyLongPress = (text: string) => {
+        Alert.alert('Respuesta de Ping', undefined, [
+            { text: 'Copiar', onPress: () => { handleCopyMessage(text); } },
+            { text: 'Denunciar respuesta', style: 'destructive', onPress: () => setReportTarget({ kind: 'assistant', excerpt: text }) },
+            { text: 'Cancelar', style: 'cancel' },
+        ]);
+    };
     const handleStarterPress = (starter: string) => handleInputChange(starter);
     const handleFollowUpOptionPress = (option: AgentFollowUpOption) => handleInputChange(option.label);
     const handleInputChange = (value: string) => {
@@ -311,10 +321,10 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     {...(isCopyable
                         ? {
                             activeOpacity: 0.7,
-                            onLongPress: () => handleCopyMessage(item.text),
+                            onLongPress: () => (isUser ? handleCopyMessage(item.text) : handleReplyLongPress(item.text)),
                             delayLongPress: 350,
                             accessibilityRole: 'button' as const,
-                            accessibilityLabel: 'Copiar mensaje',
+                            accessibilityLabel: isUser ? 'Copiar mensaje' : 'Copiar o denunciar respuesta',
                         }
                         : {})}
                 >
@@ -630,6 +640,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 conversationId={historyConversationId}
                 onClose={closeLiveVoice}
             />
+            <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
         </View>
     );
 }

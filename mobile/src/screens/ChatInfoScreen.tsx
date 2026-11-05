@@ -23,7 +23,10 @@ import {
     useSharedContentSummary,
     useUpdateGroup,
     useUpdateGroupParticipantRole,
+    useChatBlock,
+    useSetBlocked,
 } from '../api/queries';
+import { ReportSheet, type ReportTarget } from '../components/safety/ReportSheet';
 import { uploadToSupabase } from '../lib/upload';
 import { GroupMembersSection } from '../components/chat-info/GroupMembersSection';
 import { SharedContentThumbnail } from '../components/shared-content/SharedContentThumbnail';
@@ -48,6 +51,10 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
     const [isEditingName, setIsEditingName] = useState(false);
     const [tempName, setTempName] = useState('');
     const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
+    const isDirect = !isGroup && !isSelf && !!otherUser?.id;
+    const { data: chatBlock } = useChatBlock(conversationId, isDirect);
+    const setBlocked = useSetBlocked();
+    const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
     const name = isSelf
         ? 'Para mí'
@@ -58,6 +65,25 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
         ? currentConv?.groupMetadata?.avatar_url || groupMetadata?.avatar_url
         : otherUser?.avatar_url;
     const initials = isSelf ? 'PM' : name.slice(0, 2).toUpperCase();
+
+    const toggleBlock = () => {
+        if (!otherUser?.id) return;
+        const blocked = !!chatBlock?.blockedByMe;
+        Alert.alert(
+            blocked ? `¿Desbloquear a ${name}?` : `¿Bloquear a ${name}?`,
+            blocked ? 'Podrá volver a escribirte y llamarte.' : 'No podrá escribirte ni llamarte en este chat. No se le avisará.',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: blocked ? 'Desbloquear' : 'Bloquear',
+                    style: blocked ? 'default' : 'destructive',
+                    onPress: () => setBlocked.mutate({ userId: otherUser.id, blocked: !blocked }, {
+                        onError: () => Alert.alert('No se pudo cambiar', 'Inténtalo de nuevo en un momento.'),
+                    }),
+                },
+            ],
+        );
+    };
 
     const members = useMemo(() => {
         if (!isGroup) return [];
@@ -222,6 +248,21 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
                     />
                 )}
 
+                {isDirect && (
+                    <View style={[styles.card, styles.deleteWrap]}>
+                        <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
+                        <TouchableOpacity style={styles.deleteButton} onPress={toggleBlock} disabled={setBlocked.isPending} accessibilityLabel={chatBlock?.blockedByMe ? `Desbloquear a ${name}` : `Bloquear a ${name}`}>
+                            <Ionicons name="hand-left-outline" size={19} color={colors.danger} />
+                            <Text style={styles.deleteText}>{chatBlock?.blockedByMe ? `Desbloquear a ${name}` : `Bloquear a ${name}`}</Text>
+                        </TouchableOpacity>
+                        <View pointerEvents="none" style={styles.fullDivider} />
+                        <TouchableOpacity style={styles.deleteButton} onPress={() => setReportTarget({ kind: 'user', userId: otherUser.id, name, conversationId })} accessibilityLabel={`Denunciar a ${name}`}>
+                            <Ionicons name="flag-outline" size={19} color={colors.danger} />
+                            <Text style={styles.deleteText}>Denunciar a {name}</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {isAdmin && (
                     <View style={[styles.card, styles.deleteWrap]}>
                         <Glass style={[StyleSheet.absoluteFill, styles.cardGlass]} intensity={22} tint={colors.glassTintLight} />
@@ -232,6 +273,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
                     </View>
                 )}
             </ScrollView>
+            <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
         </View>
     );
 }
@@ -326,4 +368,5 @@ const styles = StyleSheet.create({
     deleteWrap: { marginBottom: space.xxl },
     deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, paddingVertical: 15 },
     deleteText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.danger },
+    fullDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginHorizontal: space.lg },
 });

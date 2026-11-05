@@ -28,6 +28,7 @@ type SummaryModalProps = {
     commitments?: any[];
     currentUserId?: string | null;
     onOpenCommitments?: () => void;
+    onReport?: () => void;
 };
 
 function Section({ icon, title, children }: { icon: keyof typeof Ionicons.glyphMap; title: string; children: React.ReactNode }) {
@@ -74,7 +75,7 @@ const Bullet = ({ text }: { text: string }) => (
     </View>
 );
 
-export function SummaryModal({ summary, onClose, onAskPing, commitments, currentUserId, onOpenCommitments }: SummaryModalProps) {
+export function SummaryModal({ summary, onClose, onAskPing, commitments, currentUserId, onOpenCommitments, onReport }: SummaryModalProps) {
     const sections = summary?.sections;
     // A chat with commitments shows them as they really are; only a chat with
     // none falls back to what Ping read in the messages.
@@ -152,6 +153,11 @@ export function SummaryModal({ summary, onClose, onAskPing, commitments, current
                         <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                         <Text style={styles.doneText}>Entendido</Text>
                     </TouchableOpacity>
+                    {onReport && (
+                        <TouchableOpacity onPress={onReport} style={styles.reportLink} accessibilityRole="button" accessibilityLabel="Denunciar este resumen">
+                            <Text style={styles.reportText}>Denunciar este resumen</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </View>
         </Modal>
@@ -188,4 +194,6 @@ const styles = StyleSheet.create({
     askText: { color: colors.accentBright, fontFamily: fonts.semibold, fontSize: 14 },
     doneBtn: { borderRadius: radius.md, padding: 15, alignItems: 'center', overflow: 'hidden' },
     doneText: { color: colors.onAccent, fontFamily: fonts.bold, fontSize: 15 },
+    reportLink: { alignSelf: 'center', paddingTop: space.md, paddingHorizontal: space.lg },
+    reportText: { fontFamily: fonts.medium, fontSize: 12.5, color: colors.textFaint, textDecorationLine: 'underline' },
 });
