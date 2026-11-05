@@ -16,6 +16,7 @@ describe('Chat feels alive and matches the app', () => {
     it('a commitment without a date can get one from the chat card', () => {
         const card = read('components/GroupTaskCard.tsx');
         expect(card).toContain('accessibilityLabel="Poner fecha"');
+        expect(card).toContain('(isAgreementProposal ? !!currentAgreementResponse : isOwner)');
         expect(card).toContain("await updateCommitment({ id, data: { due_at: newDateIso } });");
         expect(card).toContain('<RescheduleModal');
     });
