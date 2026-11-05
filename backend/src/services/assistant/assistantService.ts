@@ -152,8 +152,30 @@ export interface AssistantDecisionInput extends Omit<AssistantTurnInput, 'channe
     decision: AssistantDecision;
 }
 
+// An action's summary names what will happen ("Crear «X» el jueves…");
+// once it is done Ping says what it did, the way a person would.
+const DONE_VERBS: Array<[string, string]> = [
+    ['Proponer otra fecha para ', 'propuse otra fecha para '],
+    ['Enviar a ', 'le envié a '],
+    ['Recordar: ', 'lo recordaré: '],
+    ['Olvidar: ', 'olvidé: '],
+    ['Crear ', 'creé '],
+    ['Mover ', 'moví '],
+    ['Marcar ', 'marqué '],
+    ['Cancelar ', 'cancelé '],
+    ['Renombrar ', 'renombré '],
+    ['Aceptar ', 'acepté '],
+    ['Rechazar ', 'rechacé '],
+];
+
+export function doneSentence(summary: string): string {
+    const match = DONE_VERBS.find(([verb]) => summary.startsWith(verb));
+    const told = match ? match[1] + summary.slice(match[0].length) : summary.charAt(0).toLowerCase() + summary.slice(1);
+    return `Listo, ${told}${/[.!?]$/.test(told) ? '' : '.'}`;
+}
+
 function decisionAnswer(decision: AssistantDecision, result: Record<string, unknown>): string {
-    if (result.executed === true) return `Listo. ${result.summary}.`;
+    if (result.executed === true) return doneSentence(String(result.summary ?? ''));
     if (result.discarded === true) return 'Listo, no hice ningún cambio.';
     if (result.error === 'expired') return 'Esa propuesta expiró y no hice ningún cambio. Pídemela de nuevo.';
     if (result.error === 'unknown_action' || result.error === 'not_pending') return 'Esa propuesta ya no está pendiente; no hice ningún cambio.';

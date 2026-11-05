@@ -29,7 +29,7 @@ import {
 import { getQuotedMessagePalette } from '../utils/messagePresentation';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts } from '../design/typography';
-import { latLngToOsmTile } from '../utils/mapTiles';
+import { LocationArt } from './LocationArt';
 import {
     getFreshProfileAvatarUrl,
     useProfileAvatarUrl,
@@ -622,20 +622,19 @@ const MessageItemComponent = ({
                                         Linking.openURL(targetUrl);
                                     }}
                                 >
-                                    <CachedImage uri={latLngToOsmTile(meta.location.latitude, meta.location.longitude, 15)} style={styles.locationMapImage} />
-                                    <View style={styles.locationMapMarker}>
-                                        <View style={styles.locationMapMarkerShadow} />
-                                        <Ionicons name="location-sharp" size={32} color={colors.danger} style={styles.locationMapMarkerIcon} />
-                                    </View>
+                                    <LocationArt latitude={meta.location.latitude} longitude={meta.location.longitude} />
                                 </TouchableOpacity>
 
                                 <View style={styles.locationCardBody}>
                                     <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextThem, { fontWeight: '700' }]} numberOfLines={1}>
                                         {meta?.location?.label || 'Ubicación'}
                                     </Text>
-                                    <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { marginTop: 2, marginBottom: 8 }]} numberOfLines={1}>
-                                        {meta?.location?.address || 'Ver en mapa'}
-                                    </Text>
+                                    {meta?.location?.address ? (
+                                        <Text style={[styles.timeText, isMe ? styles.timeMe : styles.timeThem, { marginTop: 2 }]} numberOfLines={1}>
+                                            {meta.location.address}
+                                        </Text>
+                                    ) : null}
+                                    <View style={{ height: 8 }} />
                                     <View style={{ flexDirection: 'row', gap: 12 }}>
                                         <TouchableOpacity
                                             onPress={async () => {
@@ -877,33 +876,6 @@ const styles = StyleSheet.create({
         position: 'relative',
         borderRadius: radius.sm,
         overflow: 'hidden',
-    },
-    locationMapImage: {
-        width: '100%',
-        height: '100%',
-    },
-    locationMapMarker: {
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        marginLeft: -16,
-        marginTop: -28,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    locationMapMarkerShadow: {
-        position: 'absolute',
-        bottom: 4,
-        width: 10,
-        height: 5,
-        borderRadius: 5,
-        backgroundColor: colors.glassTint,
-        transform: [{ scaleX: 2 }],
-    },
-    locationMapMarkerIcon: {
-        textShadowColor: colors.glassTint,
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 2,
     },
     locationCardBody: {
         paddingTop: 8,
