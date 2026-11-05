@@ -26,12 +26,21 @@ describe('Chat summary comes back in parts, without markdown', () => {
 });
 
 describe('Chat summary uses real dates', () => {
-    it('stamps each message with its own day in Chile time', async () => {
-        const { messageStamp } = await import('../src/services/synthesis.service');
-        expect(messageStamp('2026-03-13T18:00:00Z')).toBe('2026-03-13 viernes 15:00');
+    it('counts hoy, mañana and weekdays from the day each message was sent', async () => {
+        const { resolveAgreement } = await import('../src/services/synthesis.service');
+        // 12 de marzo, 12:00 en Chile.
+        expect(resolveAgreement({ what: 'Reunión de producción mañana a las 15:00', said: 'mañana a las 15:00' }, '2026-03-12T15:00:00Z'))
+            .toEqual({ what: 'Reunión de producción', date: '2026-03-13', time: '15:00' });
+        // Martes 3 de noviembre, 12:10 en Chile.
+        expect(resolveAgreement({ what: 'Reunión hoy a las 20:00 de mantención', said: 'hoy a las 20:00' }, '2026-11-03T15:10:00Z'))
+            .toEqual({ what: 'Reunión de mantención', date: '2026-11-03', time: '20:00' });
+        expect(resolveAgreement({ what: 'Reunión este jueves; temas de mantención', said: 'este jueves a las 10:00' }, '2026-11-03T19:52:00Z'))
+            .toEqual({ what: 'Reunión; temas de mantención', date: '2026-11-05', time: '10:00' });
+        expect(resolveAgreement({ what: 'Revisar documentos', said: '' }, '2026-11-03T19:52:00Z'))
+            .toEqual({ what: 'Revisar documentos', date: null, time: null });
     });
 
-    it('writes the agreed day itself, never hoy or mañana', async () => {
+    it('writes the agreed day itself, newest first', async () => {
         const { parseChatSummary, formatWhen } = await import('../src/services/synthesis.service');
         const now = new Date('2026-11-05T12:00:00Z');
         expect(formatWhen('2026-03-13', '15:00', now)).toBe('viernes, 13 de marzo a las 15:00');
@@ -41,7 +50,7 @@ describe('Chat summary uses real dates', () => {
             overview: 'Mantención.',
             agreements: [
                 { what: 'Revisar documentos', date: null, time: null },
-                { what: 'Reunión de producción a las 15:00', date: '2026-03-13', time: '15:00' },
+                { what: 'Reunión de producción', date: '2026-03-13', time: '15:00' },
                 { what: 'Reunión de mantención', date: '2026-11-03', time: '20:00' },
             ],
             pending: [], latest: '',
