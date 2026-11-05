@@ -209,3 +209,64 @@ export async function createFeedback(userId: string, input: { kind: 'idea' | 'pr
     if (error || !data) throw new AppError('Unable to save feedback', 500);
     return { id: data.id };
 }
+
+// --- Data export (portability, Ley 21.719) ----------------------------------
+
+const EXPORT_LIMIT = 5000;
+
+async function rows(query: PromiseLike<{ data: any; error: any }>, what: string): Promise<any[]> {
+    const { data, error } = await query;
+    if (error) throw new AppError(`Unable to export ${what}`, 500);
+    return data || [];
+}
+
+// A copy of what the person put into Ping, in a common format. Other
+// people's messages are not included: they belong to them.
+export async function exportAccountData(userId: string) {
+    const [profile, messages, commitments, memory, contacts, calendars, blocks, feedback, reports] = await Promise.all([
+        rows(supabaseAdmin.from('profiles')
+            .select('email, full_name, phone, privacy_read_receipts, privacy_last_seen, created_at')
+            .eq('id', userId).limit(1), 'profile'),
+        rows(supabaseAdmin.from('messages')
+            .select('id, conversation_id, content, created_at')
+            .eq('sender_id', userId).is('deleted_at', null)
+            .order('created_at', { ascending: false }).limit(EXPORT_LIMIT), 'messages'),
+        rows(supabaseAdmin.from('commitments')
+            .select('id, title, description, status, due_at, created_at, conversation_id')
+            .or(`owner_user_id.eq.${userId},assigned_to_user_id.eq.${userId}`)
+            .order('created_at', { ascending: false }).limit(EXPORT_LIMIT), 'commitments'),
+        rows(supabaseAdmin.from('memory_records')
+            .select('canonical_text, observed_at')
+            .eq('owner_user_id', userId).eq('status', 'active')
+            .order('observed_at', { ascending: false }).limit(EXPORT_LIMIT), 'memory'),
+        rows(supabaseAdmin.from('contacts')
+            .select('display_name, phone, email, created_at')
+            .eq('owner_user_id', userId).limit(EXPORT_LIMIT), 'contacts'),
+        rows(supabaseAdmin.from('user_calendar_accounts')
+            .select('provider, email, created_at')
+            .eq('user_id', userId), 'calendars'),
+        rows(supabaseAdmin.from('user_blocks')
+            .select('blocked_id, created_at')
+            .eq('blocker_id', userId), 'blocks'),
+        rows(supabaseAdmin.from('app_feedback')
+            .select('kind, message, created_at')
+            .eq('user_id', userId), 'feedback'),
+        rows(supabaseAdmin.from('content_reports')
+            .select('kind, reason, details, created_at')
+            .eq('reporter_id', userId), 'reports'),
+    ]);
+
+    return {
+        exported_at: new Date().toISOString(),
+        responsible: 'Marvex · carlos@marvex.cl',
+        profile: profile[0] ?? null,
+        messages_sent: messages,
+        commitments,
+        what_ping_remembers: memory.map((row) => ({ text: row.canonical_text, saved_at: row.observed_at })),
+        saved_contacts: contacts,
+        connected_calendars: calendars,
+        blocked_people: blocks,
+        feedback_sent: feedback,
+        reports_sent: reports,
+    };
+}

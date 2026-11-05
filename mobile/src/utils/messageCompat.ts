@@ -49,7 +49,10 @@ function safeLegacyUrl(value: unknown): string | null {
     if (typeof value !== 'string' || !value.trim()) return null;
     try {
         const url = new URL(value.trim());
-        return ['http:', 'https:'].includes(url.protocol) && !url.search && !url.hash ? url.toString() : null;
+        // The server signs old public file addresses; only that signed form
+        // may carry a query (its token).
+        const signedStorage = url.protocol === 'https:' && url.pathname.includes('/storage/v1/object/sign/chat-media/');
+        return ['http:', 'https:'].includes(url.protocol) && (signedStorage || !url.search) && !url.hash ? url.toString() : null;
     } catch {
         return null;
     }

@@ -18,6 +18,16 @@ export const deleteAccount = async (req: Request, res: Response): Promise<void> 
     }
 };
 
+// GET /user/data-export
+export const exportData = async (req: Request, res: Response): Promise<void> => {
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(await accountSafety.exportAccountData(req.user!.id));
+    } catch (error) {
+        fail(res, error, 'Unable to export data');
+    }
+};
+
 // GET /blocks
 export const listBlocks = async (req: Request, res: Response): Promise<void> => {
     try {

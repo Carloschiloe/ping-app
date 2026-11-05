@@ -12,6 +12,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { isAllowedRequestOrigin, isStrictCorsEnvironment } from './security/corsPolicy';
 import { AppError } from './utils/AppError';
 import { DELETE_ACCOUNT_PAGE, PRIVACY_PAGE, TERMS_PAGE } from './legal/pages';
+import { legacyMediaUrls } from './middleware/legacyMediaUrls';
 
 dotenv.config();
 
@@ -126,8 +127,8 @@ for (const [path, html] of [
   });
 }
 
-// Main router
-app.use('/api', router);
+// Main router. Old public file addresses leave the server already signed.
+app.use('/api', legacyMediaUrls, router);
 
 // Healthcheck
 app.get('/health', (req, res) => {

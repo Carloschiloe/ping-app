@@ -26,6 +26,7 @@ import { FeedbackSheet } from '../components/perfil/FeedbackSheet';
 import { BlockedPeopleSheet } from '../components/perfil/BlockedPeopleSheet';
 import { DeleteAccountSheet } from '../components/perfil/DeleteAccountSheet';
 import { openLegal } from '../utils/legalLinks';
+import { exportMyData } from '../utils/exportMyData';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
@@ -59,6 +60,19 @@ export default function ProfileScreen() {
     const [feedbackVisible, setFeedbackVisible] = useState(false);
     const [blockedVisible, setBlockedVisible] = useState(false);
     const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
+    const [exportingData, setExportingData] = useState(false);
+
+    const handleExportData = async () => {
+        if (exportingData) return;
+        setExportingData(true);
+        try {
+            await exportMyData();
+        } catch {
+            Alert.alert('No se pudo preparar', 'Inténtalo de nuevo en un momento.');
+        } finally {
+            setExportingData(false);
+        }
+    };
     const [noticesOpen, setNoticesOpen] = useState(false);
 
     // Focus Mode State (kept from original implementation)
@@ -396,6 +410,7 @@ export default function ProfileScreen() {
             <Section order={2}>
                 <Row icon="chatbox-ellipses-outline" title="Comentarios y sugerencias" subtitle="Cuéntanos qué mejorar" onPress={() => setFeedbackVisible(true)} />
                 <Row divider icon="hand-left-outline" title="Personas bloqueadas" onPress={() => setBlockedVisible(true)} />
+                <Row divider icon="download-outline" title="Descargar mis datos" subtitle={exportingData ? 'Preparando el archivo…' : 'Una copia de lo que guardaste en Ping'} onPress={handleExportData} />
                 <Row divider icon="document-lock-outline" title="Política de privacidad" onPress={() => openLegal('privacy')} />
                 <Row divider icon="document-text-outline" title="Términos de uso" onPress={() => openLegal('terms')} />
             </Section>
