@@ -82,10 +82,10 @@ describe('Hoy — one tab for the day and every commitment', () => {
         expect(row).toContain("onReceived && primaryAction === 'complete'");
     });
 
-    it('the + button opens Ping with a draft ready to finish', () => {
-        expect(hoy).toContain("onPress={() => openPing('Recuérdame ')}");
-        expect(hoy).toContain("screen: 'PingAI'");
-        expect(read('screens/AgentPreviewScreen.tsx')).toContain('setInputText(draftParam);');
+    it('Ping sits top right like in Chats, with no + button', () => {
+        expect(hoy).toContain("onPress={() => openPing('voice')}");
+        expect(hoy).toContain('<PingOrb size={44} paused={!isFocused} />');
+        expect(hoy).not.toContain('styles.fab');
     });
 
     it('an empty day says so and shows what comes next', () => {

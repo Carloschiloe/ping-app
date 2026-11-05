@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Reanimated, { FadeInDown } from 'react-native-reanimated';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
@@ -42,6 +42,7 @@ import { Glass } from '../design/Glass';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 
 import { SheetFill, sheetSurface } from '../design/Sheet';
+import { PingOrb } from '../design/PingOrb';
 
 // One tab for the day and every commitment: a single list ordered by when
 // things are due, split between what I owe and what others owe me. Finished,
@@ -89,6 +90,7 @@ export function reminderMessage(c: any, personName: string | null): string {
 export default function HoyScreen() {
     const { user } = useAuth();
     const navigation = useNavigation<ChatsTabNavigationProp>();
+    const isFocused = useIsFocused();
 
     const [view, setView] = useState<HoyView>('mine');
     const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
@@ -408,10 +410,10 @@ export default function HoyScreen() {
         }
     }, [contactNameMap]);
 
-    const openPing = useCallback((draft?: string) => {
+    const openPing = useCallback((startWith?: 'voice') => {
         navigation.navigate('Chats', {
             screen: 'PingAI',
-            params: { surface: publicPingSurface(), ...(draft ? { draft, draftAt: Date.now() } : {}) },
+            params: { surface: publicPingSurface(), ...(startWith ? { startWith } : {}) },
         });
     }, [navigation]);
 
@@ -791,6 +793,17 @@ export default function HoyScreen() {
                     >
                         <Ionicons name="options-outline" size={21} color={hasFiltersActive ? colors.accentBright : colors.text} />
                     </TouchableOpacity>
+                    {/* Same place and look as in Chats: Ping is always top right. */}
+                    {!isSideView && (
+                        <TouchableOpacity
+                            style={styles.orbBtn}
+                            onPress={() => openPing('voice')}
+                            accessibilityRole="button"
+                            accessibilityLabel="Abrir Ping"
+                        >
+                            <PingOrb size={44} paused={!isFocused} />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {searchVisible && (
@@ -936,18 +949,6 @@ export default function HoyScreen() {
                 </View>
             )}
 
-            {!isSideView && (
-                <TouchableOpacity
-                    style={styles.fab}
-                    onPress={() => openPing('Recuérdame ')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Agregar compromiso"
-                >
-                    <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabFill}>
-                        <Ionicons name="add" size={28} color={colors.onAccent} />
-                    </LinearGradient>
-                </TouchableOpacity>
-            )}
         </SafeAreaView>
     );
 }
@@ -957,6 +958,7 @@ const styles = StyleSheet.create({
     header: { paddingHorizontal: space.xl, paddingTop: space.sm, paddingBottom: space.md, gap: space.md },
     headerTop: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm },
     headerTitle: { ...type.display, marginTop: 2 },
+    orbBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     iconBtn: {
         width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
         backgroundColor: colors.glassDim, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder,
@@ -987,7 +989,7 @@ const styles = StyleSheet.create({
     weekStrip: { paddingHorizontal: 12, paddingTop: 4 },
     sideTitle: { ...type.title, fontSize: 22 },
     // Bottom room so the + button and the tab bar never cover the last row.
-    listContent: { paddingBottom: TAB_BAR_CLEARANCE + 80 },
+    listContent: { paddingBottom: TAB_BAR_CLEARANCE + 24 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: space.sm },
     sectionLabel: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
     sectionTitle: { fontSize: 12, fontFamily: fonts.semibold, letterSpacing: 1, textTransform: 'uppercase' },
@@ -1018,10 +1020,6 @@ const styles = StyleSheet.create({
     emptyText: { fontSize: 14, fontFamily: fonts.medium, textAlign: 'center', lineHeight: 20 },
     clearFiltersBtn: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
     clearFiltersText: { fontSize: 13, fontFamily: fonts.semibold },
-    fab: {
-        position: 'absolute', right: 20, bottom: TAB_BAR_CLEARANCE + 16, width: 58, height: 58, borderRadius: 29,
-        shadowColor: colors.ink, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 6,
-    },
     modalOverlay: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
     filterSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12, ...sheetSurface },
     filterSheetHandle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.glassBorder, marginBottom: 16 },
@@ -1040,5 +1038,4 @@ const styles = StyleSheet.create({
     filterSheetFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
     filterSecondaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.full, borderWidth: StyleSheet.hairlineWidth },
     filterPrimaryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: radius.full },
-    fabFill: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
 });

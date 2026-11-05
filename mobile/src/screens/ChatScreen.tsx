@@ -34,7 +34,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import MentionPopup from '../components/MentionPopup';
 import MessageItemCard from '../components/MessageItem';
-import TypingIndicator from '../components/TypingIndicator';
+import { LiveActivityBubble } from '../components/LiveActivityBubble';
 import { apiClient } from '../api/client';
 import { useMediaPicker, LocalMediaDraft } from '../hooks/useMediaPicker';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -85,6 +85,7 @@ import {
     shareAttachmentAsync,
 } from '../utils/attachmentActions';
 import { resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
+import { confirmAction } from '../design/ConfirmDialog';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -482,53 +483,46 @@ export default function ChatScreen({ route }: ChatScreenProps) {
     const selectedMessages = messages.filter((message) => selectedMessageIds.has(message.id));
     const canDeleteSelection = canDeleteMessages(selectedMessages, user?.id);
 
-    const confirmDelete = (messageIds: string[]) => {
+    const confirmDelete = async (messageIds: string[]) => {
         const count = messageIds.length;
         if (!count || isDeleting) return;
 
-        Alert.alert(
-            count === 1 ? 'Eliminar mensaje' : `Eliminar ${count} mensajes`,
-            count === 1
+        const ok = await confirmAction({
+            title: count === 1 ? 'Eliminar mensaje' : `Eliminar ${count} mensajes`,
+            message: count === 1
                 ? 'Se eliminará para todos los participantes. Esta acción no se puede deshacer.'
                 : 'Se eliminarán para todos los participantes. Esta acción no se puede deshacer.',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        setIsDeleting(true);
-                        let deletedCount = 0;
-                        try {
-                            for (const messageId of messageIds) {
-                                await deleteMessage(messageId);
-                                deletedCount += 1;
-                            }
-                            setMultiSelect([]);
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        } catch (error) {
-                            console.warn('[Chat] Message delete rejected', {
-                                requested: messageIds.length,
-                                deleted: deletedCount,
-                                error: error instanceof Error ? error.message : 'unknown',
-                            });
-                            if (deletedCount > 0) {
-                                const remainingIds = messageIds.slice(deletedCount);
-                                setMultiSelect((current) => current.filter((id) => remainingIds.includes(id)));
-                            }
-                            Alert.alert(
-                                'No se pudo completar',
-                                deletedCount > 0
-                                    ? `Se eliminaron ${deletedCount} de ${messageIds.length} mensajes. Los demás permanecen en el chat.`
-                                    : 'No se eliminó ningún mensaje. Comprueba tu conexión e inténtalo nuevamente.'
-                            );
-                        } finally {
-                            setIsDeleting(false);
-                        }
-                    },
-                },
-            ]
-        );
+        });
+        if (!ok) return;
+
+        setIsDeleting(true);
+        let deletedCount = 0;
+        try {
+            for (const messageId of messageIds) {
+                await deleteMessage(messageId);
+                deletedCount += 1;
+            }
+            setMultiSelect([]);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+            console.warn('[Chat] Message delete rejected', {
+                requested: messageIds.length,
+                deleted: deletedCount,
+                error: error instanceof Error ? error.message : 'unknown',
+            });
+            if (deletedCount > 0) {
+                const remainingIds = messageIds.slice(deletedCount);
+                setMultiSelect((current) => current.filter((id) => remainingIds.includes(id)));
+            }
+            Alert.alert(
+                'No se pudo completar',
+                deletedCount > 0
+                    ? `Se eliminaron ${deletedCount} de ${messageIds.length} mensajes. Los demás permanecen en el chat.`
+                    : 'No se eliminó ningún mensaje. Comprueba tu conexión e inténtalo nuevamente.'
+            );
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const deleteSelected = () => {
@@ -935,26 +929,14 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 </View>
 
                 {activeTypers.length > 0 && (
-                    <View style={styles.typingIndicatorContainer}>
-                        <Glass style={styles.typingRow} intensity={40}>
-                            {remoteRecorder ? (
-                                <View style={styles.remoteRecordingIcon}>
-                                    <Ionicons name="mic" size={16} color={colors.onAccent} />
-                                </View>
-                            ) : (
-                                <TypingIndicator />
-                            )}
-                            <Text style={styles.typingIndicatorText} numberOfLines={1}>
-                                {activeTypers.map(t => t.name).join(', ')}{' '}
-                                {activeTypers.length > 1 ? 'están' : 'está'}{' '}
-                                {remoteRecorder
-                                    ? `grabando audio · ${formatRecordingDuration(
-                                        Math.max(0, activityClock - (remoteRecorder.recordingStartedAt || activityClock))
-                                    )}`
-                                    : 'escribiendo'}
-                            </Text>
-                        </Glass>
-                    </View>
+                    <LiveActivityBubble
+                        names={(remoteRecorder ? activeTypers.filter((t) => t.isRecording) : activeTypers).map((t) => t.name)}
+                        recording={!!remoteRecorder}
+                        elapsed={remoteRecorder ? formatRecordingDuration(
+                            Math.max(0, activityClock - (remoteRecorder.recordingStartedAt || activityClock))
+                        ) : ''}
+                        showNames={!!isGroup}
+                    />
                 )}
 
                 {isGroup && mentionQuery !== null && (
@@ -1296,32 +1278,6 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         borderRadius: radius.sm,
         overflow: 'hidden',
-    },
-    typingIndicatorContainer: {
-        minHeight: 42,
-        paddingHorizontal: space.md,
-        paddingVertical: 5,
-        justifyContent: 'center',
-    },
-    typingRow: {
-        alignSelf: 'flex-start',
-        maxWidth: '88%',
-        minHeight: 32,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 11,
-        paddingVertical: 6,
-        borderRadius: radius.lg,
-    },
-    typingIndicatorText: { flexShrink: 1, fontFamily: fonts.medium, fontSize: 12, color: colors.textSoft },
-    remoteRecordingIcon: {
-        width: 26,
-        height: 26,
-        borderRadius: 13,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: colors.danger,
     },
     viewerBackdrop: { flex: 1, backgroundColor: colors.ink, justifyContent: 'center', alignItems: 'center' },
     viewerImage: { width: '100%', height: '100%' },

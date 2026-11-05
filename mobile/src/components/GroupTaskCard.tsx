@@ -23,6 +23,7 @@ import {
 import { getProposalActorPresentation } from '../utils/actorPresentation';
 import { AgreementParticipantsList } from './AgreementParticipantsList';
 import { dayBadge } from './compromisos/dayBadge';
+import { RescheduleModal } from './compromisos/RescheduleModal';
 import { CloseCommitmentSheet, type CloseOutcome } from './compromisos/CloseCommitmentSheet';
 import { useCloseCommitment } from '../hooks/useCloseCommitment';
 import { colors, gradients } from '../design/tokens';
@@ -66,6 +67,7 @@ export default function GroupTaskCard({
     const navigation = useNavigation<ChatsTabNavigationProp>();
     const [showActions, setShowActions] = useState(false);
     const [showClose, setShowClose] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(false);
     const { close: closeCommitment, isSaving: isClosing } = useCloseCommitment();
     const [showDetails, setShowDetails] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
@@ -361,6 +363,24 @@ export default function GroupTaskCard({
             : (agreementWaitingLabel || waitingLabel || (!isAccepted ? statusInfo.label : null));
     const hintIsMine = canRespondToAgreement || isWaitingOnMe;
     const metaParts = [isMeeting ? 'Reunión' : null, `Para ${assigneeShort}`].filter(Boolean).join(' · ');
+    // Something without a date can get one right here, like in Hoy.
+    const canSetDate = !commitment.due_at && !isFinished && !hideActions && !isCompactOperationCard
+        && (isAgreementProposal ? canRespondToAgreement : isOwner);
+    const handleSaveDate = async (id: string, newDateIso: string) => {
+        try {
+            if (isAgreementProposal) {
+                await respondToProposal({ id, decision: 'counter_propose', proposedDueAt: newDateIso });
+            } else {
+                await updateCommitment({ id, data: { due_at: newDateIso } });
+            }
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (conversationId) {
+                queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+            }
+        } catch {
+            Alert.alert('No se pudo poner la fecha', 'Intenta nuevamente.');
+        }
+    };
     const canOpenMenu = !hideActions && !isCompactOperationCard && (!isFinished || (isReopenable && (isOwner || isAssignee)));
 
     return (
@@ -376,12 +396,25 @@ export default function GroupTaskCard({
             (isFinished || isPast) && styles.cardFinished,
         ]}
         >
-            <View style={[styles.dayBadge, { backgroundColor: colors.glassRaised }]}>
-                <Text style={[styles.dayBadgeDay, { color: colors.text }]} numberOfLines={1}>{badge.day}</Text>
-                {!!badge.detail && (
-                    <Text style={[styles.dayBadgeDetail, { color: colors.textFaint }]} numberOfLines={1}>{badge.detail}</Text>
-                )}
-            </View>
+            {canSetDate ? (
+                <TouchableOpacity
+                    onPress={() => setShowDatePicker(true)}
+                    style={[styles.dayBadge, { backgroundColor: colors.accentTint }]}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Poner fecha"
+                >
+                    <Ionicons name="calendar-outline" size={15} color={colors.accent} />
+                    <Text style={[styles.dayBadgeDetail, { color: colors.accent, textAlign: 'center' }]} numberOfLines={2}>Poner fecha</Text>
+                </TouchableOpacity>
+            ) : (
+                <View style={[styles.dayBadge, { backgroundColor: colors.glassRaised }]}>
+                    <Text style={[styles.dayBadgeDay, { color: colors.text }]} numberOfLines={1}>{badge.day}</Text>
+                    {!!badge.detail && (
+                        <Text style={[styles.dayBadgeDetail, { color: colors.textFaint }]} numberOfLines={1}>{badge.detail}</Text>
+                    )}
+                </View>
+            )}
 
             <View style={styles.mainContent}>
                 <Text
@@ -565,6 +598,12 @@ export default function GroupTaskCard({
                 isSaving={isClosing}
                 onClose={() => setShowClose(false)}
                 onSubmit={handleCloseSubmit}
+            />
+
+            <RescheduleModal
+                item={showDatePicker ? commitment : null}
+                onClose={() => setShowDatePicker(false)}
+                onSaveDate={handleSaveDate}
             />
 
             {/* Edit/Postpone Modal Wrapper */}

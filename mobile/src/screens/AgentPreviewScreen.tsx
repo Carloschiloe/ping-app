@@ -160,17 +160,6 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         onFailure: handleVoiceFailure,
     });
 
-    // draftAt changes on every request, so tapping "+" again refills the
-    // composer even when the screen is still mounted.
-    const draftParam = route.params?.draft;
-    const draftAt = route.params?.draftAt;
-    useEffect(() => {
-        if (!draftParam) return;
-        setInputText(draftParam);
-        const timer = setTimeout(() => inputRef.current?.focus(), 300);
-        return () => clearTimeout(timer);
-    }, [draftParam, draftAt]);
-
     useEffect(() => {
         isMountedRef.current = true;
         return () => {

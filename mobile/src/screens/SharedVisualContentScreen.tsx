@@ -18,6 +18,7 @@ import { createClientMessageId } from '../utils/synchronization';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 import { ScreenHeader } from '../design/ScreenHeader';
+import { confirmAction } from '../design/ConfirmDialog';
 
 export default function SharedVisualContentScreen({ route, navigation }: SharedVisualContentScreenProps) {
     const { width } = useWindowDimensions();
@@ -49,25 +50,17 @@ export default function SharedVisualContentScreen({ route, navigation }: SharedV
 
     const canDelete = (item: SharedContentItem) => Boolean(user?.id && item.sender.id === user.id);
 
-    const confirmDelete = (item: SharedContentItem) => {
+    const confirmDelete = async (item: SharedContentItem) => {
         if (!canDelete(item)) return;
-        Alert.alert(
-            'Eliminar archivo',
-            'Se eliminará también del chat para todos. Esta acción no se puede deshacer.',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: () => {
-                        void deleteMessage(item.messageId).then(() => {
-                            setViewerIndex(null);
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        }).catch(() => Alert.alert('No se pudo eliminar', 'Inténtalo nuevamente.'));
-                    },
-                },
-            ],
-        );
+        const ok = await confirmAction({
+            title: 'Eliminar archivo',
+            message: 'Se eliminará también del chat para todos. Esta acción no se puede deshacer.',
+        });
+        if (!ok) return;
+        void deleteMessage(item.messageId).then(() => {
+            setViewerIndex(null);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }).catch(() => Alert.alert('No se pudo eliminar', 'Inténtalo nuevamente.'));
     };
 
     const forwardToConversation = async (targetConversationId: string) => {
