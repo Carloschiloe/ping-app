@@ -260,8 +260,8 @@ describe('Sign-in screens in the glass design', () => {
     it('shows the aura, the glass backdrop and what Ping does', () => {
         const kit = read('components/auth/AuthKit.tsx');
         expect(kit).toContain('<GlassBackdrop>');
-        expect(kit).toContain('<PingOrb size={compact ? 96 : 128} />');
-        expect(kit).toContain('Lo que acuerdas en tus chats, Vorian lo recuerda por ti.');
+        expect(kit).toContain("require('../../../assets/images/vorian-mark.png')");
+        expect(kit).toContain('Conversaciones que se convierten en compromisos cumplidos.');
     });
 
     it('a failed profile read retries instead of asking for the name again', () => {
