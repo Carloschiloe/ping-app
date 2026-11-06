@@ -1,7 +1,8 @@
 import { registerRootComponent } from 'expo';
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { AppNavigator } from './src/navigation';
-import { AuthProvider } from './src/context/AuthContext';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { usePersistedChats } from './src/utils/queryCache';
 import { QueryClient, QueryClientProvider, focusManager, onlineManager, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -134,6 +135,8 @@ export default function App() {
 
 const AppContent = () => {
     const appQueryClient = useQueryClient();
+    const { user } = useAuth();
+    usePersistedChats(user?.id);
     const [isLocked, setIsLocked] = useState(false);
     const appState = useRef(AppState.currentState);
 

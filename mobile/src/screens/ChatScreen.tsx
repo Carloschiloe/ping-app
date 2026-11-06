@@ -49,6 +49,7 @@ import { OperationPanel } from '../components/OperationPanel';
 import { ReactionsModal } from '../components/ReactionsModal';
 import { SummaryModal, type ChatSummary } from '../components/SummaryModal';
 import { summaryCommitments } from '../utils/chatSummaryCommitments';
+import { readSavedSummary, saveSummary } from '../utils/summaryCache';
 import { CommitmentsStrip } from '../components/CommitmentsStrip';
 import { MessageActionsModal } from '../components/MessageActionsModal';
 import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
@@ -331,11 +332,21 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         // The sheet opens at once and says it is working; the summary fills it.
         // Closing it before the answer arrives drops that answer.
         const request = ++summaryRequestRef.current;
+        // With no message since the last summary, that summary still holds.
+        const newestId = newestMessage?.id;
+        const saved = user?.id ? await readSavedSummary(user.id, conversationId, newestId) : null;
+        if (request !== summaryRequestRef.current) return;
+        if (saved) {
+            setSummary(saved);
+            return;
+        }
         setIsSummarizing(true);
         try {
             const res = await apiClient.post('/ai/summarize', { conversationId });
             if (request !== summaryRequestRef.current) return;
-            setSummary({ text: res.summary || 'No se pudo generar el resumen.', sections: res.sections ?? null, messageCount: res.messageCount });
+            const fresh: ChatSummary = { text: res.summary || 'No se pudo generar el resumen.', sections: res.sections ?? null, messageCount: res.messageCount };
+            setSummary(fresh);
+            if (user?.id) saveSummary(user.id, conversationId, newestId, fresh);
         } catch {
             if (request !== summaryRequestRef.current) return;
             console.error('[AI] Summarize failed');
@@ -343,7 +354,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         } finally {
             if (request === summaryRequestRef.current) setIsSummarizing(false);
         }
-    }, [conversationId]);
+    }, [conversationId, newestMessage?.id, user?.id]);
     const closeSummary = React.useCallback(() => {
         summaryRequestRef.current += 1;
         setIsSummarizing(false);
