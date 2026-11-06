@@ -28,7 +28,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     return {
         ...config,
         ...base,
-        name: 'Ping',
+        name: 'Vorian',
         version: '1.0.4',
         runtimeVersion: { policy: 'appVersion' },
         updates: {
@@ -45,7 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
                 // device gallery. It never needs to read the user's library.
                 granularPermissions: [],
                 photosPermission: false,
-                savePhotosPermission: 'Ping necesita permiso para guardar el archivo que elegiste.',
+                savePhotosPermission: 'Vorian necesita permiso para guardar el archivo que elegiste.',
             }],
             './plugins/withRequiredMicrophonePermission',
         ],

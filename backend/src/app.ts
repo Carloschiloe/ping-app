@@ -23,7 +23,7 @@ const PING_INVITE_PAGE = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Invitación a Ping</title>
+    <title>Invitación a Vorian</title>
     <style>
       :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f7fb; color: #17233b; }
@@ -36,10 +36,10 @@ const PING_INVITE_PAGE = `<!doctype html>
   </head>
   <body>
     <main>
-      <h1>Te invitaron a Ping</h1>
-      <p>Ping ayuda a conversar y recordar lo importante.</p>
-      <a href="ping:///invite">Abrir Ping</a>
-      <p class="hint">Si Ping no está instalada, instálala y vuelve a abrir este enlace.</p>
+      <h1>Te invitaron a Vorian</h1>
+      <p>Vorian ayuda a conversar y recordar lo importante.</p>
+      <a href="ping:///invite">Abrir Vorian</a>
+      <p class="hint">Si Vorian no está instalada, instálala y vuelve a abrir este enlace.</p>
     </main>
   </body>
 </html>`;

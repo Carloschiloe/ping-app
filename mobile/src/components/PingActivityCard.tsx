@@ -7,11 +7,11 @@ import { colors, radius, space } from '../design/tokens';
 import { fonts } from '../design/typography';
 
 function resultSummary(result: any): string {
-    if (result?.kind === 'response') return result.response?.answer || 'Ping respondió en esta conversación.';
-    if (result?.kind === 'plan') return result.presentation?.summary || 'Ping preparó una propuesta para confirmar.';
-    if (result?.kind === 'clarification') return result.questions?.[0]?.question || 'Ping necesita una aclaración.';
-    if (result?.kind === 'unsupported') return result.reason || 'Ping indicó un límite de capacidad.';
-    return 'Ping procesó esta interacción.';
+    if (result?.kind === 'response') return result.response?.answer || 'Vorian respondió en esta conversación.';
+    if (result?.kind === 'plan') return result.presentation?.summary || 'Vorian preparó una propuesta para confirmar.';
+    if (result?.kind === 'clarification') return result.questions?.[0]?.question || 'Vorian necesita una aclaración.';
+    if (result?.kind === 'unsupported') return result.reason || 'Vorian indicó un límite de capacidad.';
+    return 'Vorian procesó esta interacción.';
 }
 
 export function PingActivityCard({ conversationId, onOpen }: { conversationId: string; onOpen: () => void }) {
@@ -22,7 +22,7 @@ export function PingActivityCard({ conversationId, onOpen }: { conversationId: s
     return (
         <TouchableOpacity
             accessibilityRole="button"
-            accessibilityLabel="Abrir historial de Ping"
+            accessibilityLabel="Abrir historial de Vorian"
             style={styles.wrap}
             onPress={onOpen}
             activeOpacity={0.82}
@@ -30,7 +30,7 @@ export function PingActivityCard({ conversationId, onOpen }: { conversationId: s
             <Glass style={styles.card} intensity={40}>
                 <View style={styles.iconWrap}><Ionicons name="sparkles" size={15} color={colors.accentBright} /></View>
                 <View style={styles.copy}>
-                    <Text style={styles.title}>Ping en esta conversación</Text>
+                    <Text style={styles.title}>Vorian en esta conversación</Text>
                     <Text style={styles.text} numberOfLines={2}>{resultSummary(latest.result)}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />

@@ -207,7 +207,7 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
     // record has no such scope.
     remember_fact: {
         toolId: 'remember_fact', version: 1, category: 'WRITE', domain: 'memory',
-        description: 'Stores a fact about the user as the actor\'s own durable memory record, whether the user asked for it or Ping offered it after the user mentioned it. Confirmation is ALWAYS explicit — never inferred from casual conversation.',
+        description: 'Stores a fact about the user as the actor\'s own durable memory record, whether the user asked for it or Vorian offered it after the user mentioned it. Confirmation is ALWAYS explicit — never inferred from casual conversation.',
         // A real, durable domain write (a genuine memory_records row, not a
         // trivially-undoable draft edit) -- same classification tier as
         // create_commitment, never the lighter 'reversible' tier.
@@ -219,7 +219,7 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
     // M11 — forget_fact: drops one of the actor's own remembered facts.
     forget_fact: {
         toolId: 'forget_fact', version: 1, category: 'WRITE', domain: 'memory',
-        description: 'Forgets one fact the user had asked Ping to remember. Owner-only.',
+        description: 'Forgets one fact the user had asked Vorian to remember. Owner-only.',
         argumentNames: ['memoryRecordId'], sideEffectClass: 'state_change',
         authorizationRequirement: 'actor_identity', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],

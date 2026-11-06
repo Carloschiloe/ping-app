@@ -7,10 +7,10 @@ import { apiClient } from '../api/client';
 export async function exportMyData(): Promise<void> {
     const data = await apiClient.get('/user/data-export', { timeoutMs: 60_000 });
     const stamp = new Date().toISOString().slice(0, 10);
-    const file = new File(Paths.cache, `mis-datos-ping-${stamp}.json`);
+    const file = new File(Paths.cache, `mis-datos-vorian-${stamp}.json`);
     if (file.exists) file.delete();
     file.create();
     file.write(JSON.stringify(data, null, 2));
     if (!(await isAvailableAsync())) throw new Error('Sharing is not available');
-    await shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Mis datos de Ping' });
+    await shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Mis datos de Vorian' });
 }

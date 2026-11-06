@@ -11,7 +11,7 @@ const CONFIRM_WORD = 'ELIMINAR';
 
 const ERASED = [
     'Tu nombre, teléfono, correo, foto y portada',
-    'Tu conversación con Ping y lo que le pediste recordar',
+    'Tu conversación con Vorian y lo que le pediste recordar',
     'Tu calendario conectado, contactos guardados y avisos',
     'Tu acceso: ya no podrás entrar con esta cuenta',
 ];
@@ -35,7 +35,7 @@ export function DeleteAccountSheet({ visible, onClose }: { visible: boolean; onC
                 onClose();
                 queryClient.clear();
                 await supabase.auth.signOut().catch(() => undefined);
-                Alert.alert('Cuenta eliminada', 'Tus datos fueron borrados. Gracias por haber usado Ping.');
+                Alert.alert('Cuenta eliminada', 'Tus datos fueron borrados. Gracias por haber usado Vorian.');
             },
             onError: () => Alert.alert('No se pudo eliminar', 'No se borró nada que no debiera. Inténtalo de nuevo en un momento.'),
         });

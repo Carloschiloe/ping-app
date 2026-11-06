@@ -221,7 +221,7 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain("m8_diagnostic_error");
         expect(html).toContain("fail(currentStage,error,error?.httpStatus)");
         expect(html).toContain('Configurando la conversación segura.');
-        expect(html).toContain('Contactando al servidor de Ping.');
+        expect(html).toContain('Contactando al servidor de Vorian.');
         expect(html).not.toContain('backend de staging');
         expect(html).not.toContain('sesión segura en staging');
         expect(html).not.toMatch(/[ÃÂ�]/);
@@ -245,7 +245,7 @@ describe('M8 live voice environment boundary', () => {
         expect(html).toContain('<canvas id="orb" class="aura"');
         expect(html).not.toContain('class="orb"');
         expect(html).toContain("aura.set(auraMode(name))");
-        expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.');greet();");
+        expect(html).toContain("stage('listening','Vorian está listo','Habla cuando quieras.');greet();");
         expect(html).toContain("cfg.firstName");
         expect(html).toContain("¿cómo estás? ¿En qué te puedo ayudar hoy?");
         expect(html).toContain('greetingMicHeld=true;setMicEnabled(false)');
@@ -270,7 +270,7 @@ describe('M8 live voice environment boundary', () => {
         expect(completion).not.toContain("assistant_audio_stopped");
         expect(completion).toContain("stage:'provider_audio_generation_done'");
         expect(html).toContain("currentStage!=='listening'");
-        expect(html).toContain("stage('listening','Ping está listo','Habla cuando quieras.'");
+        expect(html).toContain("stage('listening','Vorian está listo','Habla cuando quieras.'");
     });
 
     it('does not mute pending playback on VAD alone and gates only confirmed input', () => {

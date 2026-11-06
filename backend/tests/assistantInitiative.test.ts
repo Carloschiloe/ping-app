@@ -59,7 +59,7 @@ describe('M10 — daily summary initiative', () => {
             key: `daily_summary:${USER}:2026-11-02`,
             result: expect.objectContaining({ initiative: { kind: 'daily_summary' } }),
         }));
-        expect(d.push).toHaveBeenCalledWith('ExponentPushToken[x]', 'Ping', 'Buenos días. Hoy tienes la reunión con Pedro a las 11.', { type: 'ping_assistant', kind: 'daily_summary' });
+        expect(d.push).toHaveBeenCalledWith('ExponentPushToken[x]', 'Vorian', 'Buenos días. Hoy tienes la reunión con Pedro a las 11.', { type: 'ping_assistant', kind: 'daily_summary' });
         expect(d.complete).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`);
         expect(d.listOverdue).not.toHaveBeenCalled();
     });

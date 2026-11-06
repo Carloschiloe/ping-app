@@ -90,7 +90,7 @@ export function CalendarsSheet({
                     >
                         <Text style={[styles.sectionTitle, { color: colors.textFaint }]}>CUENTAS CLOUD</Text>
                         <Text style={[styles.hint, { color: colors.textSoft }]}>
-                            Conecta tus cuentas para que Ping sincronice compromisos automáticamente.
+                            Conecta tus cuentas para que Vorian sincronice compromisos automáticamente.
                         </Text>
 
                         {cloudAccounts.length > 0 && (

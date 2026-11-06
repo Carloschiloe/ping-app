@@ -109,8 +109,8 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
                 setMicrophoneCanAskAgain(permission.canAskAgain);
                 if (!permission.granted) {
                     setError(permission.canAskAgain
-                        ? 'Ping necesita permiso para usar el micrófono.'
-                        : 'El micrófono está bloqueado para Ping. Habilítalo en la configuración del teléfono.');
+                        ? 'Vorian necesita permiso para usar el micrófono.'
+                        : 'El micrófono está bloqueado para Vorian. Habilítalo en la configuración del teléfono.');
                     return;
                 }
 
@@ -204,17 +204,17 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
     return <Reanimated.View entering={instant ? undefined : FadeIn.duration(180)} style={styles.overlay}>
         <GlassBackdrop>
             <View style={[styles.topbar, { paddingTop: insets.top + space.sm }]}>
-                <TouchableOpacity onPress={requestClose} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar Ping Voz" hitSlop={8}>
+                <TouchableOpacity onPress={requestClose} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar Vorian Voz" hitSlop={8}>
                     <Ionicons name="chevron-back" size={26} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.title}>Ping</Text>
+                <Text style={styles.title}>Vorian</Text>
             </View>
             {error ? <View style={styles.error}>
                 <View style={styles.errorIcon}>
                     <Ionicons name="mic-off-outline" size={28} color={colors.danger} />
                 </View>
                 <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity onPress={retry} style={styles.retryBtn} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Reintentar Ping Voz">
+                <TouchableOpacity onPress={retry} style={styles.retryBtn} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Reintentar Vorian Voz">
                     <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                     <Text style={styles.retry}>{microphoneCanAskAgain ? 'Reintentar' : 'Abrir configuración'}</Text>
                 </TouchableOpacity>

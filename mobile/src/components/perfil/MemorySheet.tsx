@@ -46,14 +46,14 @@ export function MemorySheet({ visible, onClose }: MemorySheetProps) {
                     <SheetFill />
                     <View style={styles.handle} />
                     <View style={styles.header}>
-                        <Text style={[styles.title, { color: colors.text }]}>Lo que Ping recuerda</Text>
+                        <Text style={[styles.title, { color: colors.text }]}>Lo que Vorian recuerda</Text>
                         <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                             <Ionicons name="close-circle" size={24} color={colors.textFaint} />
                         </TouchableOpacity>
                     </View>
 
                     <Text style={[styles.description, { color: colors.textSoft }]}>
-                        Ping usa esto para entenderte mejor. Para agregar algo, dile «recuerda que…».
+                        Vorian usa esto para entenderte mejor. Para agregar algo, dile «recuerda que…».
                     </Text>
 
                     {isLoading ? (

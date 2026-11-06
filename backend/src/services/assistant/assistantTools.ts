@@ -70,7 +70,7 @@ export const ASSISTANT_TOOL_DEFINITIONS: AssistantToolDefinition[] = [
         text: nullable({ type: 'string', description: 'Words to search for, or null' }),
         person: nullable(REF('a person whose direct conversation to search')),
     }),
-    tool('search_memory', 'Search the facts the user told Ping to remember, beyond the ones already listed in the conversation.', { query: { type: 'string' } }),
+    tool('search_memory', 'Search the facts the user told Vorian to remember, beyond the ones already listed in the conversation.', { query: { type: 'string' } }),
     tool('propose_create_commitment', 'Prepare a new commitment for the user to confirm. Nothing is created until the user confirms in a later message.', {
         title: { type: 'string', description: 'Short activity title in the user\'s words, without the date or time' },
         due: LOCAL_DATE_TIME,

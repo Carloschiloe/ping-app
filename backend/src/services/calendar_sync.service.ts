@@ -280,14 +280,14 @@ export const syncCommitmentToCloud = async (userId: string, commitment: any) => 
 
             // 3. Create Event with Rich Description
             const assigneeText = commitment.assigned_to_user_id ? `\nAsignado a: (ID ${commitment.assigned_to_user_id})` : '';
-            const description = `Ping: Compromiso detectado automáticamente.${assigneeText}\n\nDetalles: ${commitment.title}\nAcordado el: ${new Date(commitment.created_at || Date.now()).toLocaleString('es-CL')}\n\nPing - El chat que recuerda. 🕵️‍♂️📝`;
+            const description = `Vorian: Compromiso detectado automáticamente.${assigneeText}\n\nDetalles: ${commitment.title}\nAcordado el: ${new Date(commitment.created_at || Date.now()).toLocaleString('es-CL')}\n\nPing - El chat que recuerda. 🕵️‍♂️📝`;
 
             let result;
             let eventUrl = '';
 
             if (provider === 'google') {
                 result = await createGoogleEvent(accessToken, {
-                    summary: `Ping: ${commitment.title}`,
+                    summary: `Vorian: ${commitment.title}`,
                     description,
                     start: { dateTime: startIso },
                     end: { dateTime: endIso },
@@ -295,7 +295,7 @@ export const syncCommitmentToCloud = async (userId: string, commitment: any) => 
                 eventUrl = result.htmlLink;
             } else if (provider === 'outlook') {
                 result = await createMsEvent(accessToken, {
-                    subject: `Ping: ${commitment.title}`,
+                    subject: `Vorian: ${commitment.title}`,
                     body: { contentType: 'HTML', content: description.replace(/\n/g, '<br/>') },
                     start: { dateTime: startIso, timeZone: 'UTC' },
                     end: { dateTime: endIso, timeZone: 'UTC' },

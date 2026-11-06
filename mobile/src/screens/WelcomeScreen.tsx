@@ -100,7 +100,7 @@ function IntroPage({ firstName }: { firstName?: string | null }) {
                 Conversaciones que se cumplen
             </Reanimated.Text>
             <Reanimated.Text entering={FadeInDown.delay(500).duration(500)} style={styles.body}>
-                Ping identifica los acuerdos de tus conversaciones y te acompaña en su seguimiento hasta que se cumplan.
+                Vorian identifica los acuerdos de tus conversaciones y te acompaña en su seguimiento hasta que se cumplan.
             </Reanimated.Text>
         </View>
     );
@@ -127,7 +127,7 @@ function CommitmentsPage({ active }: { active: boolean }) {
                                 </View>
                                 <View style={styles.badge}>
                                     <Ionicons name="sparkles" size={11} color={colors.accentBright} />
-                                    <Text style={styles.badgeText}>Ping</Text>
+                                    <Text style={styles.badgeText}>Vorian</Text>
                                 </View>
                             </Glass>
                         </Reanimated.View>
@@ -136,7 +136,7 @@ function CommitmentsPage({ active }: { active: boolean }) {
             </View>
             <Text style={styles.title}>Compromisos detectados automáticamente</Text>
             <Text style={styles.body}>
-                Ping reconoce tareas, plazos y reuniones en tus mensajes y los registra como compromisos. Tú decides si confirmarlos o descartarlos.
+                Vorian reconoce tareas, plazos y reuniones en tus mensajes y los registra como compromisos. Tú decides si confirmarlos o descartarlos.
             </Text>
         </View>
     );
@@ -170,7 +170,7 @@ function PermissionsPage({ active }: { active: boolean }) {
     return (
         <View style={styles.center}>
             <Text style={styles.title}>Tu privacidad, bajo tu control</Text>
-            <Text style={[styles.body, styles.bodyTight]}>Ping solicita únicamente los permisos que necesita y te explica para qué los usa.</Text>
+            <Text style={[styles.body, styles.bodyTight]}>Vorian solicita únicamente los permisos que necesita y te explica para qué los usa.</Text>
             {active && (
                 <Reanimated.View entering={FadeInDown.duration(450)} style={styles.permissions}>
                     <Glass style={styles.permissionCard} tint={colors.glassDim}>
@@ -196,7 +196,7 @@ function PermissionsPage({ active }: { active: boolean }) {
                         <PermissionRow
                             icon="people-outline"
                             title="Contactos"
-                            text="Permite identificar cuáles de tus contactos ya utilizan Ping. Se solicitará solo cuando busques a una persona."
+                            text="Permite identificar cuáles de tus contactos ya utilizan Vorian. Se solicitará solo cuando busques a una persona."
                         />
                         <View style={styles.separator} />
                         <PermissionRow

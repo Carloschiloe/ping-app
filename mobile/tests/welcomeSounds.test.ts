@@ -12,7 +12,7 @@ describe('Welcome pages', () => {
         expect(nav).toContain('hasSeenWelcome(userId)');
         expect(nav).toContain('session && profileComplete && !welcomeSeen');
         expect(nav).toContain('{signedIn && welcomeSeen && <PushNotificationHandler />}');
-        expect(read('src/utils/welcome.ts')).toContain('`ping.welcome.v2:${userId}`');
+        expect(read('src/utils/welcome.ts')).toContain('`ping.welcome.v3:${userId}`');
     });
 
     it('explain each permission before asking, and only ask on a tap', () => {

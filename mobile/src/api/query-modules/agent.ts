@@ -227,7 +227,7 @@ export function mapAgentErrorMessage(error: unknown): string {
             default: return 'No pude responder ahora. Intenta nuevamente.';
         }
     }
-    if (error instanceof TypeError) return 'No hay conexión con Ping.';
+    if (error instanceof TypeError) return 'No hay conexión con Vorian.';
     return 'No pude responder ahora. Intenta nuevamente.';
 }
 

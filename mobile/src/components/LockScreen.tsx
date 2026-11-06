@@ -30,7 +30,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
         }
 
         const result = await LocalAuthentication.authenticateAsync({
-            promptMessage: 'Desbloquea Ping',
+            promptMessage: 'Desbloquea Vorian',
             cancelLabel: 'Cancelar',
             disableDeviceFallback: false,
         });
@@ -59,7 +59,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
                             <Ionicons name="lock-closed" size={16} color={colors.text} />
                         </View>
                     </View>
-                    <Text style={styles.title}>Ping está bloqueado</Text>
+                    <Text style={styles.title}>Vorian está bloqueado</Text>
                     <Text style={styles.subtitle}>Usa FaceID o tu huella dactilar para acceder a tus chats y recordatorios.</Text>
 
                     <TouchableOpacity style={styles.button} onPress={handleAuth} activeOpacity={0.85}>

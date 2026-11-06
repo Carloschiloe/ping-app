@@ -63,7 +63,7 @@ export function voiceStatusCopy(state: VoiceSessionState): string | null {
         case 'capturing': return 'Escuchando…';
         case 'transcribing': return 'Transcribiendo…';
         case 'interpreting': return 'Revisa la transcripción';
-        case 'responding': return 'Ping está respondiendo…';
+        case 'responding': return 'Vorian está respondiendo…';
         case 'cancelled': return 'Grabación cancelada';
         case 'failed': return 'No se pudo procesar la voz';
         default: return null;

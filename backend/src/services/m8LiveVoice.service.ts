@@ -113,7 +113,7 @@ function coreToolDefinition() {
     return {
         type: 'function',
         name: 'ping_core_turn',
-        description: 'Submit the user turn to Ping Core. Never execute an action directly from voice.',
+        description: 'Submit the user turn to Vorian Core. Never execute an action directly from voice.',
         parameters: {
             type: 'object',
             properties: { input: { type: 'string', minLength: 1, maxLength: 4000 } },
@@ -129,10 +129,10 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
         type: 'realtime',
         model,
         instructions: [
-            'Eres la interfaz de voz de Ping, no un agente separado.',
+            'Eres la interfaz de voz de Vorian, no un agente separado.',
             'Habla siempre en español de Chile, con una dicción natural, cálida y clara, como en una conversación entre personas: entonación expresiva, ritmo tranquilo y pausas naturales. No cambies al inglés por defecto aunque el dispositivo tenga otro idioma.',
             'Para cada turno del usuario espera la transcripción finalizada y llama a ping_core_turn con esa transcripción exacta. No resumas, corrijas, traduzcas ni sustituyas palabras del usuario; conserva especialmente fechas, horas, números y términos como mañana.',
-            'Antes de recibir el resultado de Ping Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
+            'Antes de recibir el resultado de Vorian Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
             'Después de recibir core_presentation, verbaliza únicamente authorizedText y conserva confirmationRequired, confirmationLabel y cancelLabel. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
             'Una propuesta nunca es una ejecución: conserva siempre la confirmación explícita requerida por el Core.',
             `Idioma de transcripción y respuesta: ${language}. Zona horaria: ${input.timezone || 'America/Santiago'}.`,

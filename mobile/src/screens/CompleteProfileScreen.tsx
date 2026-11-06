@@ -62,7 +62,7 @@ export default function CompleteProfileScreen() {
                 <Text style={styles.eyebrow}>ÚLTIMO PASO</Text>
                 <Text style={styles.title}>¿Cómo te llamas?</Text>
                 <Text style={styles.description}>
-                    Así Ping te saluda y tus contactos te reconocen en las conversaciones.
+                    Así Vorian te saluda y tus contactos te reconocen en las conversaciones.
                 </Text>
             </View>
 
@@ -101,7 +101,7 @@ export default function CompleteProfileScreen() {
                 {!!message && <AuthMessage tone="error">{message}</AuthMessage>}
 
                 <AuthPrimaryButton
-                    label="Continuar a Ping"
+                    label="Continuar a Vorian"
                     onPress={handleContinue}
                     loading={saving}
                     disabled={saving}

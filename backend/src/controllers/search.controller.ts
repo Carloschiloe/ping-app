@@ -260,6 +260,6 @@ export const search = async (req: Request, res: Response): Promise<void> => {
         if (searchResponseCacheEnabled) searchResponseCache.set(cacheKey, response);
         res.status(200).json(response);
     } catch (error: any) {
-        res.status(500).json({ error: 'Unable to search Ping' });
+        res.status(500).json({ error: 'Unable to search Vorian' });
     }
 };

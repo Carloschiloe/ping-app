@@ -30,7 +30,7 @@ const INITIATIVE_PENDING_TTL_MS = 12 * 60 * 60 * 1000;
 const PUSH_BODY_CHARS = 180;
 
 /** Starts every automatic notice; the instructions tell the model who wrote it. */
-export const INITIATIVE_NOTE_PREFIX = 'Aviso automático de Ping (no lo escribió el usuario):';
+export const INITIATIVE_NOTE_PREFIX = 'Aviso automático de Vorian (no lo escribió el usuario):';
 
 const DAILY_SUMMARY_NOTE = `${INITIATIVE_NOTE_PREFIX} es la mañana. Escríbele al usuario un resumen breve de su día: lo que tiene para hoy y lo que quedó atrasado y sigue abierto. Sin proponer cambios todavía.`;
 
@@ -109,7 +109,7 @@ async function deliver(
         const initiativeResult: AgentTurnResponse = { ...result, initiative: { kind } };
         await deps.persistTurn({ userId: recipient.userId, conversationId, key: keys[0], text: note, result: initiativeResult, memory });
         // Tapping the notification opens the chat with Ping.
-        if (recipient.pushToken) await deps.push(recipient.pushToken, 'Ping', pushBody(answer), { type: 'ping_assistant', kind });
+        if (recipient.pushToken) await deps.push(recipient.pushToken, 'Vorian', pushBody(answer), { type: 'ping_assistant', kind });
         for (const key of keys) await deps.complete(key);
     } catch (error: any) {
         for (const key of keys) await deps.fail(key, error?.message ?? String(error));

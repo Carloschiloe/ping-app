@@ -9,7 +9,7 @@ export async function list(req: Request, res: Response): Promise<void> {
         res.json({ facts: await listUserFacts(req.user!.id) });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
-        res.status(statusCode).json({ error: 'Could not load what Ping remembers.' });
+        res.status(statusCode).json({ error: 'Could not load what Vorian remembers.' });
     }
 }
 

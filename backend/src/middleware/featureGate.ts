@@ -45,7 +45,7 @@ function createFeatureGate(envName: string, requiresNonMvpMaster: boolean) {
         }
 
         res.status(503).json({
-            error: 'This capability is temporarily disabled while Ping completes its security review',
+            error: 'This capability is temporarily disabled while Vorian completes its security review',
         });
     };
 }

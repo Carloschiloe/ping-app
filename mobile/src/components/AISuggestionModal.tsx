@@ -54,7 +54,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const handleCreateContact = () => {
         Alert.prompt(
             'Nuevo contacto',
-            'Nombre del contacto (sin cuenta en Ping):',
+            'Nombre del contacto (sin cuenta en Vorian):',
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
