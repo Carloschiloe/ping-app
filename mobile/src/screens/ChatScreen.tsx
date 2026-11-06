@@ -89,6 +89,7 @@ import {
 } from '../utils/attachmentActions';
 import { resolveAttachmentUrl, resolvePrivateFileUrl } from '../lib/privateFiles';
 import { confirmAction } from '../design/ConfirmDialog';
+import { isNewIncomingMessage, playAppSound } from '../utils/appSounds';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -207,6 +208,20 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         if (route.params.scrollToMessageId) setMessageWindowTarget(route.params.scrollToMessageId);
     }, [route.params.scrollToMessageId]);
 
+    // A soft chime when someone else's message lands in the open chat.
+    const newestMessageIdRef = useRef<string | null>(null);
+    const newestMessage = messages?.[0];
+    useEffect(() => {
+        newestMessageIdRef.current = null;
+    }, [conversationId]);
+    useEffect(() => {
+        if (!newestMessage?.id) return;
+        if (isFocused && isNewIncomingMessage(newestMessageIdRef.current, newestMessage, user?.id)) {
+            playAppSound('received');
+        }
+        newestMessageIdRef.current = newestMessage.id;
+    }, [newestMessage, isFocused, user?.id]);
+
     const { activeTypers, handleTyping, broadcastRecording } = useChatPresence(conversationId, user);
     const [activityClock, setActivityClock] = useState(Date.now());
     const remoteRecorder = activeTypers.find((activity) => activity.isRecording);
@@ -316,6 +331,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
     const handleSend = () => {
         if (!text.trim()) return;
+        playAppSound('sent');
         sendMessage({
             text: text.trim(),
             reply_to_id: replyingToMsg?.id,
@@ -386,7 +402,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         sendMediaDraft,
     } = useMediaPicker({
         conversationId,
-        onMediaSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
+        onMediaSent: (payload) => {
+            playAppSound('sent');
+            sendMessage({ ...payload, reply_to_id: replyingToMsg?.id });
+        },
         setSendingMedia,
         onVideoDraft: (draft) => setVideoDraft(draft),
         isComposerFocused: () => chatInputRef.current?.isComposerFocused() ?? false,
@@ -418,7 +437,10 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         uploadAudio,
     } = useAudioRecorder({
         conversationId,
-        onAudioSent: (payload) => sendMessage({ ...payload, reply_to_id: replyingToMsg?.id }),
+        onAudioSent: (payload) => {
+            playAppSound('sent');
+            sendMessage({ ...payload, reply_to_id: replyingToMsg?.id });
+        },
         onRecordingStateChange: (isRecording) => broadcastRecording(isRecording),
         setSendingMedia
     });

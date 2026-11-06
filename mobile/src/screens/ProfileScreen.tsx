@@ -27,6 +27,7 @@ import { BlockedPeopleSheet } from '../components/perfil/BlockedPeopleSheet';
 import { DeleteAccountSheet } from '../components/perfil/DeleteAccountSheet';
 import { openLegal } from '../utils/legalLinks';
 import { exportMyData } from '../utils/exportMyData';
+import { appSoundsEnabled, loadAppSoundsPreference, playAppSound, setAppSoundsEnabled } from '../utils/appSounds';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
@@ -56,6 +57,7 @@ export default function ProfileScreen() {
     const [dailySummaryEnabled, setDailySummaryEnabled] = useState(true);
     const [summaryHour, setSummaryHour] = useState(8);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
+    const [soundsOn, setSoundsOn] = useState(appSoundsEnabled());
     const [privacyOpen, setPrivacyOpen] = useState(false);
     const [feedbackVisible, setFeedbackVisible] = useState(false);
     const [blockedVisible, setBlockedVisible] = useState(false);
@@ -143,6 +145,7 @@ export default function ProfileScreen() {
         AsyncStorage.getItem('ping_biometric_lock').then(val => {
             if (val === 'true') setBiometricEnabled(true);
         });
+        loadAppSoundsPreference().then(setSoundsOn);
 
         if (user?.id) {
             supabase.from('profiles').select('privacy_read_receipts, privacy_last_seen').eq('id', user.id).single().then(({ data }) => {
@@ -214,6 +217,13 @@ export default function ProfileScreen() {
     const handleSelectSummaryHour = async (hour: number) => {
         setSummaryHour(hour);
         await supabase.from('profiles').update({ assistant_summary_hour: hour }).eq('id', user!.id);
+    };
+
+    const handleToggleSounds = async (value: boolean) => {
+        setSoundsOn(value);
+        await setAppSoundsEnabled(value);
+        // Turning them on plays one, so the person hears what they chose.
+        if (value) playAppSound('received');
     };
 
     const handleToggleOverdueNotices = async (value: boolean) => {
@@ -400,6 +410,9 @@ export default function ProfileScreen() {
                     <Toggle value={overdueNoticesEnabled} onValueChange={handleToggleOverdueNotices} />
                 </Row>
                 </>)}
+                <Row icon="musical-note-outline" title="Sonidos de la app" subtitle="Al enviar, recibir y cumplir" divider>
+                    <Toggle value={soundsOn} onValueChange={handleToggleSounds} />
+                </Row>
                 <Row divider icon="bulb-outline" title="Lo que Ping recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
                 <Row divider icon="moon-outline" title="Modo foco" accessibilityLabel="Modo foco" onPress={() => setFocusModeVisible(true)}>
                     <Text style={[styles.rowStatus, focusActive && styles.rowStatusActive]}>{focusStatusLabel}</Text>

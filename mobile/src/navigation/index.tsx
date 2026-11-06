@@ -2,6 +2,7 @@ import { DarkTheme, NavigationContainer, createNavigationContainerRef } from '@r
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
@@ -25,6 +26,9 @@ import AddParticipantsScreen from '../screens/AddParticipantsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AgentPreviewScreen from '../screens/AgentPreviewScreen';
 import HoyScreen from '../screens/HoyScreen';
+import WelcomeScreen from '../screens/WelcomeScreen';
+import { hasSeenWelcome, markWelcomeSeen } from '../utils/welcome';
+import { loadAppSoundsPreference } from '../utils/appSounds';
 import CallScreen from '../screens/CallScreen';
 import IncomingCallScreen from '../screens/IncomingCallScreen';
 
@@ -126,8 +130,29 @@ const PushNotificationHandler = () => {
 };
 
 export const AppNavigator = () => {
-    const { session, initialized, profileComplete, passwordRecoveryPending } = useAuth();
-    if (!initialized || (session && profileComplete === null)) {
+    const { session, user, profile, initialized, profileComplete, passwordRecoveryPending } = useAuth();
+    const userId = user?.id ?? null;
+    // null while it is being read for this person.
+    const [welcomeSeen, setWelcomeSeen] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        void loadAppSoundsPreference();
+    }, []);
+
+    useEffect(() => {
+        let alive = true;
+        setWelcomeSeen(null);
+        if (userId) hasSeenWelcome(userId).then((seen) => { if (alive) setWelcomeSeen(seen); });
+        return () => { alive = false; };
+    }, [userId]);
+
+    const finishWelcome = () => {
+        setWelcomeSeen(true);
+        if (userId) void markWelcomeSeen(userId);
+    };
+
+    const signedIn = !!session && !!profileComplete && !passwordRecoveryPending;
+    if (!initialized || (session && profileComplete === null) || (signedIn && welcomeSeen === null)) {
         return (
             <GlassBackdrop>
                 <View style={styles.loading}>
@@ -142,10 +167,15 @@ export const AppNavigator = () => {
             ref={navigationRef}
             theme={navigationTheme}
         >
-            {session && profileComplete && !passwordRecoveryPending && <PushNotificationHandler />}
+            {/* Permissions are asked only after the welcome has said what they are for. */}
+            {signedIn && welcomeSeen && <PushNotificationHandler />}
             <RootStack.Navigator screenOptions={{ headerShown: false }}>
                 {passwordRecoveryPending ? (
                     <RootStack.Screen name="PasswordRecovery" component={PasswordRecoveryScreen} />
+                ) : session && profileComplete && !welcomeSeen ? (
+                    <RootStack.Screen name="Welcome">
+                        {() => <WelcomeScreen firstName={profile?.full_name?.split(' ')[0]} onDone={finishWelcome} />}
+                    </RootStack.Screen>
                 ) : session && profileComplete ? (
                     <RootStack.Screen name="Main" component={MainTabs} />
                 ) : session ? (
