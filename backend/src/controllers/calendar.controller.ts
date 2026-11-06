@@ -39,7 +39,7 @@ export const googleCallback = async (req: Request, res: Response) => {
         );
 
         // Redirect back to app (using custom scheme or a success page)
-        res.send('<h1>✅ Ping: Google Calendar Conectado</h1><p>Puedes cerrar esta ventana y volver a la App.</p>');
+        res.send('<h1>✅ Vorian: Google Calendar Conectado</h1><p>Puedes cerrar esta ventana y volver a la App.</p>');
     } catch (error: any) {
         console.error('[Google OAuth Callback] Error:', error);
         res.status(500).send('Error connecting Google Calendar.');
@@ -85,7 +85,7 @@ export const msCallback = async (req: Request, res: Response) => {
             expiresAt
         );
 
-        res.send('<h1>✅ Ping: Outlook Calendar Conectado</h1><p>Puedes cerrar esta ventana y volver a la App.</p>');
+        res.send('<h1>✅ Vorian: Outlook Calendar Conectado</h1><p>Puedes cerrar esta ventana y volver a la App.</p>');
     } catch (error: any) {
         console.error('[MS OAuth Callback] Error:', error);
         res.status(500).send('Error connecting Outlook Calendar.');
@@ -183,16 +183,16 @@ export const syncCommitment = async (req: Request, res: Response) => {
         let eventUrl = '';
         if (provider === 'google') {
             result = await calendarService.createGoogleEvent(accessToken, {
-                summary: `Ping: ${commitment.title}`,
-                description: 'Compromiso detectado automáticamente por Ping.',
+                summary: `Vorian: ${commitment.title}`,
+                description: 'Compromiso detectado automáticamente por Vorian.',
                 start: { dateTime: startDate.toISOString() },
                 end: { dateTime: endDate.toISOString() },
             });
             eventUrl = result.htmlLink;
         } else if (provider === 'outlook') {
             result = await calendarService.createMsEvent(accessToken, {
-                subject: `Ping: ${commitment.title}`,
-                body: { contentType: 'HTML', content: 'Compromiso detectado automáticamente por Ping.' },
+                subject: `Vorian: ${commitment.title}`,
+                body: { contentType: 'HTML', content: 'Compromiso detectado automáticamente por Vorian.' },
                 start: { dateTime: startDate.toISOString(), timeZone: 'UTC' },
                 end: { dateTime: endDate.toISOString(), timeZone: 'UTC' },
             });

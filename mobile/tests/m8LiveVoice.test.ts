@@ -51,7 +51,7 @@ describe('M8 live voice production surface', () => {
     it('keeps a Hablar button beside the composer that opens Ping Voz', () => {
         const screen = read('src/screens/AgentPreviewScreen.tsx');
         expect(screen).toContain('testID="ping-voice-button"');
-        expect(screen).toContain('accessibilityLabel="Abrir Ping Voz"');
+        expect(screen).toContain('accessibilityLabel="Abrir Vorian Voz"');
         expect(screen).toContain('<Text style={styles.talkText}>Hablar</Text>');
         expect(screen).not.toContain('<Ionicons name="radio"');
     });

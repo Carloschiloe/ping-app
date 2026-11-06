@@ -469,7 +469,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
                     .eq('id', userId)
                     .single();
 
-                const senderName = senderProfile?.full_name || senderProfile?.email?.split('@')[0] || 'Ping User';
+                const senderName = senderProfile?.full_name || senderProfile?.email?.split('@')[0] || 'Vorian User';
                 let pushBody = text;
                 if (text.startsWith('[audio]')) pushBody = '🎤 Mensaje de voz';
                 else if (text.startsWith('[imagen]')) pushBody = '📷 Imagen';
@@ -582,7 +582,7 @@ export const createInvitation = async (req: Request, res: Response): Promise<voi
             res.status(400).json({
                 error: invitee?.id === inviterUserId
                     ? 'No puedes invitarte a ti mismo'
-                    : 'No existe una cuenta Ping con ese correo',
+                    : 'No existe una cuenta Vorian con ese correo',
             });
             return;
         }

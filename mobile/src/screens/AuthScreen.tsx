@@ -236,7 +236,7 @@ export default function AuthScreen() {
                 </Text>
                 <Text style={styles.description}>
                     {forgotPassword
-                        ? 'Te enviaremos un enlace seguro al correo registrado en Ping.'
+                        ? 'Te enviaremos un enlace seguro al correo registrado en Vorian.'
                         : mode === 'login'
                         ? 'Retoma tus conversaciones y asuntos importantes.'
                         : 'Organiza tus conversaciones y compromisos en un solo lugar.'}
@@ -499,9 +499,9 @@ function VerificationState({
                 <Text style={styles.verificationText}>Enviamos un correo de verificación a</Text>
                 <Text style={styles.verificationEmail}>{email}</Text>
                 <View style={styles.steps}>
-                    <Text style={styles.step}>1. Abre el correo de Ping.</Text>
+                    <Text style={styles.step}>1. Abre el correo de Vorian.</Text>
                     <Text style={styles.step}>2. Pulsa “Verificar mi cuenta”.</Text>
-                    <Text style={styles.step}>3. Vuelve a Ping y completa tu nombre.</Text>
+                    <Text style={styles.step}>3. Vuelve a Vorian y completa tu nombre.</Text>
                 </View>
                 <Text style={styles.hint}>
                     Revisa también spam. No vuelvas a crear la cuenta.

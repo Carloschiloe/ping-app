@@ -54,7 +54,7 @@ export function FocusModeSheet({
                     </View>
 
                     <Text style={[styles.description, { color: colors.textSoft }]}>
-                        Reduce interrupciones dentro de Ping durante un tiempo determinado.
+                        Reduce interrupciones dentro de Vorian durante un tiempo determinado.
                     </Text>
 
                     {focusActive ? (

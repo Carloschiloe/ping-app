@@ -69,10 +69,10 @@ export function AuthScaffold({ children, buildLabel, condensedBrand = false }: A
 
 export function AuthBrand({ compact = false }: { compact?: boolean }) {
     return (
-        <View style={[styles.brand, compact && styles.brandCompact]} accessible accessibilityLabel="Ping">
+        <View style={[styles.brand, compact && styles.brandCompact]} accessible accessibilityLabel="Vorian">
             <PingOrb size={compact ? 96 : 128} />
-            <Text style={[styles.wordmark, compact && styles.wordmarkCompact]}>PING</Text>
-            <Text style={styles.tagline}>Lo que acuerdas en tus chats, Ping lo recuerda por ti.</Text>
+            <Text style={[styles.wordmark, compact && styles.wordmarkCompact]}>VORIAN</Text>
+            <Text style={styles.tagline}>Lo que acuerdas en tus chats, Vorian lo recuerda por ti.</Text>
         </View>
     );
 }

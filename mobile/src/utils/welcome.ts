@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // The three welcome pages show once per person on this phone, right after
 // the account is ready and before Ping asks for any permission.
 
-const keyFor = (userId: string) => `ping.welcome.v2:${userId}`;
+const keyFor = (userId: string) => `ping.welcome.v3:${userId}`;
 
 export async function hasSeenWelcome(userId: string): Promise<boolean> {
     try {

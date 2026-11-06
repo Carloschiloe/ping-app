@@ -771,7 +771,7 @@ export default function HoyScreen() {
                             style={styles.orbBtn}
                             onPress={() => openPing('voice')}
                             accessibilityRole="button"
-                            accessibilityLabel="Abrir Ping"
+                            accessibilityLabel="Abrir Vorian"
                         >
                             <PingOrb size={44} paused={!isFocused} />
                         </TouchableOpacity>

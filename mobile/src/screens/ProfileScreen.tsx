@@ -375,7 +375,7 @@ export default function ProfileScreen() {
                 <Row
                     divider
                     icon="notifications-outline"
-                    title="Avisos de Ping"
+                    title="Avisos de Vorian"
                     subtitle={noticesSummary(dailySummaryEnabled, summaryHour, overdueNoticesEnabled)}
                     onPress={() => setNoticesOpen((open) => !open)}
                     expanded={noticesOpen}
@@ -413,7 +413,7 @@ export default function ProfileScreen() {
                 <Row icon="musical-note-outline" title="Sonidos" subtitle="Envío, recepción y compromisos cumplidos" divider>
                     <Toggle value={soundsOn} onValueChange={handleToggleSounds} />
                 </Row>
-                <Row divider icon="bulb-outline" title="Lo que Ping recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
+                <Row divider icon="bulb-outline" title="Lo que Vorian recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
                 <Row divider icon="moon-outline" title="Modo foco" accessibilityLabel="Modo foco" onPress={() => setFocusModeVisible(true)}>
                     <Text style={[styles.rowStatus, focusActive && styles.rowStatusActive]}>{focusStatusLabel}</Text>
                 </Row>
@@ -423,7 +423,7 @@ export default function ProfileScreen() {
             <Section order={2}>
                 <Row icon="chatbox-ellipses-outline" title="Comentarios y sugerencias" subtitle="Cuéntanos qué mejorar" onPress={() => setFeedbackVisible(true)} />
                 <Row divider icon="hand-left-outline" title="Personas bloqueadas" onPress={() => setBlockedVisible(true)} />
-                <Row divider icon="download-outline" title="Descargar mis datos" subtitle={exportingData ? 'Preparando el archivo…' : 'Una copia de lo que guardaste en Ping'} onPress={handleExportData} />
+                <Row divider icon="download-outline" title="Descargar mis datos" subtitle={exportingData ? 'Preparando el archivo…' : 'Una copia de lo que guardaste en Vorian'} onPress={handleExportData} />
                 <Row divider icon="document-lock-outline" title="Política de privacidad" onPress={() => openLegal('privacy')} />
                 <Row divider icon="document-text-outline" title="Términos de uso" onPress={() => openLegal('terms')} />
             </Section>
@@ -438,7 +438,7 @@ export default function ProfileScreen() {
             <TouchableOpacity onPress={() => setDeleteAccountVisible(true)} accessibilityLabel="Eliminar mi cuenta" style={styles.deleteAccountLink}>
                 <Text style={styles.deleteAccountText}>Eliminar mi cuenta</Text>
             </TouchableOpacity>
-            <Text style={styles.versionText}>Ping v{appVersion}</Text>
+            <Text style={styles.versionText}>Vorian v{appVersion}</Text>
 
             {/* SHEETS */}
             <EditProfileSheet

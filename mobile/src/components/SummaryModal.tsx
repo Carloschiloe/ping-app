@@ -146,7 +146,7 @@ export function SummaryModal({ summary, onClose, onAskPing, commitments, current
                     {onAskPing && (
                         <TouchableOpacity style={styles.askBtn} onPress={onAskPing}>
                             <Ionicons name="chatbubbles-outline" size={17} color={colors.accentBright} />
-                            <Text style={styles.askText}>Preguntarle a Ping sobre este chat</Text>
+                            <Text style={styles.askText}>Preguntarle a Vorian sobre este chat</Text>
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity style={styles.doneBtn} onPress={onClose}>

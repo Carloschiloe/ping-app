@@ -5,7 +5,7 @@ export interface M8VoiceCorePresentation {
     authorizedText: string;
 }
 
-export const EMPTY_CORE_PRESENTATION = 'Ping Core no entregó contenido suficiente para responder.';
+export const EMPTY_CORE_PRESENTATION = 'Vorian Core no entregó contenido suficiente para responder.';
 
 /**
  * Voice speaks exactly the assistant's answer. Anything else (an error body,

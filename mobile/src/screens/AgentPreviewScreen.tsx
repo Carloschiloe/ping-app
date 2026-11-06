@@ -256,7 +256,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     // A Ping reply can also be reported, as Google Play asks of AI apps.
     const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
     const handleReplyLongPress = (text: string) => {
-        Alert.alert('Respuesta de Ping', undefined, [
+        Alert.alert('Respuesta de Vorian', undefined, [
             { text: 'Copiar', onPress: () => { handleCopyMessage(text); } },
             { text: 'Denunciar respuesta', style: 'destructive', onPress: () => setReportTarget({ kind: 'assistant', excerpt: text }) },
             { text: 'Cancelar', style: 'cancel' },
@@ -275,8 +275,8 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const handleClearHistory = useCallback(() => {
         if (!historyConversationId || isPending || isClearingHistory) return;
         Alert.alert(
-            'Limpiar chat de Ping',
-            'Se ocultará este historial de Ping y se reiniciará la continuidad de la conversación. Tus compromisos y mensajes no se borrarán.',
+            'Limpiar chat de Vorian',
+            'Se ocultará este historial de Vorian y se reiniciará la continuidad de la conversación. Tus compromisos y mensajes no se borrarán.',
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
@@ -411,7 +411,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                     </TouchableOpacity>
                     <PingOrb size={36} state={isPending ? 'thinking' : 'idle'} paused={liveVoiceVisible} />
                     <View style={styles.headerInfo}>
-                        <Text style={styles.title} numberOfLines={1}>{isMainCoreEntry ? 'Ping' : 'Nuevo Agent'}</Text>
+                        <Text style={styles.title} numberOfLines={1}>{isMainCoreEntry ? 'Vorian' : 'Nuevo Agent'}</Text>
                         <Text style={styles.subtitle} numberOfLines={1}>{isMainCoreEntry ? 'Tu asistente de compromisos' : 'Preview interna · confirma antes de actuar'}</Text>
                     </View>
                     <TouchableOpacity
@@ -420,7 +420,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         disabled={!historyConversationId || isPending || isClearingHistory}
                         testID="ping-clear-history-button"
                         accessibilityRole="button"
-                        accessibilityLabel="Limpiar chat de Ping"
+                        accessibilityLabel="Limpiar chat de Vorian"
                     >
                         {isClearingHistory ? (
                             <ActivityIndicator size="small" color={colors.text} />
@@ -442,9 +442,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                         <View style={styles.emptyOrb}>
                             <PingOrb size={120} state={isPending ? 'thinking' : 'idle'} paused={liveVoiceVisible} />
                         </View>
-                        <Text style={styles.emptyTitle}>Pregúntale a Ping</Text>
+                        <Text style={styles.emptyTitle}>Pregúntale a Vorian</Text>
                         <Text style={styles.emptySubtitle}>
-                            Consulta tu información o pídele que haga algo. Ping solo actuará después de pedirte confirmación.
+                            Consulta tu información o pídele que haga algo. Vorian solo actuará después de pedirte confirmación.
                         </Text>
                         <View style={styles.startersWrap}>
                             {AGENT_SUGGESTED_STARTERS.map((starter, index) => (
@@ -582,7 +582,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                                     onPress={openLiveVoice}
                                     testID="ping-voice-button"
                                     accessibilityRole="button"
-                                    accessibilityLabel="Abrir Ping Voz"
+                                    accessibilityLabel="Abrir Vorian Voz"
                                 >
                                     <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.talkFill}>
                                         <Ionicons name="mic" size={18} color={colors.onAccent} />

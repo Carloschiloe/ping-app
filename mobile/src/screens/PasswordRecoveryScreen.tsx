@@ -54,7 +54,7 @@ export default function PasswordRecoveryScreen() {
             setConfirmation('');
             setMessage({
                 tone: 'success',
-                text: 'Tu contraseña fue actualizada. Ya puedes continuar en Ping.',
+                text: 'Tu contraseña fue actualizada. Ya puedes continuar en Vorian.',
             });
         } finally {
             requestGate.current.finish();
@@ -114,7 +114,7 @@ export default function PasswordRecoveryScreen() {
                 {!!message && <AuthMessage tone={message.tone}>{message.text}</AuthMessage>}
 
                 <AuthPrimaryButton
-                    label={completed ? 'Continuar a Ping' : 'Guardar nueva contraseña'}
+                    label={completed ? 'Continuar a Vorian' : 'Guardar nueva contraseña'}
                     icon={completed ? 'arrow-forward' : 'checkmark'}
                     onPress={completed ? clearPasswordRecovery : handleSubmit}
                     loading={loading}

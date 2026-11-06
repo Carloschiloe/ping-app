@@ -110,7 +110,7 @@ export default function NewChatScreen({ navigation }: any) {
                     status: error?.status ?? null,
                 });
                 setDiscoveryWarning(
-                    'Mostramos tu agenda, pero aún no pudimos comprobar quién ya usa Ping. Puedes invitar igualmente.'
+                    'Mostramos tu agenda, pero aún no pudimos comprobar quién ya usa Vorian. Puedes invitar igualmente.'
                 );
             } finally {
                 setMatchingContacts(false);
@@ -188,10 +188,10 @@ export default function NewChatScreen({ navigation }: any) {
         setBusyContactId(contact.id);
         try {
             await Share.share({
-                title: 'Invitación a Ping',
+                title: 'Invitación a Vorian',
                 message: [
-                    `Hola ${contact.name}, te invito a conversar conmigo en Ping.`,
-                    'Abre este enlace para entrar a Ping:',
+                    `Hola ${contact.name}, te invito a conversar conmigo en Vorian.`,
+                    'Abre este enlace para entrar a Vorian:',
                     PING_PUBLIC_INVITE_URL,
                 ].join('\n\n'),
             });
@@ -288,7 +288,7 @@ export default function NewChatScreen({ navigation }: any) {
                 <View style={styles.privacyNote}>
                     <Ionicons name="lock-closed" size={13} color={colors.accentBright} />
                     <Text style={styles.privacyText}>
-                        Tus contactos son privados: Ping solo compara números para mostrar quién ya está aquí.
+                        Tus contactos son privados: Vorian solo compara números para mostrar quién ya está aquí.
                     </Text>
                 </View>
             ) : null}
@@ -301,9 +301,9 @@ export default function NewChatScreen({ navigation }: any) {
             ) : permissionDenied ? (
                 <View style={styles.centerState}>
                     <EmptyIcon name="people" />
-                    <Text style={styles.emptyTitle}>¿Buscamos a tus contactos en Ping?</Text>
+                    <Text style={styles.emptyTitle}>¿Buscamos a tus contactos en Vorian?</Text>
                     <Text style={styles.emptyText}>
-                        Para mostrarte quién ya usa Ping, la app lee los nombres, teléfonos y correos de tu agenda y envía los teléfonos y correos a nuestro servidor, de forma cifrada, solo para compararlos. No los guardamos ni los usamos para nada más.
+                        Para mostrarte quién ya usa Vorian, la app lee los nombres, teléfonos y correos de tu agenda y envía los teléfonos y correos a nuestro servidor, de forma cifrada, solo para compararlos. No los guardamos ni los usamos para nada más.
                     </Text>
                     <Text style={styles.disclosureLink} onPress={() => openLegal('privacy')}>Ver la Política de privacidad</Text>
                     <PrimaryButton

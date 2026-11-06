@@ -42,7 +42,7 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
 
     const isAssistant = target?.kind === 'assistant';
     const who = target && target.kind !== 'assistant' ? target.name : null;
-    const title = isAssistant ? 'Denunciar respuesta de Ping' : target?.kind === 'message' ? 'Denunciar mensaje' : `Denunciar${who ? ` a ${who}` : ''}`;
+    const title = isAssistant ? 'Denunciar respuesta de Vorian' : target?.kind === 'message' ? 'Denunciar mensaje' : `Denunciar${who ? ` a ${who}` : ''}`;
 
     const submit = () => {
         if (!target || !reason) return;
@@ -56,7 +56,7 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
             onSuccess: () => {
                 onClose();
                 Alert.alert('Gracias por avisar', isAssistant
-                    ? 'Revisaremos esta respuesta para que Ping mejore.'
+                    ? 'Revisaremos esta respuesta para que Vorian mejore.'
                     : alsoBlock ? 'Revisaremos la denuncia. Ya no recibirás mensajes ni llamadas de esta persona.' : 'Revisaremos la denuncia.');
             },
             onError: () => Alert.alert('No se pudo enviar', 'Inténtalo de nuevo en un momento.'),

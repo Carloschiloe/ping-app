@@ -172,7 +172,7 @@ const CallScreen = ({ route, navigation }: any) => {
         );
     }
 
-    const displayName = remoteUser?.full_name || remoteUser?.email?.split('@')[0] || 'Ping';
+    const displayName = remoteUser?.full_name || remoteUser?.email?.split('@')[0] || 'Vorian';
 
     return (
         <View style={styles.container}>

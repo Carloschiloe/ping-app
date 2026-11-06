@@ -419,7 +419,7 @@ export default function ConversationsScreen({ navigation }: ConversationsListScr
                                 style={styles.orbButton}
                                 onPress={() => navigation.navigate('PingAI', { surface: publicPingSurface(), startWith: 'voice' })}
                                 accessibilityRole="button"
-                                accessibilityLabel="Abrir Ping"
+                                accessibilityLabel="Abrir Vorian"
                             >
                                 <PingOrb size={44} paused={!isFocused} />
                             </Pressable>
