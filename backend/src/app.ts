@@ -12,6 +12,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { isAllowedRequestOrigin, isStrictCorsEnvironment } from './security/corsPolicy';
 import { AppError } from './utils/AppError';
 import { DELETE_ACCOUNT_PAGE, PRIVACY_PAGE, TERMS_PAGE } from './legal/pages';
+import { HOME_PAGE } from './legal/home';
 import { legacyMediaUrls } from './middleware/legacyMediaUrls';
 
 dotenv.config();
@@ -115,8 +116,9 @@ app.get('/invite', (_req, res) => {
   res.type('html').send(PING_INVITE_PAGE);
 });
 
-// Public legal pages linked from the app and from the Google Play listing.
+// Public home and legal pages linked from the app and from the Google Play listing.
 for (const [path, html] of [
+  ['/', HOME_PAGE],
   ['/privacidad', PRIVACY_PAGE],
   ['/terminos', TERMS_PAGE],
   ['/cuenta/eliminar', DELETE_ACCOUNT_PAGE],
