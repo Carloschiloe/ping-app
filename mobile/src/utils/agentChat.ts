@@ -145,3 +145,32 @@ export const AGENT_SUGGESTED_STARTERS = [
     '¿Qué le prometí a Laura?',
     '¿Me enviaron algún contrato?',
 ] as const;
+
+export type AgentChatContext = {
+    /** Who or what the chat is: a person's first name, a group's name. */
+    name?: string | null;
+    kind: 'self' | 'direct' | 'group';
+    /** The chat's most pressing open commitment, when it has one. */
+    focus?: string | null;
+};
+
+const shortTitle = (title: string) => (title.length > 42 ? `${title.slice(0, 40).trimEnd()}…` : title);
+
+// Opened from a chat, Vorian suggests questions about that chat: its
+// person, its pending work and its most pressing commitment.
+export function chatStarters(context?: AgentChatContext | null): string[] {
+    if (!context) return [...AGENT_SUGGESTED_STARTERS];
+    const name = context.name?.trim();
+    const focus = context.focus?.trim() ? `¿Cómo va «${shortTitle(context.focus.trim())}»?` : null;
+    let base: string[];
+    if (context.kind === 'self') {
+        base = ['¿Qué tengo anotado aquí que siga pendiente?', '¿Qué vence esta semana?', 'Resume lo último que anoté'];
+    } else if (context.kind === 'group') {
+        const where = name ? `en ${name}` : 'en este grupo';
+        base = [`¿Qué quedó pendiente ${where}?`, '¿Quién tiene compromisos atrasados?', '¿Qué se acordó en lo último que hablamos?'];
+    } else {
+        const who = name || 'esta persona';
+        base = [`¿Qué quedó pendiente con ${who}?`, `¿Qué le prometí a ${who}?`, `¿Qué me prometió ${who}?`];
+    }
+    return focus ? [focus, ...base] : [...base, '¿Hay fechas o plazos próximos en este chat?'];
+}

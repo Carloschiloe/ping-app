@@ -48,6 +48,7 @@ import { AISuggestionModal } from '../components/AISuggestionModal';
 import { OperationPanel } from '../components/OperationPanel';
 import { ReactionsModal } from '../components/ReactionsModal';
 import { SummaryModal, type ChatSummary } from '../components/SummaryModal';
+import { summaryCommitments } from '../utils/chatSummaryCommitments';
 import { CommitmentsStrip } from '../components/CommitmentsStrip';
 import { MessageActionsModal } from '../components/MessageActionsModal';
 import { ForwardMessagesModal } from '../components/ForwardMessagesModal';
@@ -167,6 +168,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
     const [summary, setSummary] = useState<ChatSummary | null>(null);
     const [isSummarizing, setIsSummarizing] = useState(false);
+    const summaryRequestRef = useRef(0);
     const [multiSelect, setMultiSelect] = useState<string[]>([]);
     const [forwardModalVisible, setForwardModalVisible] = useState(false);
     const [isForwarding, setIsForwarding] = useState(false);
@@ -313,19 +315,40 @@ export default function ChatScreen({ route }: ChatScreenProps) {
         fetchParticipants();
     }, [conversationId, isGroup, otherUser, profile?.full_name, user]);
 
+    // Vorian opened from here suggests questions about this chat.
+    const openVorian = React.useCallback(() => {
+        const name = isSelf ? null : (isGroup ? groupMetadata?.name : otherUser?.full_name?.trim().split(' ')[0]);
+        const focus = summaryCommitments(groupTasks, user?.id).open[0]?.title ?? null;
+        navigation.navigate('PingAI', {
+            conversationId,
+            surface: publicPingSurface(),
+            chatContext: { kind: isSelf ? 'self' : (isGroup ? 'group' : 'direct'), name, focus },
+        });
+    }, [conversationId, groupMetadata?.name, groupTasks, isGroup, isSelf, navigation, otherUser?.full_name, user?.id]);
+
     // ─── Header Navigation Options ──────────────────────────────────────────
     const handleSummarize = React.useCallback(async () => {
+        // The sheet opens at once and says it is working; the summary fills it.
+        // Closing it before the answer arrives drops that answer.
+        const request = ++summaryRequestRef.current;
         setIsSummarizing(true);
         try {
             const res = await apiClient.post('/ai/summarize', { conversationId });
+            if (request !== summaryRequestRef.current) return;
             setSummary({ text: res.summary || 'No se pudo generar el resumen.', sections: res.sections ?? null, messageCount: res.messageCount });
         } catch {
+            if (request !== summaryRequestRef.current) return;
             console.error('[AI] Summarize failed');
             Alert.alert('No se pudo hacer el resumen', 'Inténtalo nuevamente.');
         } finally {
-            setIsSummarizing(false);
+            if (request === summaryRequestRef.current) setIsSummarizing(false);
         }
     }, [conversationId]);
+    const closeSummary = React.useCallback(() => {
+        summaryRequestRef.current += 1;
+        setIsSummarizing(false);
+        setSummary(null);
+    }, []);
 
     // ─── Handlers ────────────────────────────────────────────────────────────
 
@@ -862,7 +885,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                 <View style={styles.chatBg}>
                     <PingActivityCard
                         conversationId={conversationId}
-                        onOpen={() => navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() })}
+                        onOpen={() => openVorian()}
                     />
                     {conversationMode === 'operation' && (
                         <OperationPanel
@@ -1108,7 +1131,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
 
                 <SummaryModal
                     summary={summary}
-                    onClose={() => setSummary(null)}
+                    loading={isSummarizing}
+                    onClose={closeSummary}
                     commitments={groupTasks}
                     currentUserId={user?.id}
                     onOpenCommitments={() => {
@@ -1117,7 +1141,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
                     }}
                     onAskPing={() => {
                         setSummary(null);
-                        navigation.navigate('PingAI', { conversationId, surface: publicPingSurface() });
+                        openVorian();
                     }}
                     onReport={() => {
                         const excerpt = summary?.text || '';

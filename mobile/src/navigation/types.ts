@@ -1,6 +1,7 @@
 import type { CompositeNavigationProp, NavigatorScreenParams } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { AgentChatContext } from '../utils/agentChat';
 
 export type ChatRouteParams = {
     conversationId: string;
@@ -61,6 +62,8 @@ type AgentCoreRouteParams = {
     surface?: 'mobile_text' | 'tablet';
     /** Open Ping in a live voice conversation instead of the text chat. */
     startWith?: 'voice';
+    /** The chat Vorian was opened from, so its suggestions fit that chat. */
+    chatContext?: AgentChatContext;
 };
 
 export type MainTabParamList = {
