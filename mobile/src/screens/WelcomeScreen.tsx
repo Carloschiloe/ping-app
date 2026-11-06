@@ -41,8 +41,8 @@ export default function WelcomeScreen({ firstName, onDone }: { firstName?: strin
             <View style={[styles.root, { paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.xl }]}>
                 <View style={styles.topBar}>
                     {!last && (
-                        <Pressable onPress={onDone} hitSlop={12} accessibilityRole="button" accessibilityLabel="Saltar bienvenida">
-                            <Text style={styles.skip}>Saltar</Text>
+                        <Pressable onPress={onDone} hitSlop={12} accessibilityRole="button" accessibilityLabel="Omitir bienvenida">
+                            <Text style={styles.skip}>Omitir</Text>
                         </Pressable>
                     )}
                 </View>
@@ -78,7 +78,7 @@ export default function WelcomeScreen({ firstName, onDone }: { firstName?: strin
                         style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
                     >
                         <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-                        <Text style={styles.primaryText}>{last ? 'Empezar' : 'Siguiente'}</Text>
+                        <Text style={styles.primaryText}>{last ? 'Comenzar' : 'Siguiente'}</Text>
                         <Ionicons name={last ? 'checkmark' : 'arrow-forward'} size={18} color={colors.onAccent} />
                     </Pressable>
                 </View>
@@ -97,10 +97,10 @@ function IntroPage({ firstName }: { firstName?: string | null }) {
                 {firstName ? `HOLA, ${firstName.toUpperCase()}` : 'BIENVENIDO'}
             </Reanimated.Text>
             <Reanimated.Text entering={FadeInDown.delay(380).duration(500)} style={styles.title}>
-                Ping recuerda lo importante
+                Conversaciones que se cumplen
             </Reanimated.Text>
             <Reanimated.Text entering={FadeInDown.delay(500).duration(500)} style={styles.body}>
-                Conversa como siempre. Ping está atento a lo que prometes y te lo recuerda a tiempo.
+                Ping identifica los acuerdos de tus conversaciones y te acompaña en su seguimiento hasta que se cumplan.
             </Reanimated.Text>
         </View>
     );
@@ -114,7 +114,7 @@ function CommitmentsPage({ active }: { active: boolean }) {
                     <>
                         <Reanimated.View entering={FadeInDown.duration(450)} style={styles.bubble}>
                             <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-                            <Text style={styles.bubbleText}>Te mando el informe el viernes</Text>
+                            <Text style={styles.bubbleText}>Enviaré el informe trimestral el viernes.</Text>
                         </Reanimated.View>
                         <Reanimated.View entering={FadeInUp.delay(900).duration(550)}>
                             <Glass style={styles.card} tint={colors.glassDim}>
@@ -122,8 +122,8 @@ function CommitmentsPage({ active }: { active: boolean }) {
                                     <Ionicons name="checkmark-circle-outline" size={22} color={colors.accentBright} />
                                 </View>
                                 <View style={styles.cardText}>
-                                    <Text style={styles.cardTitle}>Enviar el informe</Text>
-                                    <Text style={styles.cardMeta}>Viernes · Para ti</Text>
+                                    <Text style={styles.cardTitle}>Enviar informe trimestral</Text>
+                                    <Text style={styles.cardMeta}>Vence el viernes · Responsable: tú</Text>
                                 </View>
                                 <View style={styles.badge}>
                                     <Ionicons name="sparkles" size={11} color={colors.accentBright} />
@@ -134,9 +134,9 @@ function CommitmentsPage({ active }: { active: boolean }) {
                     </>
                 )}
             </View>
-            <Text style={styles.title}>Detecta compromisos solo</Text>
+            <Text style={styles.title}>Compromisos detectados automáticamente</Text>
             <Text style={styles.body}>
-                Cuando alguien dice «te lo mando el viernes», Ping lo anota y te avisa. Tú lo confirmas o lo descartas.
+                Ping reconoce tareas, plazos y reuniones en tus mensajes y los registra como compromisos. Tú decides si confirmarlos o descartarlos.
             </Text>
         </View>
     );
@@ -169,26 +169,26 @@ function PermissionsPage({ active }: { active: boolean }) {
 
     return (
         <View style={styles.center}>
-            <Text style={styles.title}>Tú decides qué permitir</Text>
-            <Text style={[styles.body, styles.bodyTight]}>Ping solo pide lo que usa, y te dice para qué.</Text>
+            <Text style={styles.title}>Tu privacidad, bajo tu control</Text>
+            <Text style={[styles.body, styles.bodyTight]}>Ping solicita únicamente los permisos que necesita y te explica para qué los usa.</Text>
             {active && (
                 <Reanimated.View entering={FadeInDown.duration(450)} style={styles.permissions}>
                     <Glass style={styles.permissionCard} tint={colors.glassDim}>
                         <PermissionRow
                             icon="notifications-outline"
-                            title="Avisos"
-                            text="Para avisarte de mensajes, llamadas y compromisos que vencen."
+                            title="Notificaciones"
+                            text="Recibe alertas de mensajes, llamadas y compromisos próximos a vencer."
                         >
                             {notifications === 'granted' ? (
                                 <View style={styles.granted}>
                                     <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-                                    <Text style={styles.grantedText}>Activados</Text>
+                                    <Text style={styles.grantedText}>Activadas</Text>
                                 </View>
                             ) : notifications === 'denied' ? (
-                                <Text style={styles.deniedText}>Puedes activarlos después en los ajustes del teléfono.</Text>
+                                <Text style={styles.deniedText}>Puedes activarlas más adelante desde la configuración del teléfono.</Text>
                             ) : (
                                 <Pressable onPress={askNotifications} accessibilityRole="button" style={({ pressed }) => [styles.allow, pressed && styles.pressed]}>
-                                    <Text style={styles.allowText}>Activar avisos</Text>
+                                    <Text style={styles.allowText}>Activar notificaciones</Text>
                                 </Pressable>
                             )}
                         </PermissionRow>
@@ -196,13 +196,13 @@ function PermissionsPage({ active }: { active: boolean }) {
                         <PermissionRow
                             icon="people-outline"
                             title="Contactos"
-                            text="Para mostrarte quién ya usa Ping. Te lo preguntaremos cuando busques a alguien."
+                            text="Permite identificar cuáles de tus contactos ya utilizan Ping. Se solicitará solo cuando busques a una persona."
                         />
                         <View style={styles.separator} />
                         <PermissionRow
                             icon="shield-checkmark-outline"
-                            title="Tus chats son tuyos"
-                            text="Sin publicidad y sin vender datos. Puedes descargar o borrar todo desde Perfil."
+                            title="Tus datos te pertenecen"
+                            text="Sin publicidad ni venta de datos. Puedes descargar o eliminar tu información desde Perfil."
                         />
                     </Glass>
                 </Reanimated.View>

@@ -410,7 +410,7 @@ export default function ProfileScreen() {
                     <Toggle value={overdueNoticesEnabled} onValueChange={handleToggleOverdueNotices} />
                 </Row>
                 </>)}
-                <Row icon="musical-note-outline" title="Sonidos de la app" subtitle="Al enviar, recibir y cumplir" divider>
+                <Row icon="musical-note-outline" title="Sonidos" subtitle="Envío, recepción y compromisos cumplidos" divider>
                     <Toggle value={soundsOn} onValueChange={handleToggleSounds} />
                 </Row>
                 <Row divider icon="bulb-outline" title="Lo que Ping recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />

@@ -12,14 +12,14 @@ describe('Welcome pages', () => {
         expect(nav).toContain('hasSeenWelcome(userId)');
         expect(nav).toContain('session && profileComplete && !welcomeSeen');
         expect(nav).toContain('{signedIn && welcomeSeen && <PushNotificationHandler />}');
-        expect(read('src/utils/welcome.ts')).toContain('`ping.welcome.v1:${userId}`');
+        expect(read('src/utils/welcome.ts')).toContain('`ping.welcome.v2:${userId}`');
     });
 
     it('explain each permission before asking, and only ask on a tap', () => {
         expect(welcome).toContain('onPress={askNotifications}');
         expect(welcome).not.toMatch(/useEffect\([^)]*requestPermissionsAsync/s);
-        expect(welcome).toContain('Te lo preguntaremos cuando busques a alguien.');
-        expect(welcome).toContain('Saltar');
+        expect(welcome).toContain('Se solicitará solo cuando busques a una persona.');
+        expect(welcome).toContain('Omitir');
     });
 });
 
@@ -32,7 +32,7 @@ describe('App sounds', () => {
         for (const file of ['sent', 'received', 'done']) {
             expect(fs.existsSync(path.join(__dirname, '..', 'assets', 'sounds', `${file}.wav`))).toBe(true);
         }
-        expect(read('src/screens/ProfileScreen.tsx')).toContain('title="Sonidos de la app"');
+        expect(read('src/screens/ProfileScreen.tsx')).toContain('title="Sonidos"');
     });
 
     it('play on sending, on a new message from someone else, and on done', () => {
