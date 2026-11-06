@@ -2,7 +2,7 @@
 // conversationId, so its durable history is projected through the actor's
 // idempotent self-chat while semantic dialogue scope remains Core-owned.
 import { useQueryClient } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReportSheet, type ReportTarget } from '../components/safety/ReportSheet';
 import {
     View, Text, TextInput, TouchableOpacity, FlatList,
@@ -25,7 +25,7 @@ import { useSelfConversationId, useClearAgentConversationHistory } from '../api/
 import { invalidateCommitmentViews } from '../api/query-invalidation';
 import { ApiError } from '../api/client';
 import {
-    AGENT_SUGGESTED_STARTERS, appendAgentTurnMessage, appendErrorMessage, appendUserMessage,
+    chatStarters, appendAgentTurnMessage, appendErrorMessage, appendUserMessage,
     canSendInput, citationKindLabel, describeCitationsSummary, describeCitationTypes, describeStatusLabel, isLatestAgentMessage,
     restoreAgentConversationMessages, type AgentChatMessage,
 } from '../utils/agentChat';
@@ -61,6 +61,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const conversationId = route.params?.conversationId;
     const adapterSurface = route.params?.surface ?? 'mobile_text';
     const isMainCoreEntry = route.name === 'PingAI';
+    const starters = useMemo(() => chatStarters(route.params?.chatContext), [route.params?.chatContext]);
 
     const [messages, setMessages] = useState<AgentChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -447,7 +448,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                             Consulta tu información o pídele que haga algo. Vorian solo actuará después de pedirte confirmación.
                         </Text>
                         <View style={styles.startersWrap}>
-                            {AGENT_SUGGESTED_STARTERS.map((starter, index) => (
+                            {starters.map((starter, index) => (
                                 <Reanimated.View key={starter} entering={FadeInDown.delay(80 + index * 60).duration(360)}>
                                     <TouchableOpacity onPress={() => handleStarterPress(starter)} activeOpacity={0.75}>
                                         <Glass style={styles.starterChip} intensity={30}>

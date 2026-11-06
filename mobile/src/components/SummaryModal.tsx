@@ -23,6 +23,8 @@ export type ChatSummary = { text: string; sections: ChatSummarySections | null; 
 
 type SummaryModalProps = {
     summary: ChatSummary | null;
+    /** The summary is being written: the sheet is already up and says so. */
+    loading?: boolean;
     onClose: () => void;
     onAskPing?: () => void;
     commitments?: any[];
@@ -75,26 +77,37 @@ const Bullet = ({ text }: { text: string }) => (
     </View>
 );
 
-export function SummaryModal({ summary, onClose, onAskPing, commitments, currentUserId, onOpenCommitments, onReport }: SummaryModalProps) {
+export function SummaryModal({ summary, loading = false, onClose, onAskPing, commitments, currentUserId, onOpenCommitments, onReport }: SummaryModalProps) {
     const sections = summary?.sections;
     // A chat with commitments shows them as they really are; only a chat with
     // none falls back to what Ping read in the messages.
     const real = commitments?.length ? summaryCommitments(commitments, currentUserId) : null;
     return (
-        <Modal visible={!!summary} transparent animationType="slide" onRequestClose={onClose}>
+        <Modal visible={!!summary || loading} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.backdrop}>
                 <View style={styles.sheet}>
                     <SheetFill />
                     <View style={styles.header}>
-                        <PingOrb size={30} />
+                        <PingOrb size={30} state={loading && !summary ? 'thinking' : 'idle'} />
                         <View style={{ flex: 1 }}>
                             <Text style={styles.title}>Resumen de este chat</Text>
-                            {!!summary?.messageCount && <Text style={styles.subtitle}>Últimos {summary.messageCount} mensajes</Text>}
+                            {loading && !summary
+                                ? <Text style={styles.subtitle}>Vorian está leyendo la conversación…</Text>
+                                : !!summary?.messageCount && <Text style={styles.subtitle}>Últimos {summary.messageCount} mensajes</Text>}
                         </View>
                         <TouchableOpacity onPress={onClose} accessibilityLabel="Cerrar" hitSlop={8}>
                             <Ionicons name="close" size={22} color={colors.textSoft} />
                         </TouchableOpacity>
                     </View>
+                    {loading && !summary ? (
+                        <View style={styles.preparing}>
+                            <Text style={styles.preparingText}>Preparando el resumen. Puede tardar unos segundos.</Text>
+                            <View style={[styles.bar, { width: '92%' }]} />
+                            <View style={[styles.bar, { width: '74%' }]} />
+                            <View style={[styles.block, { height: 86, marginTop: space.sm }]} />
+                            <View style={[styles.block, { height: 64 }]} />
+                        </View>
+                    ) : (
                     <ScrollView style={styles.scroll} contentContainerStyle={{ gap: space.md }}>
                         {sections ? (
                             <>
@@ -143,7 +156,8 @@ export function SummaryModal({ summary, onClose, onAskPing, commitments, current
                             <Text style={styles.overview}>{summary?.text}</Text>
                         )}
                     </ScrollView>
-                    {onAskPing && (
+                    )}
+                    {!!summary && onAskPing && (
                         <TouchableOpacity style={styles.askBtn} onPress={onAskPing}>
                             <Ionicons name="chatbubbles-outline" size={17} color={colors.accentBright} />
                             <Text style={styles.askText}>Preguntarle a Vorian sobre este chat</Text>
@@ -151,9 +165,9 @@ export function SummaryModal({ summary, onClose, onAskPing, commitments, current
                     )}
                     <TouchableOpacity style={styles.doneBtn} onPress={onClose}>
                         <LinearGradient colors={gradients.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-                        <Text style={styles.doneText}>Entendido</Text>
+                        <Text style={styles.doneText}>{summary ? 'Entendido' : 'Cancelar'}</Text>
                     </TouchableOpacity>
-                    {onReport && (
+                    {!!summary && onReport && (
                         <TouchableOpacity onPress={onReport} style={styles.reportLink} accessibilityRole="button" accessibilityLabel="Denunciar este resumen">
                             <Text style={styles.reportText}>Denunciar este resumen</Text>
                         </TouchableOpacity>
@@ -171,6 +185,10 @@ const styles = StyleSheet.create({
     title: { fontSize: 18, fontFamily: fonts.bold, color: colors.text },
     subtitle: { ...type.caption, color: colors.textFaint, marginTop: 1 },
     scroll: { marginBottom: space.lg },
+    preparing: { gap: space.sm, marginBottom: space.xl },
+    bar: { height: 13, borderRadius: 7, backgroundColor: colors.glassRaised },
+    block: { borderRadius: radius.lg, backgroundColor: colors.glassRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassBorder },
+    preparingText: { fontFamily: fonts.medium, fontSize: 14.5, lineHeight: 21, color: colors.textSoft, marginBottom: space.sm },
     overview: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: colors.text },
     card: {
         borderRadius: radius.lg, overflow: 'hidden', padding: space.lg, gap: space.sm,
