@@ -11,6 +11,7 @@ import {
     TextInput,
     TextInputProps,
     useWindowDimensions,
+    Image,
     View,
     ViewStyle,
 } from 'react-native';
@@ -21,7 +22,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, gradients, radius, space } from '../../design/tokens';
 import { fonts, type } from '../../design/typography';
 import { Glass, GlassBackdrop } from '../../design/Glass';
-import { PingOrb } from '../../design/PingOrb';
 import type { AuthMode } from '../../utils/authForm';
 
 // The sign-in screens share Ping's glass look: silver waves behind, the aura
@@ -67,12 +67,14 @@ export function AuthScaffold({ children, buildLabel, condensedBrand = false }: A
     );
 }
 
+const VORIAN_MARK = require('../../../assets/images/vorian-mark.png');
+
 export function AuthBrand({ compact = false }: { compact?: boolean }) {
     return (
         <View style={[styles.brand, compact && styles.brandCompact]} accessible accessibilityLabel="Vorian">
-            <PingOrb size={compact ? 96 : 128} />
+            <Image source={VORIAN_MARK} style={compact ? styles.markCompact : styles.mark} resizeMode="contain" />
             <Text style={[styles.wordmark, compact && styles.wordmarkCompact]}>VORIAN</Text>
-            <Text style={styles.tagline}>Lo que acuerdas en tus chats, Vorian lo recuerda por ti.</Text>
+            <Text style={styles.tagline}>Conversaciones que se convierten en compromisos cumplidos.</Text>
         </View>
     );
 }
@@ -258,6 +260,8 @@ const styles = StyleSheet.create({
     content: { width: '100%', maxWidth: MAX_WIDTH, alignSelf: 'center' },
     brand: { alignItems: 'center', marginBottom: space.xl },
     brandCompact: { marginBottom: space.md },
+    mark: { width: 128, height: 128 },
+    markCompact: { width: 96, height: 96 },
     wordmark: {
         fontFamily: fonts.bold,
         fontSize: 30,
