@@ -71,6 +71,7 @@ export type MainTabParamList = {
 
 export type RootStackParamList = {
     Main: undefined;
+    Welcome: undefined;
     Auth: undefined;
     CompleteProfile: undefined;
     PasswordRecovery: undefined;

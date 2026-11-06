@@ -5,6 +5,7 @@ import {
     useUpdateCommitment, useScheduleFollowUp,
 } from '../api/queries';
 import { closingResult, type CloseOutcome } from '../utils/commitmentClosing';
+import { playAppSound } from '../utils/appSounds';
 
 export type ClosedNotice = { text: string; undo: () => void };
 
@@ -36,6 +37,7 @@ export function useCloseCommitment() {
             return { text: 'Cerrado como no hecho.', undo: () => reopen(item.id) };
         }
         await resolve({ id: item.id, result: closingResult(outcome, note, isMeeting) });
+        playAppSound('done');
         return { text: 'Marcado como hecho.', undo: () => reopen(item.id) };
     };
 
