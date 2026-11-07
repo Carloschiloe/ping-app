@@ -6,7 +6,8 @@ import { fonts, type } from './typography';
 import { SheetFill, sheetSurface } from './Sheet';
 
 // Ping's own "are you sure?" card, in place of the system's white alert.
-// Mount <ConfirmHost /> once; anywhere can then `await confirmAction(...)`.
+// Mount <ConfirmHost /> once; anywhere can then `await confirmAction(...)`,
+// or `notify(...)` for a notice with a single button.
 
 interface ConfirmRequest {
     title: string;
@@ -15,7 +16,7 @@ interface ConfirmRequest {
     destructive?: boolean;
 }
 
-type Pending = ConfirmRequest & { resolve: (ok: boolean) => void };
+type Pending = ConfirmRequest & { resolve: (ok: boolean) => void; notice?: boolean };
 
 let show: ((request: Pending) => void) | null = null;
 
@@ -23,6 +24,21 @@ export function confirmAction(request: ConfirmRequest): Promise<boolean> {
     return new Promise((resolve) => {
         if (!show) return resolve(false);
         show({ ...request, resolve });
+    });
+}
+
+/** A notice the person only acknowledges, in the same card. */
+export function notify(request: { title: string; message?: string; buttonLabel?: string }): Promise<void> {
+    return new Promise((resolve) => {
+        if (!show) return resolve();
+        show({
+            title: request.title,
+            message: request.message,
+            confirmLabel: request.buttonLabel ?? 'Entendido',
+            destructive: false,
+            notice: true,
+            resolve: () => resolve(),
+        });
     });
 }
 
@@ -43,6 +59,7 @@ export function ConfirmHost() {
     };
 
     const destructive = pending?.destructive ?? true;
+    const notice = !!pending?.notice;
     return (
         <Modal visible={!!pending} transparent animationType="fade" statusBarTranslucent onRequestClose={() => answer(false)}>
             <Pressable style={styles.scrim} onPress={() => answer(false)}>
@@ -50,17 +67,19 @@ export function ConfirmHost() {
                     <SheetFill />
                     <View style={[styles.icon, { backgroundColor: destructive ? colors.dangerTint : colors.accentTint }]}>
                         <Ionicons
-                            name={destructive ? 'trash-outline' : 'help-circle-outline'}
+                            name={notice ? 'checkmark-circle-outline' : destructive ? 'trash-outline' : 'help-circle-outline'}
                             size={22}
-                            color={destructive ? colors.danger : colors.accent}
+                            color={destructive ? colors.danger : colors.accentBright}
                         />
                     </View>
                     <Text style={styles.title}>{pending?.title}</Text>
                     {!!pending?.message && <Text style={styles.message}>{pending.message}</Text>}
                     <View style={styles.actions}>
-                        <TouchableOpacity style={[styles.button, styles.cancel]} onPress={() => answer(false)} accessibilityRole="button">
-                            <Text style={styles.cancelText}>Cancelar</Text>
-                        </TouchableOpacity>
+                        {!notice && (
+                            <TouchableOpacity style={[styles.button, styles.cancel]} onPress={() => answer(false)} accessibilityRole="button">
+                                <Text style={styles.cancelText}>Cancelar</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity
                             style={[styles.button, { backgroundColor: destructive ? colors.danger : colors.accent }]}
                             onPress={() => answer(true)}

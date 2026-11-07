@@ -31,6 +31,7 @@ export const colors = {
     textSoft: 'rgba(244,246,249,0.80)',
     textFaint: 'rgba(244,246,249,0.60)',
     silver: '#D3D8E0',
+    silverTint: 'rgba(211,216,224,0.20)',
 
     accent: '#3B82F6',
     accentBright: '#7DB2FF',
@@ -61,6 +62,9 @@ export const gradients = {
     // Sheets: light graphite at the top falling into a deeper one.
     sheet: ['rgba(70,76,92,0.98)', 'rgba(36,40,50,0.98)'] as const,
     sheetGlow: ['rgba(91,155,255,0.20)', 'rgba(91,155,255,0)'] as const,
+    // Glass cards and fields lit from above with a silver sheen.
+    cardSheen: ['rgba(211,216,224,0.16)', 'rgba(211,216,224,0.04)'] as const,
+    fieldSheen: ['rgba(255,255,255,0.11)', 'rgba(255,255,255,0.05)'] as const,
     // Over a cover photo: light at the top, darker where the name sits.
     coverShade: ['rgba(8,9,11,0.15)', 'rgba(8,9,11,0.80)'] as const,
     // Avatars without a photo: cool metallic tones.
