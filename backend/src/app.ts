@@ -1,3 +1,4 @@
+import { join } from 'path';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -13,6 +14,7 @@ import { isAllowedRequestOrigin, isStrictCorsEnvironment } from './security/cors
 import { AppError } from './utils/AppError';
 import { DELETE_ACCOUNT_PAGE, PRIVACY_PAGE, TERMS_PAGE } from './legal/pages';
 import { HOME_PAGE } from './legal/home';
+import { AUTH_CONFIRM_PAGE, AUTH_CONFIRM_PATH, AUTH_CONFIRM_SCRIPT, AUTH_CONFIRM_SCRIPT_PATH } from './legal/authConfirm';
 import { legacyMediaUrls } from './middleware/legacyMediaUrls';
 
 dotenv.config();
@@ -128,6 +130,23 @@ for (const [path, html] of [
     res.type('html').send(html);
   });
 }
+
+// Where the sign-up and password emails land. Never cached: it is a one-off step.
+app.get(AUTH_CONFIRM_PATH, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.type('html').send(AUTH_CONFIRM_PAGE);
+});
+app.get(AUTH_CONFIRM_SCRIPT_PATH, (_req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('application/javascript').send(AUTH_CONFIRM_SCRIPT);
+});
+
+// Vorian's mark for emails, which can't show the SVG the pages use.
+app.get('/marca/vorian.png', (_req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(join(process.cwd(), 'public/brand/vorian-mark.png'));
+});
 
 // Main router. Old public file addresses leave the server already signed.
 app.use('/api', legacyMediaUrls, router);

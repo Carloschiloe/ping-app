@@ -9,14 +9,14 @@ import { colors } from './tokens';
 // is that view; every Glass under it reads it from here.
 const BlurTargetContext = createContext<React.RefObject<View | null> | null>(null);
 
-export function GlassBackdrop({ children }: { children: React.ReactNode }) {
+export function GlassBackdrop({ children, moving = false }: { children: React.ReactNode; moving?: boolean }) {
     const target = useRef<View | null>(null);
     return (
         <View style={styles.root}>
             {/* Light buttons: the app is dark, so Android adds no pale strip behind them. */}
             <NavigationBar style="light" />
             <BlurTargetView ref={target} style={StyleSheet.absoluteFill}>
-                <Silk />
+                <Silk moving={moving} />
             </BlurTargetView>
             <BlurTargetContext.Provider value={target}>{children}</BlurTargetContext.Provider>
         </View>
