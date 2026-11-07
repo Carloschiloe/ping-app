@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, Alert, StyleSheet } from 'react-native';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { notify } from '../../design/ConfirmDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useDeleteAccount } from '../../api/queries';
@@ -35,9 +36,9 @@ export function DeleteAccountSheet({ visible, onClose }: { visible: boolean; onC
                 onClose();
                 queryClient.clear();
                 await supabase.auth.signOut().catch(() => undefined);
-                Alert.alert('Cuenta eliminada', 'Tus datos fueron borrados. Gracias por haber usado Vorian.');
+                void notify({ title: 'Cuenta eliminada', message: 'Tus datos fueron borrados. Gracias por haber usado Vorian.' });
             },
-            onError: () => Alert.alert('No se pudo eliminar', 'No se borró nada que no debiera. Inténtalo de nuevo en un momento.'),
+            onError: () => void notify({ title: 'No se pudo eliminar', message: 'No se borró nada que no debiera. Inténtalo de nuevo en un momento.' }),
         });
     };
 

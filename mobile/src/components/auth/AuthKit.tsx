@@ -81,7 +81,16 @@ export function AuthBrand({ compact = false }: { compact?: boolean }) {
 
 export function AuthCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
     return (
-        <Glass style={[styles.card, style]} intensity={50}>
+        <Glass style={[styles.card, style]} intensity={50} tint={colors.glassTintLight}>
+            {/* Lit from above: a silver sheen and a faint blue glow under the top edge. */}
+            <LinearGradient pointerEvents="none" colors={gradients.cardSheen} style={StyleSheet.absoluteFill} />
+            <LinearGradient
+                pointerEvents="none"
+                colors={gradients.sheetGlow}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 0.4 }}
+                style={StyleSheet.absoluteFill}
+            />
             {children}
         </Glass>
     );
@@ -134,6 +143,7 @@ export function AuthField({ icon, secure = false, style, ...props }: AuthFieldPr
     const [focused, setFocused] = useState(false);
     return (
         <View style={[styles.field, focused && styles.fieldFocused]}>
+            <LinearGradient pointerEvents="none" colors={gradients.fieldSheen} style={StyleSheet.absoluteFill} />
             <Ionicons name={icon} size={20} color={focused ? colors.accentBright : colors.textFaint} style={styles.fieldIcon} />
             <TextInput
                 {...props}
@@ -283,33 +293,36 @@ const styles = StyleSheet.create({
         marginBottom: space.md,
         overflow: 'hidden',
     },
-    card: { borderRadius: radius.xl, padding: space.xl },
+    card: { borderRadius: radius.xl, padding: space.xl, borderTopColor: colors.glassEdge },
     segmented: {
         flexDirection: 'row',
-        backgroundColor: colors.glassDim,
+        backgroundColor: colors.glassPressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
         borderRadius: radius.md,
         padding: 3,
         marginBottom: space.lg,
     },
     segment: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm + 1 },
     segmentSelected: {
-        backgroundColor: colors.glassRaised,
+        backgroundColor: colors.silverTint,
         borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.glassBorder,
+        borderColor: colors.glassEdge,
     },
-    segmentText: { fontFamily: fonts.medium, fontSize: 14, color: colors.textFaint },
+    segmentText: { fontFamily: fonts.medium, fontSize: 14, color: colors.textSoft },
     segmentTextSelected: { fontFamily: fonts.semibold, color: colors.text },
     field: {
         minHeight: 52,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.glassBorder,
+        borderTopColor: colors.glassEdge,
         borderRadius: radius.md,
-        backgroundColor: colors.glassDim,
+        overflow: 'hidden',
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: space.md,
     },
-    fieldFocused: { borderColor: colors.accentBright },
+    fieldFocused: { borderColor: colors.accentBright, borderTopColor: colors.accentBright },
     fieldIcon: { marginLeft: space.lg, marginRight: space.md },
     fieldInput: {
         flex: 1,
