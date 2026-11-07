@@ -40,7 +40,7 @@ export function AuthScaffold({ children, buildLabel, condensedBrand = false }: A
     const compact = height < 760 || width < 360;
 
     return (
-        <GlassBackdrop>
+        <GlassBackdrop moving>
             <StatusBar style="light" />
             <View pointerEvents="none" style={styles.glow} />
             <SafeAreaView style={styles.flex}>

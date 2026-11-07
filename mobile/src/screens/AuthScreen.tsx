@@ -13,9 +13,10 @@ import {
     PrivacyNote,
 } from '../components/auth/AuthKit';
 import { supabase } from '../lib/supabase';
-import { openLegal } from '../utils/legalLinks';
+import { LEGAL_BASE_URL, openLegal } from '../utils/legalLinks';
 import { colors } from '../design/tokens';
 import { fonts } from '../design/typography';
+import { PingOrb } from '../design/PingOrb';
 import {
     createRequestGate,
     DEFAULT_SIGNUP_COOLDOWN_SECONDS,
@@ -38,7 +39,11 @@ type FormMessage = {
 
 export default function AuthScreen() {
     const buildLabel = Constants.expoConfig?.extra?.buildLabel as string | undefined;
-    const authCallbackUrl = Linking.createURL('auth/callback');
+    // Email links open Vorian's own page, which says whether it worked and
+    // then opens the app. Expo Go has no page of its own, so it keeps the app link.
+    const authCallbackUrl = Constants.appOwnership === 'expo'
+        ? Linking.createURL('auth/callback')
+        : `${LEGAL_BASE_URL}/cuenta/confirmada`;
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -229,23 +234,10 @@ export default function AuthScreen() {
     const buttonDisabled = loading || signupBlocked || (mode === 'signup' && !acceptedTerms);
 
     return (
-        <AuthScaffold buildLabel={buildLabel}>
-            <View style={styles.intro}>
-                <Text style={styles.title}>
-                    {forgotPassword ? 'Recupera tu acceso' : mode === 'login' ? 'Qué bueno verte' : 'Bienvenido'}
-                </Text>
-                <Text style={styles.description}>
-                    {forgotPassword
-                        ? 'Te enviaremos un enlace seguro al correo registrado en Vorian.'
-                        : mode === 'login'
-                        ? 'Retoma tus conversaciones y asuntos importantes.'
-                        : 'Organiza tus conversaciones y compromisos en un solo lugar.'}
-                </Text>
-                <View style={styles.valueRow}>
-                    <ValuePill icon="chatbubble-ellipses-outline" label="Conversaciones" />
-                    <ValuePill icon="checkmark-circle-outline" label="Compromisos" />
-                    <ValuePill icon="radio-outline" label="Memoria" />
-                </View>
+        <AuthScaffold buildLabel={buildLabel} condensedBrand>
+            {/* Vorian's aura, alive, between the brand and the form. */}
+            <View style={styles.aura} accessible={false}>
+                <PingOrb size={132} />
             </View>
 
             <AuthCard>
@@ -396,21 +388,6 @@ export default function AuthScreen() {
     );
 }
 
-function ValuePill({
-    icon,
-    label,
-}: {
-    icon: keyof typeof Ionicons.glyphMap;
-    label: string;
-}) {
-    return (
-        <View style={styles.valuePill}>
-            <Ionicons name={icon} size={15} color={colors.accentBright} />
-            <Text style={styles.valueLabel}>{label}</Text>
-        </View>
-    );
-}
-
 function PasswordResetRequest({
     email,
     loading,
@@ -542,36 +519,7 @@ function VerificationState({
 }
 
 const styles = StyleSheet.create({
-    intro: { alignItems: 'center', marginBottom: 18, paddingHorizontal: 12 },
-    title: { color: colors.text, fontSize: 30, lineHeight: 36, fontFamily: fonts.bold, textAlign: 'center' },
-    description: {
-        fontFamily: fonts.regular,
-        color: colors.textSoft,
-        fontSize: 15,
-        lineHeight: 21,
-        textAlign: 'center',
-        maxWidth: 350,
-        marginTop: 6,
-    },
-    valueRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        gap: 7,
-        marginTop: 13,
-    },
-    valuePill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-        backgroundColor: colors.glassRaised,
-        borderColor: colors.glassBorder,
-        borderWidth: 1,
-        borderRadius: 999,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-    },
-    valueLabel: { color: colors.textSoft, fontSize: 11, fontFamily: fonts.semibold },
+    aura: { alignItems: 'center', marginTop: -4, marginBottom: 14 },
     switchLink: { alignItems: 'center', paddingVertical: 16, marginBottom: -5 },
     switchText: { fontFamily: fonts.regular, color: colors.textSoft, fontSize: 14 },
     switchTextStrong: { color: colors.accentBright, fontFamily: fonts.semibold },

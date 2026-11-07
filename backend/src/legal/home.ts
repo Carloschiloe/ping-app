@@ -4,7 +4,7 @@
 
 import { LEGAL_CONTACT, LEGAL_OWNER } from './pages';
 
-const MARK = `<svg viewBox="250 270 524 560" width="88" height="94" aria-hidden="true">
+export const MARK = `<svg viewBox="250 270 524 560" width="88" height="94" aria-hidden="true">
   <defs>
     <linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.45" stop-color="#D9E2EE"/><stop offset="1" stop-color="#8FA3BF"/></linearGradient>
     <linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93C5FD"/><stop offset="0.5" stop-color="#3B82F6"/><stop offset="1" stop-color="#1D4ED8"/></linearGradient>
