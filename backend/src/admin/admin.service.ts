@@ -4,6 +4,7 @@ import { AppError } from '../utils/AppError';
 import { TtlCache } from '../utils/ttlCache';
 import { sendPushNotification } from '../services/push.service';
 import { forgetAccessCache } from '../services/access.service';
+import { forgetVerifiedTokens } from '../middleware/auth';
 
 // Read models and actions for the owner's admin panel. It shows who uses
 // Vorian and how much, never what people wrote: no message, commitment or
@@ -297,6 +298,7 @@ export async function setSuspended(adminId: string, userId: string, suspended: b
     await loadProfile(userId);
     const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: suspended ? '876000h' : 'none' } as any);
     if (banError) throw new AppError('Unable to change access', 500);
+    forgetVerifiedTokens();
     const { error } = await supabaseAdmin.from('profiles').update({ suspended_at: suspended ? new Date().toISOString() : null }).eq('id', userId);
     if (error) throw new AppError('Unable to change access', 500);
     forgetAccessCache(userId);

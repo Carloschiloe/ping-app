@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { assertCanReferenceProfiles, assertConversationParticipant } from '../utils/authz';
+import { forgetVerifiedTokens } from '../middleware/auth';
 import { safeErrorLog } from '../utils/safeError';
 
 // Account deletion, blocking, reports and feedback: what Google Play asks of
@@ -38,6 +39,7 @@ export async function deleteAccount(userId: string): Promise<void> {
     // while removing the person's identities, so the number can sign up again.
     const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId, true);
     if (authError) throw new AppError('Unable to delete sign-in', 500);
+    forgetVerifiedTokens();
 }
 
 // --- Blocks -----------------------------------------------------------------
