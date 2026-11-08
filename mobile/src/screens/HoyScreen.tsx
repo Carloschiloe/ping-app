@@ -35,6 +35,7 @@ import { ConfirmCommitmentModal } from '../components/compromisos/ConfirmCommitm
 import { CloseCommitmentSheet, type CloseOutcome } from '../components/compromisos/CloseCommitmentSheet';
 import { useCloseCommitment, type ClosedNotice } from '../hooks/useCloseCommitment';
 import { WeekStrip } from '../components/hoy/WeekStrip';
+import { TrialBanner } from '../components/hoy/TrialBanner';
 import { buildDayMarks } from '../utils/calendarDays';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
@@ -777,6 +778,8 @@ export default function HoyScreen() {
                         </TouchableOpacity>
                     )}
                 </View>
+
+                {!isSideView && <TrialBanner />}
 
                 {searchVisible && (
                     <Glass style={styles.searchBar} intensity={40}>

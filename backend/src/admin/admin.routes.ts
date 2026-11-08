@@ -117,6 +117,7 @@ adminRouter.put('/settings',
             noticeDays: z.array(z.number().int().min(1).max(60)).max(5),
             monthlyPriceClp: z.number().int().min(0).max(10_000_000).nullable(),
             annualPriceClp: z.number().int().min(0).max(10_000_000).nullable(),
+            enforceTrial: z.boolean(),
         }),
     })),
     handle((req) => admin.updateSettings(req.body)));

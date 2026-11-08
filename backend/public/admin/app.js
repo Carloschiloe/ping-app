@@ -439,7 +439,10 @@
         '<div class="sys"><span>Plan mensual</span><span class="end">' + esc(money(s.monthlyPriceClp)) + '</span></div>' +
         '<div class="sys"><span>Plan anual</span><span class="end">' + esc(money(s.annualPriceClp)) + '</span></div>' +
         '<div class="sys"><span>Días de prueba gratis</span><span class="end">' + s.trialDays + ' días</span></div></div><a href="#ajustes" class="more" style="display:block;margin-top:10px;color:var(--accentB);font-size:12px;text-decoration:none">Cambiar en Ajustes</a></div>' +
-        '<div class="card"><h3>Pagos recientes</h3><div class="empty">Aún no hay pagos. Esta lista se llenará cuando conectemos el cobro con Google Play y App Store.</div></div></div>';
+        '<div class="card"><h3>Avisos de fin de prueba</h3><div class="sub">Enviados al teléfono en los últimos 7 días' + (s.enforceTrial ? '' : ' · apagados en Ajustes') + '</div><div class="list">' +
+        s.noticeDays.map(function (d) { return '<div class="sys"><span>' + (d === 1 ? 'Falta 1 día' : 'Faltan ' + d + ' días') + '</span><span class="end"><span class="chip blue">' + num((p.noticesWeek || {})['days_' + d]) + '</span></span></div>'; }).join('') +
+        '<div class="sys"><span>Prueba terminada</span><span class="end"><span class="chip mute">' + num((p.noticesWeek || {}).ended) + '</span></span></div></div></div>' +
+        '</div><div class="grid2 even"><div class="card"><h3>Pagos recientes</h3><div class="empty">Aún no hay pagos. Esta lista se llenará cuando conectemos el cobro con Google Play y App Store.</div></div></div>';
       bindUserLinks();
     }, failView);
   }
@@ -581,13 +584,17 @@
         '<label>Plan anual (pesos chilenos)<input type="number" name="annual" min="0" placeholder="Por definir" value="' + (s.annualPriceClp == null ? '' : s.annualPriceClp) + '"></label>' +
         '</div><p class="sub" style="margin:14px 0">Los días de prueba se aplican a las personas que se registren desde ahora. Para alguien que ya está registrado, usa «Alargar la prueba» en su ficha.</p>' +
         '<button class="btn primary" type="submit">Guardar cambios</button></form>' +
-        '<div class="card"><h3>Qué se bloquea al vencer la prueba</h3><div class="list">' +
+        '<div class="card"><h3>Al vencer la prueba</h3>' +
+        '<label class="switch"><input type="checkbox" form="settings-form" name="enforce"' + (s.enforceTrial ? ' checked' : '') + '><span><b>Bloqueo y avisos activos</b><small>' + (s.enforceTrial ? 'Encendido: se mandan los avisos y, al vencer, se pausan las funciones de abajo.' : 'Apagado: nadie queda bloqueado ni recibe avisos de fin de prueba.') + '</small></span></label>' +
+        '<div class="list">' +
         '<div class="sys"><span>Leer y responder mensajes</span><span class="end"><span class="chip ok">Siempre disponible</span></span></div>' +
-        '<div class="sys"><span>Ver compromisos</span><span class="end"><span class="chip ok">Siempre disponible</span></span></div>' +
-        '<div class="sys"><span>Asistente Vorian</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
+        '<div class="sys"><span>Ver sus compromisos</span><span class="end"><span class="chip ok">Siempre disponible</span></span></div>' +
+        '<div class="sys"><span>Contestar llamadas</span><span class="end"><span class="chip ok">Siempre disponible</span></span></div>' +
+        '<div class="sys"><span>Asistente Vorian (texto y voz)</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
+        '<div class="sys"><span>Resúmenes de chats</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
         '<div class="sys"><span>Crear compromisos nuevos</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
-        '<div class="sys"><span>Llamadas de voz y resúmenes</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
-        '</div><div class="note" style="margin-top:12px">Propuesta. Los avisos y los bloqueos se activan en la próxima etapa; por ahora nadie queda bloqueado.</div></div></div>';
+        '<div class="sys"><span>Iniciar llamadas</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
+        '</div><div class="note" style="margin-top:12px">Enciéndelo cuando el pago con Google Play y App Store esté listo. Tú y quienes tengan acceso gratis nunca quedan bloqueados.</div></div></div>';
       document.getElementById('settings-form').addEventListener('submit', function (e) {
         e.preventDefault();
         var f = e.target;
@@ -598,8 +605,10 @@
           noticeDays: notice,
           monthlyPriceClp: f.monthly.value === '' ? null : parseInt(f.monthly.value, 10),
           annualPriceClp: f.annual.value === '' ? null : parseInt(f.annual.value, 10),
+          enforceTrial: f.enforce.checked,
         };
-        api('/settings', { method: 'PUT', body: body }).then(function (saved) { trialDays = saved.trialDays; toast('Cambios guardados'); }, function (err) { toast(err.message, true); });
+        if (body.enforceTrial && !s.enforceTrial && !window.confirm('¿Encender el bloqueo? Las personas con la prueba vencida no podrán usar el asistente, los resúmenes, crear compromisos ni iniciar llamadas hasta que paguen.')) return;
+        api('/settings', { method: 'PUT', body: body }).then(function (saved) { trialDays = saved.trialDays; toast('Cambios guardados'); viewSettings(); }, function (err) { toast(err.message, true); });
       });
     }, failView);
   }

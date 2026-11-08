@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { showPlanRequired } from '../utils/planGate';
 
 export const API_REQUEST_TIMEOUT_MS = 15_000;
 // Agent turns may include durable admission, retrieval, semantic fallback and
@@ -151,8 +152,10 @@ export const apiClient = {
                 // every such failure into the generic fallback below —
                 // preserve whichever field the backend actually sent.
                 errorMsg = errorJson.message || errorJson.error || errorMsg;
-                errorCode = typeof errorJson.failureCode === 'string' ? errorJson.failureCode : undefined;
+                errorCode = typeof errorJson.failureCode === 'string' ? errorJson.failureCode
+                    : typeof errorJson.code === 'string' ? errorJson.code : undefined;
             } catch { }
+            if (response.status === 402) showPlanRequired();
             throw new ApiError(errorMsg, response.status, false, errorCode, parseRetryAfterSeconds(response));
         }
 
