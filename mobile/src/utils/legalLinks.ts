@@ -11,7 +11,7 @@ export const LEGAL_PAGES = {
     deleteAccount: '/cuenta/eliminar',
 } as const;
 
-export const LEGAL_CONTACT = 'carlos@marvex.cl';
+export const LEGAL_CONTACT = 'contacto@marvex.cl';
 
 export function legalUrl(page: keyof typeof LEGAL_PAGES): string {
     return `${LEGAL_BASE_URL}${LEGAL_PAGES[page]}`;

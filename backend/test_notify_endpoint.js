@@ -11,7 +11,7 @@ async function main() {
     // Sign in as Carlos to get a real JWT token
     const anonClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
     const { data: session, error: authErr } = await anonClient.auth.signInWithPassword({
-        email: process.env.TEST_EMAIL || 'carlos@marvex.cl',
+        email: process.env.TEST_EMAIL || 'contacto@marvex.cl',
         password: process.env.TEST_PASS || 'test1234',
     });
 

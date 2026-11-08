@@ -7,7 +7,7 @@ describe('vorian.app home page', () => {
     it('says what Vorian is, who runs it and links the legal pages', () => {
         expect(HOME_PAGE).toContain('Conversaciones que se convierten en compromisos cumplidos');
         expect(HOME_PAGE).toContain('Vorian es un producto de Marvex');
-        expect(HOME_PAGE).toContain('mailto:carlos@marvex.cl');
+        expect(HOME_PAGE).toContain('mailto:contacto@marvex.cl');
         for (const path of ['/privacidad', '/terminos', '/cuenta/eliminar']) expect(HOME_PAGE).toContain(`href="${path}"`);
     });
 
