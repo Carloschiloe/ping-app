@@ -65,6 +65,8 @@
     var left = person.trialDaysLeft;
     if (left == null) return '<small>—</small>';
     if (left <= 0) return '<small>Venció ' + esc(ago(person.trialEndsAt).toLowerCase()) + '</small><div class="bar red"><i style="width:100%"></i></div>';
+    // A lengthened trial adds its extra days to the total.
+    total = Math.max(total, left);
     var used = Math.min(100, Math.max(4, Math.round((1 - left / total) * 100)));
     return '<small>Quedan ' + left + ' de ' + total + '</small><div class="bar ' + (left <= 7 ? 'amber' : '') + '"><i style="width:' + used + '%"></i></div>';
   }
