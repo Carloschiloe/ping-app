@@ -14,6 +14,9 @@ import { API_URL } from './src/api/client';
 import { getBackendHealthUrl } from './src/utils/backendHealth';
 import { useDesignFonts } from './src/design/typography';
 import { ConfirmHost } from './src/design/ConfirmDialog';
+import { installCrashReporter } from './src/utils/appTelemetry';
+
+installCrashReporter();
 
 const queryClient = new QueryClient();
 const BACKEND_HEALTH_URL = getBackendHealthUrl(API_URL);

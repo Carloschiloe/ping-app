@@ -21,6 +21,8 @@ import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
 import * as accountSafetyController from '../controllers/accountSafety.controller';
 import * as accountSafetySchema from '../schemas/accountSafety.schema';
+import * as appTelemetryController from '../controllers/appTelemetry.controller';
+import * as appTelemetrySchema from '../schemas/appTelemetry.schema';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
@@ -61,6 +63,8 @@ const agentTurnRateLimiter = createAgentRateLimiter('turn');
 const agentVoiceRateLimiter = createAgentRateLimiter('voice', 10);
 // Reports and feedback are written by people, never in bursts.
 const safetyRateLimiter = createAgentRateLimiter('safety', 15);
+// The app says hello on open and reports its own crashes, a few per session.
+const appTelemetryRateLimiter = createAgentRateLimiter('app-telemetry', 30);
 const agentVoiceCaptureRateLimiter = createAgentRateLimiter('voice-capture', 10);
 const agentVoiceSessionRateLimiter = createAgentRateLimiter('voice-session', 6);
 const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry', 240);
@@ -162,6 +166,8 @@ router.delete('/blocks/:userId', requireAuth, validateRequest(accountSafetySchem
 router.get('/conversations/:id/block', requireAuth, validateRequest(accountSafetySchema.chatBlockSchema), accountSafetyController.chatBlock);
 router.post('/reports', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.reportSchema), accountSafetyController.report);
 router.post('/feedback', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.feedbackSchema), accountSafetyController.feedback);
+router.post('/app/hello', requireAuth, appTelemetryRateLimiter, validateRequest(appTelemetrySchema.helloSchema), appTelemetryController.hello);
+router.post('/app/errors', requireAuth, appTelemetryRateLimiter, validateRequest(appTelemetrySchema.appErrorSchema), appTelemetryController.appError);
 
 
 // Conversations
