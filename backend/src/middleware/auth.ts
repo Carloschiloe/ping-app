@@ -1,8 +1,34 @@
 import { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { createHash } from 'crypto';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { safeErrorLog } from '../utils/safeError';
+import { TtlCache } from '../utils/ttlCache';
+
+// Asking Supabase Auth about every request is the slowest step under load: a
+// person opening the app sends several requests within seconds. A token it
+// already accepted is trusted for one more minute, never past its own expiry.
+// Suspending or deleting an account clears this cache so it takes effect at
+// once on this server.
+const VERIFIED_TTL_MS = 60_000;
+type VerifiedUser = { id: string; email?: string };
+const verifiedTokens = new TtlCache<VerifiedUser>(VERIFIED_TTL_MS, 2000);
+
+const tokenKey = (token: string) => createHash('sha256').update(token).digest('hex');
+
+function expiresAtMs(token: string): number | null {
+    try {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+        return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+    } catch {
+        return null;
+    }
+}
+
+export function forgetVerifiedTokens(): void {
+    verifiedTokens.clear();
+}
 
 // Failed authentication is deliberately limited by source IP. Successful
 // requests are removed from the window, so normal authenticated traffic does
@@ -66,17 +92,27 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
                 return;
             }
 
-            const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+            const key = tokenKey(token);
+            const known = verifiedTokens.get(key);
+            if (known) {
+                req.user = { ...known };
+            } else {
+                const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
-            if (error || !user) {
-                rejectAuthentication(res, next, 'Invalid token or unauthorized');
-                return;
+                if (error || !user) {
+                    rejectAuthentication(res, next, 'Invalid token or unauthorized');
+                    return;
+                }
+
+                req.user = {
+                    id: user.id,
+                    email: user.email,
+                };
+                const expiresAt = expiresAtMs(token);
+                if (expiresAt !== null && expiresAt - Date.now() > VERIFIED_TTL_MS) {
+                    verifiedTokens.set(key, { ...req.user });
+                }
             }
-
-            req.user = {
-                id: user.id,
-                email: user.email,
-            };
 
             next();
         } catch (error) {
