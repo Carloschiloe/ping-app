@@ -2,6 +2,7 @@
 // transcription it accepts. Deliberately separate from legacy-ai.ts (/ai/ask,
 // ai_messages) -- this file never imports from or writes to the legacy module.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { showPlanRequired } from '../../utils/planGate';
 import * as Localization from 'expo-localization';
 import { File } from 'expo-file-system';
 import { apiClient, ApiError, AGENT_TURN_REQUEST_TIMEOUT_MS, API_URL, getAuthHeaders } from '../client';
@@ -162,6 +163,7 @@ export async function transcribeAgentVoice(input: AgentVoiceCaptureRequest): Pro
     let raw: unknown;
     try { raw = responseText ? JSON.parse(responseText) : null; } catch { raw = null; }
     if (!response.ok) {
+        if (response.status === 402) showPlanRequired();
         const code = raw && typeof raw === 'object' && typeof (raw as any).error === 'string'
             ? (raw as any).error
             : response.status === 413 ? 'audio_too_large' : 'transcription_failed';

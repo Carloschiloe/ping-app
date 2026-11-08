@@ -2,6 +2,7 @@ import { checkDueCommitments } from './push.service';
 import { runInitiativeEngine } from './assistant/assistantInitiative.service';
 import { reconcilePendingAgentExecutionHistory } from './agentConversationTurn.service';
 import { getEnvConfig } from '../config/env';
+import { runTrialNotices } from './access.service';
 
 const env = getEnvConfig();
 let hasScheduledJobs = false;
@@ -54,6 +55,12 @@ export function startScheduledJobs() {
     // Ping's own initiatives (daily summary). Each one is claimed in the
     // database, so a pass that overlaps a restart never sends it twice.
     setInterval(() => { void runInitiativeEngine(); }, 5 * 60_000);
+
+    // Free-trial notices (7, 3 and 1 day before, and when it ends). Each one
+    // is claimed in the database, so it is never sent twice.
+    setInterval(() => {
+        runTrialNotices().catch((err) => console.error('[CronCoordinator] runTrialNotices failed:', err));
+    }, 60 * 60_000);
     hasScheduledJobs = true;
 }
 

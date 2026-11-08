@@ -7,7 +7,7 @@ const routes = fs.readFileSync(path.join(__dirname, '../src/routes/index.ts'), '
 describe('Calls work without a feature switch', () => {
     it('token, call notice and call page are open to signed-in participants', () => {
         expect(routes).toContain("router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);");
-        expect(routes).toContain("router.post('/agora/call/notify', requireAuth, agoraController.notifyCall);");
+        expect(routes).toContain("router.post('/agora/call/notify', requireAuth, requirePlan, agoraController.notifyCall);");
         expect(routes).toContain("router.get('/call', agoraController.renderCallPage);");
     });
 

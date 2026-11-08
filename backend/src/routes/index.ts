@@ -23,6 +23,7 @@ import * as accountSafetyController from '../controllers/accountSafety.controlle
 import * as accountSafetySchema from '../schemas/accountSafety.schema';
 import * as appTelemetryController from '../controllers/appTelemetry.controller';
 import * as appTelemetrySchema from '../schemas/appTelemetry.schema';
+import { getAccess, requirePlan } from '../services/access.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
@@ -166,6 +167,11 @@ router.delete('/blocks/:userId', requireAuth, validateRequest(accountSafetySchem
 router.get('/conversations/:id/block', requireAuth, validateRequest(accountSafetySchema.chatBlockSchema), accountSafetyController.chatBlock);
 router.post('/reports', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.reportSchema), accountSafetyController.report);
 router.post('/feedback', requireAuth, safetyRateLimiter, validateRequest(accountSafetySchema.feedbackSchema), accountSafetyController.feedback);
+// What this person may use now (free trial, plan).
+router.get('/user/access', requireAuth, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await getAccess(req.user!.id));
+});
 router.post('/app/hello', requireAuth, appTelemetryRateLimiter, validateRequest(appTelemetrySchema.helloSchema), appTelemetryController.hello);
 router.post('/app/errors', requireAuth, appTelemetryRateLimiter, validateRequest(appTelemetrySchema.appErrorSchema), appTelemetryController.appError);
 
@@ -243,7 +249,7 @@ router.get('/commitments/check-conflict', requireAuth, commitmentController.chec
 // archived items.
 router.get('/commitments/archived', requireAuth, commitmentController.getArchivedCommitments);
 router.get('/commitments', requireAuth, commitmentController.getCommitments);
-router.post('/commitments', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
+router.post('/commitments', requireAuth, requirePlan, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createCommitment);
 router.post('/commitment-proposals', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createProposal);
 router.get('/commitment-proposals', requireAuth, commitmentController.getAgreementProposals);
 router.post('/commitment-proposals/shared', requireAuth, validateRequest(commitmentSchema.createCommitmentSchema), commitmentController.createSharedProposal);
@@ -329,7 +335,7 @@ router.post(
 );
 
 // AI (legacy — coexiste con el asistente de /agent/turn)
-router.post('/ai/summarize', requireAuth, aiController.summarize);
+router.post('/ai/summarize', requireAuth, requirePlan, aiController.summarize);
 
 // Ping Agent (M-1F) — read-only orchestrator sobre M-1B/M-1C/M-1D/M-1D.1/M-1E.
 // Rate limit propio (más estricto que el global de app.ts) porque cada
@@ -338,6 +344,7 @@ router.post('/ai/summarize', requireAuth, aiController.summarize);
 router.post(
     '/agent/voice/transcribe',
     requireAuth,
+    requirePlan,
     agentVoiceRateLimiter,
     raw({ type: () => true, limit: MAX_AGENT_VOICE_BYTES + 1024 }),
     agentVoiceController.agentVoiceRawBodyError,
@@ -350,6 +357,7 @@ router.post(
 router.post(
     '/agent/voice/live/session',
     requireAuth,
+    requirePlan,
     agentVoiceSessionRateLimiter,
     validateRequest(m8LiveVoiceSessionSchema),
     m8LiveVoiceController.createSession,
@@ -385,6 +393,7 @@ router.get(
 router.post(
     '/agent/turn',
     requireAuth,
+    requirePlan,
     agentTurnRateLimiter,
     validateRequest(agentTurnRequestSchema),
     agentTurnController.turn,
@@ -405,7 +414,7 @@ router.post('/calendar/sync', requireAuth, calendarEnabled, calendarController.s
 
 // Agora
 router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);
-router.post('/agora/call/notify', requireAuth, agoraController.notifyCall);
+router.post('/agora/call/notify', requireAuth, requirePlan, agoraController.notifyCall);
 router.post('/agora/recording/start', requireAuth, callRecordingEnabled, agoraController.startRecording);
 router.post('/agora/recording/:callId/stop', requireAuth, callRecordingEnabled, agoraController.stopRecording);
 router.get('/call', agoraController.renderCallPage);

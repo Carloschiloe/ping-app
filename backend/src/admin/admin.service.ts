@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { TtlCache } from '../utils/ttlCache';
 import { sendPushNotification } from '../services/push.service';
+import { forgetAccessCache } from '../services/access.service';
 
 // Read models and actions for the owner's admin panel. It shows who uses
 // Vorian and how much, never what people wrote: no message, commitment or
@@ -274,6 +275,9 @@ export async function extendTrial(adminId: string, userId: string, days: number)
     const trialEndsAt = iso(base + days * DAY_MS);
     const { error } = await supabaseAdmin.from('profiles').update({ trial_ends_at: trialEndsAt }).eq('id', userId);
     if (error) throw new AppError('Unable to extend trial', 500);
+    // A longer trial gets its notices again when the new end comes near.
+    await supabaseAdmin.from('trial_notices').delete().eq('user_id', userId);
+    forgetAccessCache(userId);
     await audit(adminId, userId, 'trial_extended', { days, trialEndsAt });
     return { trialEndsAt };
 }
@@ -282,6 +286,7 @@ export async function setPlan(adminId: string, userId: string, plan: 'trial' | '
     await loadProfile(userId);
     const { error } = await supabaseAdmin.from('profiles').update({ access_plan: plan }).eq('id', userId);
     if (error) throw new AppError('Unable to change plan', 500);
+    forgetAccessCache(userId);
     await audit(adminId, userId, plan === 'free_access' ? 'free_access_granted' : 'free_access_removed');
     return { plan };
 }
@@ -294,6 +299,7 @@ export async function setSuspended(adminId: string, userId: string, suspended: b
     if (banError) throw new AppError('Unable to change access', 500);
     const { error } = await supabaseAdmin.from('profiles').update({ suspended_at: suspended ? new Date().toISOString() : null }).eq('id', userId);
     if (error) throw new AppError('Unable to change access', 500);
+    forgetAccessCache(userId);
     await audit(adminId, userId, suspended ? 'suspended' : 'reactivated');
     return { suspended };
 }
@@ -319,11 +325,15 @@ export async function plans() {
     const recentlyExpired = await supabaseAdmin.from('profiles').select(PROFILE_COLUMNS).is('deleted_at', null).is('suspended_at', null)
         .eq('access_plan', 'trial').lte('trial_ends_at', nowIso).gte('trial_ends_at', iso(now - 30 * DAY_MS))
         .order('trial_ends_at', { ascending: false }).limit(50);
+    const notices = await supabaseAdmin.from('trial_notices').select('kind').gte('sent_at', iso(now - 7 * DAY_MS)).limit(5000);
+    const noticesWeek: Record<string, number> = {};
+    for (const row of (notices.data ?? []) as Array<{ kind: string }>) noticesWeek[row.kind] = (noticesWeek[row.kind] ?? 0) + 1;
     const rows = [...(ending.data ?? []), ...(recentlyExpired.data ?? [])] as ProfileRow[];
     const installs = await latestInstalls(rows.map((p) => p.id));
     return {
         ending: ((ending.data ?? []) as ProfileRow[]).map((p) => personSummary(p, installs.get(p.id), now)),
         recentlyExpired: ((recentlyExpired.data ?? []) as ProfileRow[]).map((p) => personSummary(p, installs.get(p.id), now)),
+        noticesWeek,
     };
 }
 
@@ -481,16 +491,17 @@ export async function system() {
 
 // --- Settings ----------------------------------------------------------------
 
-export type Settings = { trialDays: number; noticeDays: number[]; monthlyPriceClp: number | null; annualPriceClp: number | null };
+export type Settings = { trialDays: number; noticeDays: number[]; monthlyPriceClp: number | null; annualPriceClp: number | null; enforceTrial: boolean };
 
 export async function getSettings(): Promise<Settings> {
-    const { data } = await supabaseAdmin.from('app_settings').select('trial_days, notice_days, monthly_price_clp, annual_price_clp').eq('id', true).maybeSingle();
+    const { data } = await supabaseAdmin.from('app_settings').select('trial_days, notice_days, monthly_price_clp, annual_price_clp, enforce_trial').eq('id', true).maybeSingle();
     const row = data as any;
     return {
         trialDays: row?.trial_days ?? 30,
         noticeDays: row?.notice_days ?? [7, 3, 1],
         monthlyPriceClp: row?.monthly_price_clp ?? null,
         annualPriceClp: row?.annual_price_clp ?? null,
+        enforceTrial: !!row?.enforce_trial,
     };
 }
 
@@ -501,8 +512,10 @@ export async function updateSettings(input: Settings): Promise<Settings> {
         notice_days: [...new Set(input.noticeDays)].sort((a, b) => b - a),
         monthly_price_clp: input.monthlyPriceClp,
         annual_price_clp: input.annualPriceClp,
+        enforce_trial: input.enforceTrial,
         updated_at: new Date().toISOString(),
     }, { onConflict: 'id' });
     if (error) throw new AppError('Unable to save settings', 500);
+    forgetAccessCache();
     return getSettings();
 }
