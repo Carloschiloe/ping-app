@@ -18,6 +18,7 @@ import { AUTH_CONFIRM_PAGE, AUTH_CONFIRM_PATH, AUTH_CONFIRM_SCRIPT, AUTH_CONFIRM
 import { legacyMediaUrls } from './middleware/legacyMediaUrls';
 import { adminRouter } from './admin/admin.routes';
 import { captureFailedResponses } from './services/appTelemetry.service';
+import { hasLoadTestKey } from './middleware/loadTestKey';
 
 dotenv.config();
 
@@ -106,7 +107,7 @@ app.use(rateLimit({
   keyGenerator: globalRateLimitKey,
   // Liveness/readiness probes are not product traffic and must not consume
   // the same budget as authenticated mobile requests.
-  skip: (req) => req.path === '/health' || req.path === '/api/health',
+  skip: (req) => req.path === '/health' || req.path === '/api/health' || hasLoadTestKey(req),
 }));
 
 app.use(express.json({ limit: '2mb' }));
