@@ -16,6 +16,8 @@ import { DELETE_ACCOUNT_PAGE, PRIVACY_PAGE, TERMS_PAGE } from './legal/pages';
 import { HOME_PAGE } from './legal/home';
 import { AUTH_CONFIRM_PAGE, AUTH_CONFIRM_PATH, AUTH_CONFIRM_SCRIPT, AUTH_CONFIRM_SCRIPT_PATH } from './legal/authConfirm';
 import { legacyMediaUrls } from './middleware/legacyMediaUrls';
+import { adminRouter } from './admin/admin.routes';
+import { captureFailedResponses } from './services/appTelemetry.service';
 
 dotenv.config();
 
@@ -58,6 +60,7 @@ app.use((req, res, next) => {
 
 app.set('trust proxy', 1);
 app.use(requestLogger);
+app.use(captureFailedResponses as express.RequestHandler);
 
 app.use(helmet({
   crossOriginResourcePolicy: false,
@@ -147,6 +150,23 @@ app.get('/marca/vorian.png', (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.sendFile(join(process.cwd(), 'public/brand/vorian-mark.png'));
 });
+
+// The owner's admin panel: a page only, every number comes from /admin/api
+// after an admin signs in. Kept out of search engines and never cached.
+app.use('/admin/api', adminRouter);
+app.get(['/admin', '/admin/'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.sendFile(join(process.cwd(), 'public/admin/index.html'));
+});
+app.use('/admin', express.static(join(process.cwd(), 'public/admin'), {
+  index: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  },
+}));
 
 // Main router. Old public file addresses leave the server already signed.
 app.use('/api', legacyMediaUrls, router);

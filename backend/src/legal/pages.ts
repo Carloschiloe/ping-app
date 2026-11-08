@@ -4,7 +4,7 @@
 // hold no user data and need no sign-in.
 
 export const LEGAL_OWNER = 'Marvex';
-export const LEGAL_CONTACT = 'carlos@marvex.cl';
+export const LEGAL_CONTACT = 'contacto@marvex.cl';
 const UPDATED = '5 de noviembre de 2026';
 
 function page(title: string, body: string): string {

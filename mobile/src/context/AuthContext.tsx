@@ -7,6 +7,7 @@ import { clearOfflineMessageQueue } from '../utils/offlineQueueStorage';
 import { parseAuthRedirectUrl } from '../utils/authRedirect';
 import { clearPrivateFileReadCache } from '../lib/privateFiles';
 import { getDeviceTimeZone } from '../utils/timeZone';
+import { sayHello } from '../utils/appTelemetry';
 
 type AuthConfig = {
     session: Session | null;
@@ -184,6 +185,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             if (session?.user) {
                 await loadProfile(session.user.id);
                 syncLocale(session.user.id);
+                void sayHello(session.user.id);
                 interval = heartbeat(session.user.id);
             } else {
                 cancelProfileRetry();
@@ -210,6 +212,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             if (session?.user) {
                 void loadProfile(session.user.id);
                 syncLocale(session.user.id);
+                void sayHello(session.user.id);
                 if (interval) clearInterval(interval);
                 interval = heartbeat(session.user.id);
             } else {

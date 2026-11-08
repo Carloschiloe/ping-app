@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../utils/AppError';
 import { ZodError } from 'zod';
 import { redactSensitiveText, safeErrorLog } from '../utils/safeError';
+import { recordServerError } from '../services/appTelemetry.service';
 
 export const globalErrorHandler = (err: Error, req: Request, res: Response, _next: NextFunction) => {
     const requestId = (req as any).requestId;
@@ -19,6 +20,10 @@ export const globalErrorHandler = (err: Error, req: Request, res: Response, _nex
     }
 
     if (err instanceof AppError) {
+        if (err.statusCode >= 500) {
+            if (res.locals) res.locals.errorRecorded = true;
+            recordServerError(err, req.method, req.originalUrl, req.user?.id);
+        }
         return res.status(err.statusCode).json({
             status: 'error',
             message: err.statusCode < 500 ? redactSensitiveText(err.message, 300) : 'Internal Server Error',
@@ -26,6 +31,8 @@ export const globalErrorHandler = (err: Error, req: Request, res: Response, _nex
         });
     }
 
+    if (res.locals) res.locals.errorRecorded = true;
+    recordServerError(err, req.method, req.originalUrl, req.user?.id);
     return res.status(500).json({
         status: 'error',
         message: 'Internal Server Error',

@@ -258,7 +258,7 @@ export async function exportAccountData(userId: string) {
 
     return {
         exported_at: new Date().toISOString(),
-        responsible: 'Marvex · carlos@marvex.cl',
+        responsible: 'Marvex · contacto@marvex.cl',
         profile: profile[0] ?? null,
         messages_sent: messages,
         commitments,

@@ -47,7 +47,7 @@ describe('What Google Play and Ley 21.719 ask of the app', () => {
         const links = read('utils/legalLinks.ts');
         expect(links).toContain("privacy: '/privacidad'");
         expect(links).toContain("deleteAccount: '/cuenta/eliminar'");
-        expect(links).toContain('carlos@marvex.cl');
+        expect(links).toContain('contacto@marvex.cl');
     });
 });
 
