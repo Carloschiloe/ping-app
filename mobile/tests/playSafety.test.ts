@@ -5,8 +5,8 @@ import path from 'path';
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', 'src', rel), 'utf-8');
 
 describe('What Google Play and Ley 21.719 ask of the app', () => {
-    it('Perfil offers feedback, blocked people, legal pages and account deletion', () => {
-        const profile = read('screens/ProfileScreen.tsx');
+    it('Ajustes offers feedback, blocked people, legal pages and account deletion', () => {
+        const profile = read('screens/SettingsScreen.tsx');
         expect(profile).toContain('Comentarios y sugerencias');
         expect(profile).toContain('Personas bloqueadas');
         expect(profile).toContain("openLegal('privacy')");
@@ -60,8 +60,8 @@ describe('a Ping reply offers copy and report', () => {
 });
 
 describe('portability and file privacy', () => {
-    it('Perfil can download a copy of my data as a file', () => {
-        expect(read('screens/ProfileScreen.tsx')).toContain('Descargar mis datos');
+    it('Ajustes can download a copy of my data as a file', () => {
+        expect(read('screens/SettingsScreen.tsx')).toContain('Descargar mis datos');
         expect(read('utils/exportMyData.ts')).toContain("apiClient.get('/user/data-export'");
     });
 

@@ -26,13 +26,13 @@ describe('Welcome pages', () => {
 describe('App sounds', () => {
     const sounds = read('src/utils/appSounds.ts');
 
-    it('are quiet, only while the app is open, and can be turned off in Perfil', () => {
+    it('are quiet, only while the app is open, and can be turned off in Ajustes', () => {
         expect(sounds).toContain("AppState.currentState !== 'active'");
         expect(sounds).toMatch(/if \(!enabled/);
         for (const file of ['sent', 'received', 'done']) {
             expect(fs.existsSync(path.join(__dirname, '..', 'assets', 'sounds', `${file}.wav`))).toBe(true);
         }
-        expect(read('src/screens/ProfileScreen.tsx')).toContain('title="Sonidos"');
+        expect(read('src/screens/SettingsScreen.tsx')).toContain('title="Sonidos"');
     });
 
     it('play on sending, on a new message from someone else, and on done', () => {

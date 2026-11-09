@@ -12,8 +12,8 @@ describe('M11 — what Ping remembers', () => {
         expect(read('api/query-modules/index.ts')).toContain("export * from './memory';");
     });
 
-    it('Perfil opens the list, and forgetting asks first', () => {
-        expect(read('screens/ProfileScreen.tsx')).toContain('<MemorySheet visible={memoryVisible}');
+    it('Ajustes opens the list, and forgetting asks first', () => {
+        expect(read('screens/SettingsScreen.tsx')).toContain('<MemorySheet visible={memoryVisible}');
         const sheet = read('components/perfil/MemorySheet.tsx');
         expect(sheet).toContain("Alert.alert('¿Olvidar esto?'");
         expect(sheet).toContain('useRememberedFacts(visible)');

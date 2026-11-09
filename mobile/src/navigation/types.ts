@@ -69,7 +69,12 @@ type AgentCoreRouteParams = {
 export type MainTabParamList = {
     Chats: NavigatorScreenParams<ConversationsStackParamList> | undefined;
     Hoy: undefined;
-    Perfil: undefined;
+    Perfil: NavigatorScreenParams<ProfileStackParamList> | undefined;
+};
+
+export type ProfileStackParamList = {
+    ProfileHome: undefined;
+    Settings: undefined;
 };
 
 export type RootStackParamList = {

@@ -8,17 +8,21 @@ const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', 'src', 
 const profile = read('screens/ProfileScreen.tsx');
 
 describe('Perfil stays tidy and can carry a cover photo', () => {
-    it('Avisos de Ping starts closed and says in one line how it is set', () => {
-        expect(profile).toContain('const [noticesOpen, setNoticesOpen] = useState(false);');
-        expect(profile).toContain('{noticesOpen && (<>');
-        expect(profile).toContain('subtitle={noticesSummary(dailySummaryEnabled, summaryHour, overdueNoticesEnabled)}');
-        expect(profile).toContain("return parts.length ? parts.join(' · ') : 'Apagados';");
+    it('Perfil keeps only who you are, your plan and the way into Ajustes', () => {
+        expect(profile).toContain('title="Ajustes"');
+        expect(profile).toContain("navigation.navigate('Settings')");
+        expect(profile).toContain('const plan = planLine(access);');
+        for (const setting of ['<Toggle', 'MemorySheet', 'DeleteAccountSheet', 'Descargar mis datos', 'privacy_read_receipts']) {
+            expect(profile, setting).not.toContain(setting);
+        }
     });
 
-    it('Privacidad also starts closed with a one-line summary', () => {
-        expect(profile).toContain('const [privacyOpen, setPrivacyOpen] = useState(false);');
-        expect(profile).toContain('{privacyOpen && (<>');
-        expect(profile).toContain('subtitle={privacySummary(hasBiometricHw && biometricEnabled, readReceiptsEnabled, lastSeenEnabled)}');
+    it('Ajustes groups every setting under a clear label', () => {
+        const settings = read('screens/SettingsScreen.tsx');
+        for (const label of ['AVISOS', 'PRIVACIDAD Y SEGURIDAD', 'VORIAN', 'TUS DATOS', 'AYUDA']) {
+            expect(settings).toContain(`label="${label}"`);
+        }
+        expect(read('navigation/index.tsx')).toContain('<ProfileStackNav.Screen name="Settings" component={SettingsScreen} />');
     });
 
     it('the cover is picked in Editar perfil and uploaded as a private file', () => {

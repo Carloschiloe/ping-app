@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useInviteLinks } from '../hooks/useInviteLinks';
-import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
+import type { ConversationsStackParamList, MainTabParamList, ProfileStackParamList, RootStackParamList } from './types';
 import { FloatingTabBar } from '../design/FloatingTabBar';
 import { GlassBackdrop } from '../design/Glass';
 import { PingOrb } from '../design/PingOrb';
@@ -25,6 +25,7 @@ import SharedContentScreen from '../screens/SharedContentScreen';
 import SharedVisualContentScreen from '../screens/SharedVisualContentScreen';
 import AddParticipantsScreen from '../screens/AddParticipantsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import AgentPreviewScreen from '../screens/AgentPreviewScreen';
 import HoyScreen from '../screens/HoyScreen';
 import WelcomeScreen from '../screens/WelcomeScreen';
@@ -109,6 +110,16 @@ const ConversationsStack = () => {
     );
 };
 
+const ProfileStackNav = createNativeStackNavigator<ProfileStackParamList>();
+
+// Perfil opens on who you are; Ajustes slides in from it.
+const ProfileStack = () => (
+    <ProfileStackNav.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+        <ProfileStackNav.Screen name="ProfileHome" component={ProfileScreen} />
+        <ProfileStackNav.Screen name="Settings" component={SettingsScreen} />
+    </ProfileStackNav.Navigator>
+);
+
 const MainTabs = () => (
     <GlassBackdrop>
     <Tab.Navigator
@@ -117,7 +128,7 @@ const MainTabs = () => (
     >
         <Tab.Screen name="Chats" component={ConversationsStack} options={{ title: 'Chats' }} />
         <Tab.Screen name="Hoy" component={HoyScreen} options={{ title: 'Hoy' }} />
-        <Tab.Screen name="Perfil" component={ProfileScreen} options={{ title: 'Perfil' }} />
+        <Tab.Screen name="Perfil" component={ProfileStack} options={{ title: 'Perfil' }} />
     </Tab.Navigator>
     </GlassBackdrop>
 );
