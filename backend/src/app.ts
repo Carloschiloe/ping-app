@@ -17,38 +17,15 @@ import { HOME_PAGE } from './legal/home';
 import { AUTH_CONFIRM_PAGE, AUTH_CONFIRM_PATH, AUTH_CONFIRM_SCRIPT, AUTH_CONFIRM_SCRIPT_PATH } from './legal/authConfirm';
 import { legacyMediaUrls } from './middleware/legacyMediaUrls';
 import { adminRouter } from './admin/admin.routes';
+import { firstNameOf, invitePage } from './legal/invite';
+import { verifyInviteLinkToken } from './utils/inviteLink';
+import { supabaseAdmin } from './lib/supabaseAdmin';
 import { captureFailedResponses } from './services/appTelemetry.service';
 import { hasLoadTestKey } from './middleware/loadTestKey';
 
 dotenv.config();
 
 export const app = express();
-
-const PING_INVITE_PAGE = `<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Invitación a Vorian</title>
-    <style>
-      :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f7fb; color: #17233b; }
-      main { width: min(92vw, 420px); box-sizing: border-box; padding: 32px 26px; border-radius: 24px; background: #fff; box-shadow: 0 12px 36px rgba(23, 35, 59, .12); text-align: center; }
-      h1 { margin: 0 0 12px; font-size: 30px; }
-      p { margin: 0 0 24px; color: #536176; line-height: 1.5; }
-      a { display: inline-block; width: 100%; box-sizing: border-box; padding: 14px 18px; border-radius: 14px; background: #2477e8; color: #fff; font-weight: 700; text-decoration: none; }
-      .hint { margin-top: 18px; margin-bottom: 0; font-size: 13px; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Te invitaron a Vorian</h1>
-      <p>Vorian ayuda a conversar y recordar lo importante.</p>
-      <a href="ping:///invite">Abrir Vorian</a>
-      <p class="hint">Si Vorian no está instalada, instálala y vuelve a abrir este enlace.</p>
-    </main>
-  </body>
-</html>`;
 
 const env = getEnvConfig();
 
@@ -113,13 +90,29 @@ app.use(rateLimit({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// Public landing page used by contact invitations. It deliberately contains
-// no user data or authentication state: WhatsApp needs an HTTPS URL it can
-// render as a link, while the button hands off to Ping's native scheme when
-// the app is installed.
-app.get('/invite', (_req, res) => {
-  res.setHeader('Cache-Control', 'public, max-age=300');
-  res.type('html').send(PING_INVITE_PAGE);
+// Invitation links shared from the app. The personal one names who sent it,
+// so the app can connect the two people; the plain one is for older links.
+// WhatsApp reads the page's title for the preview. Nothing here is private.
+const isAndroid = (req: express.Request) => /android/i.test(req.get('user-agent') ?? '');
+app.get('/invite', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(invitePage({ firstName: null, token: null, android: isAndroid(req) }));
+});
+app.get('/invite/:token', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  const token = String(req.params.token);
+  let firstName: string | null = null;
+  try {
+    const { inviterUserId } = verifyInviteLinkToken(token);
+    const { data } = await supabaseAdmin.from('profiles').select('full_name').eq('id', inviterUserId).maybeSingle();
+    firstName = firstNameOf(data?.full_name);
+  } catch (error) {
+    const expired = error instanceof AppError && error.statusCode === 410;
+    res.status(expired ? 410 : 404).type('html').send(invitePage({ firstName: null, token: null, android: isAndroid(req), expired }));
+    return;
+  }
+  res.type('html').send(invitePage({ firstName, token, android: isAndroid(req) }));
 });
 
 // Public home and legal pages linked from the app and from the Google Play listing.

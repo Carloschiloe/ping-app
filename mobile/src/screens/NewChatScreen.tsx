@@ -15,7 +15,7 @@ import {
 import * as Linking from 'expo-linking';
 import { apiClient } from '../api/client';
 import { mapDeviceContacts, type DeviceContact } from '../utils/deviceContacts';
-import { PING_PUBLIC_INVITE_URL } from '../utils/pingInvitation';
+import { PING_PUBLIC_INVITE_URL, inviteMessage } from '../utils/pingInvitation';
 import { openLegal } from '../utils/legalLinks';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
@@ -187,13 +187,13 @@ export default function NewChatScreen({ navigation }: any) {
     const inviteContact = async (contact: DeviceContact) => {
         setBusyContactId(contact.id);
         try {
+            // A personal link connects the contact with you when they open it.
+            const link = await apiClient.post('/invite-links', {})
+                .then((result: any) => (typeof result?.url === 'string' ? result.url : PING_PUBLIC_INVITE_URL))
+                .catch(() => PING_PUBLIC_INVITE_URL);
             await Share.share({
                 title: 'Invitación a Vorian',
-                message: [
-                    `Hola ${contact.name}, te invito a conversar conmigo en Vorian.`,
-                    'Abre este enlace para entrar a Vorian:',
-                    PING_PUBLIC_INVITE_URL,
-                ].join('\n\n'),
+                message: inviteMessage(contact.name, link),
             });
         } catch (error: any) {
             if (error?.message) {
@@ -316,7 +316,7 @@ export default function NewChatScreen({ navigation }: any) {
                     <Text style={styles.sectionLabel}>
                         {matchingContacts
                             ? `${deviceContacts.length} CONTACTOS · COMPROBANDO QUIÉN USA PING…`
-                            : `${registeredCount} EN PING · ${deviceContacts.length} CONTACTOS`}
+                            : `${registeredCount} EN VORIAN · ${deviceContacts.length} CONTACTOS`}
                     </Text>
                     {discoveryWarning ? (
                         <View style={styles.discoveryWarning}>

@@ -12,6 +12,7 @@ import {
     createConversationInvitation,
     verifyConversationInvitation,
 } from '../utils/conversationInvitation';
+import { createInviteLinkToken, verifyInviteLinkToken } from '../utils/inviteLink';
 import { toLegacyMessageListShape } from '../utils/messageCompat';
 import { toLegacyIsGroup, toLegacyIsSelf, toLegacyArchived } from '../utils/conversationCompat';
 import { verifyContactProofForRequester } from '../utils/contactDiscovery';
@@ -612,6 +613,48 @@ export const acceptInvitation = async (req: Request, res: Response): Promise<voi
         );
         conversationListCache.delete(acceptingUserId);
         res.json({ conversationId });
+    } catch (error: any) {
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
+            error: statusCode === 500 ? 'No se pudo aceptar la invitación' : error.message,
+        });
+    }
+};
+
+// POST /invite-links — the signed-in person's own link to share with a contact.
+export const createInviteLink = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const token = createInviteLinkToken(req.user!.id);
+        res.json({ token, url: `https://vorian.app/invite/${token}` });
+    } catch {
+        res.status(500).json({ error: 'No se pudo crear la invitación' });
+    }
+};
+
+// POST /invite-links/accept — whoever opens someone's link is connected with them.
+export const acceptInviteLink = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const acceptingUserId = req.user!.id;
+        const { inviterUserId } = verifyInviteLinkToken(req.body.token);
+        if (inviterUserId === acceptingUserId) {
+            res.status(400).json({ error: 'Esta es tu propia invitación. Envíala a otra persona.' });
+            return;
+        }
+        const { data: inviter, error } = await supabaseAdmin
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .eq('id', inviterUserId)
+            .maybeSingle();
+        if (error) throw error;
+        if (!inviter) {
+            res.status(404).json({ error: 'La cuenta que te invitó ya no existe' });
+            return;
+        }
+
+        const conversationId = await getOrCreateDirectConversationId(inviterUserId, acceptingUserId);
+        conversationListCache.delete(acceptingUserId);
+        conversationListCache.delete(inviterUserId);
+        res.json({ conversationId, otherUser: inviter });
     } catch (error: any) {
         const statusCode = error instanceof AppError ? error.statusCode : 500;
         res.status(statusCode).json({
