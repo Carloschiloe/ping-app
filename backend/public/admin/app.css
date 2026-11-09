@@ -154,3 +154,11 @@ textarea{resize:vertical;min-height:80px}
 .switch small{display:block;color:var(--faint);font-size:12px;margin-top:3px;font-weight:400}
 select option{background:#121826;color:var(--text)}
 input[type=range]{accent-color:var(--accent);width:100%;margin-top:8px}
+.voices{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.voice-row{display:flex;flex-direction:row;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--edge);cursor:pointer}
+.voice-row:has(input:checked){border-color:var(--accent);background:var(--accentT)}
+.voice-row input{accent-color:var(--accent);flex:none}
+.voice-row .vn{display:flex;flex-direction:column;min-width:0;flex:1}
+.voice-row .vn b{color:var(--text);font-size:13.5px} .voice-row .vn small{color:var(--faint);font-size:12px}
+.voice-row .btn.play{padding:6px 10px;font-size:12px;white-space:nowrap}
+@media (max-width:1300px){.voices{grid-template-columns:1fr}}

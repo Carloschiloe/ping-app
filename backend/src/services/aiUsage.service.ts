@@ -15,7 +15,8 @@ export type AiFeature =
     | 'transcripcion'
     | 'resumen_chat'
     | 'resumen_llamada'
-    | 'compromisos';
+    | 'compromisos'
+    | 'muestra_voz';
 
 // US dollars per 1M tokens (whisper: per minute), from
 // developers.openai.com/api/docs/pricing, November 2026.
@@ -31,6 +32,8 @@ export const PRICES: Record<string, Price> = {
     'gpt-realtime-2.1': { input: 4, cached: 0.4, output: 24, audioInput: 32, audioOutput: 64, audioCached: 0.4 },
     'gpt-realtime': { input: 4, cached: 0.4, output: 16, audioInput: 32, audioOutput: 64, audioCached: 0.4 },
     'whisper-1': { input: 0, cached: 0, output: 0, perMinute: 0.006 },
+    // Spoken output, priced by the minute of audio.
+    'gpt-4o-mini-tts': { input: 0, cached: 0, output: 0, perMinute: 0.015 },
 };
 
 /** Dated or suffixed names ("gpt-4o-mini-2024-07-18") use their family's price. */

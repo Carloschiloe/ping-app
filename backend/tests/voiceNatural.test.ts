@@ -63,3 +63,27 @@ describe('voice and speed chosen in the panel', () => {
         expect(clampSpeed(0.953)).toBe(0.95);
     });
 });
+
+describe('voice samples in the panel', () => {
+    it('makes each sample once and then reuses it', async () => {
+        const { voiceSample, SAMPLE_TEXT } = await import('../src/services/voiceSettings.service');
+        const original = global.fetch;
+        const calls: any[] = [];
+        process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test';
+        global.fetch = (async (url: string, init: any) => {
+            calls.push({ url, body: JSON.parse(init.body) });
+            return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'audio/mpeg' } });
+        }) as any;
+        try {
+            const first = await voiceSample('marin');
+            const second = await voiceSample('marin');
+            expect(first.length).toBe(3);
+            expect(second).toBe(first);
+            expect(calls).toHaveLength(1);
+            expect(calls[0].url).toContain('/v1/audio/speech');
+            expect(calls[0].body).toMatchObject({ voice: 'marin', input: SAMPLE_TEXT });
+        } finally {
+            global.fetch = original;
+        }
+    });
+});
