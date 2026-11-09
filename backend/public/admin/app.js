@@ -531,16 +531,37 @@
   }
 
   // ---------- Asistente ----------
+  var VOICE_NAMES = [
+    ['cedar', 'Cedar · masculina, cálida (la más natural)'], ['marin', 'Marin · femenina, cálida (la más natural)'],
+    ['ash', 'Ash · masculina, clara'], ['ballad', 'Ballad · masculina, suave'], ['verse', 'Verse · masculina, expresiva'], ['echo', 'Echo · masculina, neutra'],
+    ['coral', 'Coral · femenina, alegre'], ['sage', 'Sage · femenina, serena'], ['shimmer', 'Shimmer · femenina, luminosa'], ['alloy', 'Alloy · neutra'],
+  ];
+  function voiceCard(v) {
+    var opts = VOICE_NAMES.map(function (n) { return '<option value="' + n[0] + '"' + (n[0] === v.voice ? ' selected' : '') + '>' + esc(n[1]) + '</option>'; }).join('');
+    return '<form class="card" id="voice-form"><h3>Voz del asistente</h3><div class="settings-form">' +
+      '<label>Voz<select name="voice">' + opts + '</select></label>' +
+      '<label>Velocidad: <b id="speed-label">' + Number(v.speed).toFixed(2).replace('.', ',') + '</b><input type="range" name="speed" min="0.8" max="1.2" step="0.05" value="' + v.speed + '"></label>' +
+      '</div><p class="sub" style="margin:14px 0">1,00 es la velocidad normal. Más bajo habla más pausado; más alto, más rápido. El cambio se nota en la siguiente conversación por voz, sin actualizar la app.</p>' +
+      '<button class="btn primary" type="submit">Guardar voz</button></form>';
+  }
   function viewAssistant() {
-    api('/assistant').then(function (a) {
+    Promise.all([api('/assistant'), api('/voice')]).then(function (r) {
+      var a = r[0], v = r[1];
       if (current !== 'asistente') return;
       var top = a.top.length ? a.top.map(function (t) {
         return '<div class="li click" data-user="' + esc(t.userId) + '"><div class="av">' + initials(t.name) + '</div><div><div class="t">' + esc(t.name) + '</div><div class="s">' + num(t.turns) + ' mensajes · ' + num(t.voiceTurns) + ' por voz</div></div></div>';
       }).join('') : '<div class="empty">Nadie ha usado el asistente este mes.</div>';
       main.innerHTML = header('Uso del asistente', 'Cuánto se usa Vorian, el asistente') +
         '<div class="kpis">' + kpi('Últimas 24 horas', num(a.day), 'mensajes al asistente') + kpi('Últimos 7 días', num(a.week)) + kpi('Últimos 30 días', num(a.month)) + kpi('Por voz (30 días)', num(a.voiceMonth)) + '</div>' +
-        '<div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>';
+        '<div class="grid2"><div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>' + voiceCard(v) + '</div>';
       bindUserLinks();
+      var form = document.getElementById('voice-form');
+      form.speed.addEventListener('input', function () { document.getElementById('speed-label').textContent = Number(form.speed.value).toFixed(2).replace('.', ','); });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        api('/voice', { method: 'PUT', body: { voice: form.voice.value, speed: Number(form.speed.value) } })
+          .then(function () { toast('Voz guardada'); }, function (err) { toast(err.message, true); });
+      });
     }, failView);
   }
 

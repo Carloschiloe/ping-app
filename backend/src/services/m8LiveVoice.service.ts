@@ -3,6 +3,7 @@ import { AppError } from '../utils/AppError';
 import type { M8LiveVoiceSessionRequest, M8LiveVoiceTelemetry } from '../schemas/m8LiveVoice.schema';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { recordAiUsage } from './aiUsage.service';
+import { getVoiceSettings, type VoiceSettings } from './voiceSettings.service';
 import { M8_VOICE_TRANSCRIPTION_PROMPT } from './m8VoiceTranscriptionPrompt';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
@@ -124,7 +125,7 @@ function coreToolDefinition() {
     };
 }
 
-function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
+export function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string, voice: VoiceSettings = { voice: 'cedar', speed: 1 }) {
     const language = realtimeLanguage(input.locale);
     return {
         type: 'realtime',
@@ -151,9 +152,8 @@ function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: string) {
                 turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: false, interrupt_response: true },
             },
             // OpenAI currently recommends marin or cedar for highest quality;
-            // cedar is the default here because the previous marin baseline
-            // was reported as unnatural in the physical production probe.
-            output: { voice: process.env.M8_LIVE_VOICE_OUTPUT_VOICE?.trim() || 'cedar' },
+            // the owner picks the voice and its speed in the admin panel.
+            output: voice.speed === 1 ? { voice: voice.voice } : { voice: voice.voice, speed: voice.speed },
         },
         tools: [coreToolDefinition()],
         tool_choice: 'required',
@@ -519,7 +519,7 @@ export async function createM8LiveVoiceSession(input: {
     // The unified WebRTC endpoint expects ordinary multipart fields. Blob
     // parts add file metadata that the provider rejects as invalid form data.
     form.set('sdp', normalizeOfferSdp(input.request.sdp));
-    form.set('session', JSON.stringify(buildSessionConfig(input.request, model)));
+    form.set('session', JSON.stringify(buildSessionConfig(input.request, model, await getVoiceSettings())));
 
     let response: Response;
     try {

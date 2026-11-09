@@ -153,3 +153,4 @@ textarea{resize:vertical;min-height:80px}
 .switch b{display:block;color:var(--text);font-size:13.5px}
 .switch small{display:block;color:var(--faint);font-size:12px;margin-top:3px;font-weight:400}
 select option{background:#121826;color:var(--text)}
+input[type=range]{accent-color:var(--accent);width:100%;margin-top:8px}
