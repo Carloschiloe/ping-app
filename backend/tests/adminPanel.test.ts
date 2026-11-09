@@ -91,6 +91,13 @@ describe('admin panel page', () => {
         expect(script).toContain('function esc(');
         expect(script).toContain('nunca se ven sus mensajes');
     });
+
+    it('every summary card opens its detail and each failure is told in plain words', () => {
+        for (const href of ["'#usuarios/online'", "'#usuarios/all'", "'#sistema'", "'#errores'"]) expect(script).toContain(href);
+        expect(script).toContain('Qué revisar hoy');
+        expect(script).toContain('Qué significa');
+        expect(script).toContain('Qué hacer');
+    });
 });
 
 describe('admin API access', () => {

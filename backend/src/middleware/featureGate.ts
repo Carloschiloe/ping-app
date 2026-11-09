@@ -44,6 +44,8 @@ function createFeatureGate(envName: string, requiresNonMvpMaster: boolean) {
             return;
         }
 
+        // A capability that is off on purpose is not a failure to fix.
+        if (res.locals) res.locals.errorRecorded = true;
         res.status(503).json({
             error: 'This capability is temporarily disabled while Vorian completes its security review',
         });

@@ -13,6 +13,7 @@
   var refreshTimer = null;
   var usersState = { filter: 'all', search: '', page: 0 };
   var errorsDays = 7;
+  var routeDetail = '';
 
   // ---------- small helpers ----------
   function esc(value) {
@@ -45,7 +46,7 @@
     return date(value);
   }
   function phone(platform, version) {
-    if (!platform) return '<small>Sin datos aún</small>';
+    if (!platform) return '<small>No ha abierto la app</small>';
     var name = platform === 'ios' ? 'iPhone' : platform === 'android' ? 'Android' : 'Otro';
     return esc(name) + (version ? ' · ' + esc(version) : '');
   }
@@ -165,8 +166,11 @@
   var VIEWS = { resumen: viewOverview, usuarios: viewUsers, planes: viewPlans, errores: viewErrors, opiniones: viewFeedback, asistente: viewAssistant, gastos: viewCosts, sistema: viewSystem, ajustes: viewSettings };
   function route() {
     if (!session) return;
-    var name = (location.hash || '#resumen').slice(1);
+    var parts = (location.hash || '#resumen').slice(1).split('/');
+    var name = parts[0];
     if (!VIEWS[name]) name = 'resumen';
+    routeDetail = parts[1] ? decodeURIComponent(parts[1]) : '';
+    if (name === 'usuarios' && routeDetail) { usersState.filter = routeDetail; usersState.page = 0; }
     current = name;
     clearInterval(refreshTimer);
     closeDrawer();
@@ -184,8 +188,9 @@
   function header(title, subtitle, right) {
     return '<div class="top"><div><h1>' + esc(title) + '</h1><p>' + esc(subtitle) + '</p></div>' + (right ? '<div class="right">' + right + '</div>' : '') + '</div>';
   }
-  function kpi(label, value, delta, icon, tone) {
-    return '<div class="card kpi"><div class="label">' + (icon ? '<span class="ic" style="background:var(--' + tone + 'T);color:var(--' + (tone === 'accent' ? 'accentB' : tone) + ')">' + icon + '</span>' : '') + esc(label) + '</div><div class="num">' + value + '</div><div class="delta">' + (delta || '&nbsp;') + '</div></div>';
+  function kpi(label, value, delta, icon, tone, href) {
+    var tag = href ? 'a' : 'div';
+    return '<' + tag + ' class="card kpi' + (href ? ' link' : '') + '"' + (href ? ' href="' + esc(href) + '"' : '') + '><div class="label">' + (icon ? '<span class="ic" style="background:var(--' + tone + 'T);color:var(--' + (tone === 'accent' ? 'accentB' : tone) + ')">' + icon + '</span>' : '') + esc(label) + (href ? '<span class="go">Ver</span>' : '') + '</div><div class="num">' + value + '</div><div class="delta">' + (delta || '&nbsp;') + '</div></' + tag + '>';
   }
   var ICON = {
     online: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5 12a7 7 0 0 1 14 0M2 12a10 10 0 0 1 20 0"/></svg>',
@@ -234,28 +239,30 @@
         return '<div class="li click" data-user="' + esc(u.id) + '"><div class="av">' + initials(u.name) + '</div><div><div class="t">' + esc(u.name) + '</div><div class="s">' + phone(u.platform, u.appVersion) + '</div></div><div class="r"><span class="chip ok"><span class="dot"></span>' + esc(ago(u.lastSeen).toLowerCase()) + '</span></div></div>';
       }).join('') : '<div class="empty">Nadie conectado en este momento.</div>';
       var errors = o.recentErrors.length ? o.recentErrors.map(errorRow).join('') : '<div class="empty">Sin errores pendientes. Todo bien.</div>';
+      var openErrors = o.quality.unresolvedErrors;
       main.innerHTML = header(hello + ', ' + first, 'Así está Vorian hoy, ' + today,
         '<span class="sub">Se actualiza solo cada 30 segundos</span>') +
+        todayCard(o) +
         '<div class="kpis">' +
-        kpi('Conectados ahora', num(o.users.onlineNow), '<span class="chip ok live"><span class="dot"></span>en vivo</span> · ' + num(o.users.activeToday) + ' usaron la app hoy', ICON.online, 'ok') +
-        kpi('Usuarios registrados', num(o.users.total), '<b>+' + num(o.users.newThisWeek) + '</b> esta semana', ICON.users, 'accent') +
-        kpi('Teléfonos con la app', num(o.installs.total), 'Android ' + num(o.installs.android) + ' · iPhone ' + num(o.installs.ios), ICON.phone, 'violet') +
-        kpi('Errores 24 horas', num(o.quality.errors24h), num(o.quality.unresolvedErrors) + ' tipos sin resolver', ICON.alert, o.quality.unresolvedErrors ? 'bad' : 'ok') +
+        kpi('Conectados ahora', num(o.users.onlineNow), '<span class="chip ok live"><span class="dot"></span>en vivo</span> · ' + num(o.users.activeToday) + (o.users.activeToday === 1 ? ' persona usó' : ' personas usaron') + ' la app hoy', ICON.online, 'ok', '#usuarios/online') +
+        kpi('Personas registradas', num(o.users.total), '<b>+' + num(o.users.newThisWeek) + '</b> esta semana', ICON.users, 'accent', '#usuarios/all') +
+        kpi('Teléfonos con la app', num(o.installs.total), 'Android ' + num(o.installs.android) + ' · iPhone ' + num(o.installs.ios), ICON.phone, 'violet', '#sistema') +
+        kpi('Problemas por revisar', num(openErrors), openErrors ? num(o.quality.errors24h) + (o.quality.errors24h === 1 ? ' vez' : ' veces') + ' en las últimas 24 horas' : 'Nada pendiente. Todo bien.', ICON.alert, openErrors ? 'bad' : 'ok', '#errores') +
         '</div><div class="grid2">' +
         '<div class="card"><h3>Actividad de los últimos 30 días<span class="legend"><span><i style="background:#5B9BFF"></i>Usaron la app</span><span><i style="background:#d3d8e0"></i>Registros nuevos</span></span></h3>' + chart(o.series) + '</div>' +
         '<div class="card"><h3>Planes<a class="more" href="#planes">Ver detalle</a></h3><div class="sub">Prueba gratis de ' + o.settings.trialDays + ' días desde el registro</div><div class="funnel">' +
-        funnelRow('En prueba gratis', p.trial, trialTotal, 'silver') +
-        funnelRow('Les quedan 7 días o menos', p.ending, trialTotal, 'amber') +
-        funnelRow('Pagando', p.paid, trialTotal, 'green') +
-        funnelRow('Prueba vencida sin pagar', p.expired, trialTotal, 'red') +
-        '</div><div class="sub" style="margin-top:16px">Con acceso gratis: <b style="color:var(--text)">' + num(p.free) + '</b></div></div></div>' +
+        funnelRow('En prueba gratis', p.trial, trialTotal, 'silver', 'trial') +
+        funnelRow('Les quedan 7 días o menos', p.ending, trialTotal, 'amber', 'ending') +
+        funnelRow('Pagando', p.paid, trialTotal, 'green', 'paid') +
+        funnelRow('Prueba vencida sin pagar', p.expired, trialTotal, 'red', 'expired') +
+        '</div><a class="frow-link" href="#usuarios/free">Con acceso gratis: <b>' + num(p.free) + '</b></a></div></div>' +
         '<div class="grid3">' +
         '<div class="card"><h3>Conectados ahora<a class="more" href="#usuarios">Ver todos</a></h3><div class="list">' + online + '</div></div>' +
         '<div class="card"><h3>Errores recientes<a class="more" href="#errores">Ver todos</a></h3><div class="list">' + errors + '</div></div>' +
         '<div class="card"><h3>Calidad</h3><div class="list">' +
-        '<div class="sys"><span>Reportes por revisar</span><span class="end">' + (o.quality.openReports ? '<span class="chip warn">' + num(o.quality.openReports) + '</span>' : '<span class="chip ok">Ninguno</span>') + '</span></div>' +
-        '<div class="sys"><span>Opiniones esta semana</span><span class="end"><span class="chip blue">' + num(o.quality.feedbackWeek) + '</span></span></div>' +
-        '<div class="sys"><span>Servidor</span><span class="end"><span class="chip ok"><span class="dot"></span>Funcionando</span></span></div>' +
+        '<a class="sys link" href="#opiniones"><span>Reportes por revisar</span><span class="end">' + (o.quality.openReports ? '<span class="chip warn">' + num(o.quality.openReports) + '</span>' : '<span class="chip ok">Ninguno</span>') + '</span></a>' +
+        '<a class="sys link" href="#opiniones"><span>Opiniones esta semana</span><span class="end"><span class="chip blue">' + num(o.quality.feedbackWeek) + '</span></span></a>' +
+        '<a class="sys link" href="#sistema"><span>Servidor</span><span class="end"><span class="chip ok"><span class="dot"></span>Funcionando</span></span></a>' +
         '<div class="sys"><span>Última actualización</span><span class="end"><span class="sub">' + esc(dateTime(o.generatedAt)) + '</span></span></div>' +
         '</div><a class="more" href="#sistema" style="display:block;margin-top:10px;color:var(--accentB);font-size:12px;text-decoration:none">Ver estado del sistema</a></div></div>';
       bindUserLinks();
@@ -263,13 +270,72 @@
       refreshTimer = setInterval(function () { if (current === 'resumen' && !drawer.classList.contains('open') && document.visibilityState === 'visible') viewOverview(); }, 30000);
     }, failView);
   }
-  function funnelRow(label, value, total, tone) {
+  function funnelRow(label, value, total, tone, filter) {
     var width = value ? Math.max(3, Math.round(value / total * 100)) : 0;
-    return '<div class="frow"><div class="fl"><span>' + esc(label) + '</span><b>' + num(value) + '</b></div><div class="bar ' + tone + '"><i style="width:' + width + '%"></i></div></div>';
+    return '<a class="frow" href="#usuarios/' + filter + '"><div class="fl"><span>' + esc(label) + '</span><b>' + num(value) + '</b></div><div class="bar ' + tone + '"><i style="width:' + width + '%"></i></div></a>';
   }
   function errorRow(g) {
-    var tone = g.people >= 3 || g.occurrences >= 10 ? 'var(--bad)' : 'var(--warn)';
-    return '<div class="err"><div class="sev" style="background:' + tone + '"></div><div><div class="t">' + esc(g.title) + '</div><div class="s">' + num(g.occurrences) + ' veces · ' + num(g.people) + (g.people === 1 ? ' persona' : ' personas') + ' · ' + (g.source === 'app' ? 'App' : 'Servidor') + '</div></div><div class="r">' + esc(ago(g.lastAt)) + '</div></div>';
+    var x = explainError(g);
+    return '<a class="err link" href="#errores/' + esc(g.fingerprint) + '"><div class="sev" style="background:' + (x.serious ? 'var(--bad)' : 'var(--warn)') + '"></div><div><div class="t">' + esc(x.headline) + '</div><div class="s">' + esc(timesText(g)) + '</div></div><div class="r">' + esc(ago(g.lastAt)) + '</div></a>';
+  }
+  function timesText(g) {
+    return num(g.occurrences) + (g.occurrences === 1 ? ' vez' : ' veces') + ' · ' + num(g.people) + (g.people === 1 ? ' persona' : ' personas');
+  }
+
+  // What needs a look today, in plain words. Each line opens where to act.
+  function todayCard(o) {
+    var items = [];
+    o.recentErrors.filter(function (g) { return !g.resolved; }).forEach(function (g) {
+      var x = explainError(g);
+      items.push(['bad', x.headline, timesText(g) + '. ' + x.short, '#errores/' + g.fingerprint]);
+    });
+    if (o.quality.openReports) items.push(['warn', o.quality.openReports === 1 ? 'Un reporte de contenido sin revisar' : num(o.quality.openReports) + ' reportes de contenido sin revisar', 'Google y Apple exigen revisarlos.', '#opiniones']);
+    if (o.plans.ending) items.push(['warn', o.plans.ending === 1 ? 'A una persona se le acaba la prueba esta semana' : 'A ' + num(o.plans.ending) + ' personas se les acaba la prueba esta semana', 'Puedes alargarla o escribirles.', '#usuarios/ending']);
+    if (o.users.newThisWeek) items.push(['ok', o.users.newThisWeek === 1 ? 'Una persona nueva esta semana' : num(o.users.newThisWeek) + ' personas nuevas esta semana', 'Mira quiénes son y si ya abrieron la app.', '#usuarios/all']);
+    var body = items.length ? items.map(function (i) {
+      return '<a class="todo" href="' + esc(i[3]) + '"><span class="dotc ' + i[0] + '"></span><div><div class="t">' + esc(i[1]) + '</div><div class="s">' + esc(i[2]) + '</div></div><span class="go">Ver</span></a>';
+    }).join('') : '<div class="todo calm"><span class="dotc ok"></span><div><div class="t">Todo en orden</div><div class="s">No hay nada que revisar ahora.</div></div></div>';
+    return '<div class="card today"><h3>Qué revisar hoy</h3>' + body + '</div>';
+  }
+
+  // Turns a technical failure into what it means and what to do.
+  var AREAS = [
+    [/\/calendar/, 'Calendarios'], [/\/agent|\/assistant|\/m8|\/voice/, 'Asistente Vorian'], [/\/conversations|\/messages|\/groups/, 'Chats'],
+    [/\/commitments/, 'Compromisos'], [/\/calls|\/agora/, 'Llamadas'], [/\/auth|\/login|\/refresh/, 'Inicio de sesión'],
+    [/\/push|\/notifications|\/devices/, 'Avisos al teléfono'], [/\/invite/, 'Invitaciones'], [/\/profile|\/users/, 'Perfiles'], [/^[A-Z]+ \/admin/, 'Panel de administración'],
+  ];
+  function explainError(g) {
+    var area = 'La app';
+    if (g.source !== 'app') {
+      area = 'El servidor';
+      for (var i = 0; i < AREAS.length; i++) if (AREAS[i][0].test(g.location || '')) { area = AREAS[i][1]; break; }
+    }
+    var code = (/error (\d{3})/.exec(g.title || '') || [])[1];
+    var headline, short, meaning, todo;
+    if (g.source === 'app') {
+      headline = 'La app mostró un error en el teléfono';
+      short = 'Alguien vio la app fallar.';
+      meaning = 'La app falló en el teléfono de alguien' + (g.platform ? ' (' + (g.platform === 'ios' ? 'iPhone' : 'Android') + (g.appVersion ? ' ' + g.appVersion : '') + ')' : '') + '. Puede haberse cerrado o mostrado una pantalla de error.';
+      todo = 'Pídele a Claude que lo revise con el detalle de abajo. Cuando esté arreglado, márcalo como resuelto.';
+    } else if (code === '503') {
+      headline = area + ': no disponible';
+      short = 'Una función apagada o un servicio externo que no respondió.';
+      meaning = area + ' respondió “no disponible”. Pasa cuando esa función está apagada a propósito o cuando un servicio externo (por ejemplo OpenAI) no contestó a tiempo.';
+      todo = 'Si es una función que dejaste apagada, no afecta a nadie: márcalo como resuelto. Si debería funcionar, pídele a Claude que lo revise.';
+    } else if (code === '502' || code === '504') {
+      headline = area + ': un servicio externo tardó demasiado';
+      short = 'Un servicio del que depende Vorian no contestó.';
+      meaning = area + ' dependía de otro servicio que tardó o falló.';
+      todo = 'Si se repite, pídele a Claude que lo revise.';
+    } else {
+      headline = area + ': falló al responder';
+      short = 'Quien lo usó vio un error.';
+      meaning = area + ' falló al atender a alguien, y esa persona vio un mensaje de error.';
+      todo = 'Pídele a Claude que lo revise con el detalle de abajo. Cuando esté arreglado, márcalo como resuelto.';
+    }
+    var serious = g.people >= 3 || (g.people >= 2 && g.occurrences >= 10);
+    return { area: area, headline: headline, short: short, meaning: meaning, todo: todo, serious: serious,
+      level: serious ? 'Afecta a varias personas' : g.people === 1 ? 'Afecta a una persona' : 'Revisar' };
   }
 
   // ---------- Usuarios ----------
@@ -458,35 +524,43 @@
       var fixed = groups.filter(function (g) { return g.resolved; });
       function table(list) {
         if (!list.length) return '<div class="empty">Nada aquí.</div>';
-        return '<div class="tablewrap"><table><thead><tr><th>Qué pasó</th><th>Dónde</th><th>Veces</th><th>Personas</th><th>Primera vez</th><th>Última vez</th><th></th></tr></thead><tbody>' +
+        return '<div class="tablewrap"><table><thead><tr><th>Qué pasó</th><th>Veces</th><th>Personas</th><th>Última vez</th><th></th></tr></thead><tbody>' +
           list.map(function (g) {
-            var sev = g.people >= 3 || g.occurrences >= 10 ? '<span class="chip bad">Grave</span>' : '<span class="chip warn">Media</span>';
-            return '<tr class="row" data-error="' + esc(g.fingerprint) + '"><td style="white-space:normal;max-width:380px"><b>' + esc(g.title) + '</b><br><small>' + esc(g.location || '') + '</small></td><td>' + (g.source === 'app' ? 'App' + (g.platform ? ' · ' + esc(g.platform === 'ios' ? 'iPhone' : g.platform === 'android' ? 'Android' : g.platform) : '') + (g.appVersion ? ' ' + esc(g.appVersion) : '') : 'Servidor') + '</td><td>' + num(g.occurrences) + '</td><td>' + num(g.people) + '</td><td>' + esc(dateTime(g.firstAt)) + '</td><td>' + esc(ago(g.lastAt)) + '</td><td>' + (g.resolved ? '<span class="chip ok">Resuelto</span>' : sev) + '</td></tr>';
+            var x = explainError(g);
+            var sev = x.serious ? '<span class="chip bad">' + esc(x.level) + '</span>' : '<span class="chip warn">' + esc(x.level) + '</span>';
+            return '<tr class="row" data-error="' + esc(g.fingerprint) + '"><td style="white-space:normal;max-width:460px"><b>' + esc(x.headline) + '</b><br><small>' + esc(x.short) + '</small></td><td>' + num(g.occurrences) + '</td><td>' + num(g.people) + '</td><td>' + esc(ago(g.lastAt)) + '</td><td>' + (g.resolved ? '<span class="chip ok">Resuelto</span>' : sev) + ' <span class="go">Ver</span></td></tr>';
           }).join('') + '</tbody></table></div>';
       }
       main.innerHTML = header('Errores', 'Fallas del servidor y de la app, agrupadas para ver qué arreglar primero',
         '<div class="filters" id="err-days">' + [[1, '24 horas'], [7, '7 días'], [30, '30 días']].map(function (d) {
           return '<button data-d="' + d[0] + '" class="' + (errorsDays === d[0] ? 'on' : '') + '">' + d[1] + '</button>';
         }).join('') + '</div>') +
-        '<div class="card"><h3>Sin resolver · ' + open.length + '</h3>' + table(open) +
-        '<div class="note" style="margin-top:14px">Haz clic en un error para ver el detalle y marcarlo como resuelto. Si vuelve a pasar, aparece de nuevo aquí. Nunca se guarda el texto de mensajes ni datos privados: solo qué falló, dónde y cuántas veces.</div></div>' +
+        '<div class="card"><h3>Sin resolver · ' + open.length + '</h3>' + (open.length ? table(open) : '<div class="empty">No hay problemas pendientes. Todo bien.</div>') +
+        '<div class="note" style="margin-top:14px">Toca un problema para ver qué significa y qué hacer. Al marcarlo como resuelto sale de esta lista; si vuelve a pasar, aparece de nuevo. Nunca se guarda el texto de mensajes ni datos privados: solo qué falló, dónde y cuántas veces.</div></div>' +
         (fixed.length ? '<div class="card" style="margin-top:14px"><h3>Resueltos · ' + fixed.length + '</h3>' + table(fixed) + '</div>' : '');
       document.querySelectorAll('#err-days button').forEach(function (b) { b.onclick = function () { errorsDays = Number(b.dataset.d); viewErrors(); }; });
       document.querySelectorAll('[data-error]').forEach(function (row) {
         row.onclick = function () { openError(groups.filter(function (g) { return g.fingerprint === row.dataset.error; })[0]); };
       });
+      if (routeDetail) {
+        var wanted = groups.filter(function (g) { return g.fingerprint === routeDetail; })[0];
+        routeDetail = '';
+        if (wanted) openError(wanted);
+      }
     }, failView);
   }
   function openError(g) {
     drawer.innerHTML = '<div class="loading">Cargando…</div>';
     drawer.classList.add('open');
     api('/errors/' + g.fingerprint).then(function (d) {
-      drawer.innerHTML = '<div class="head"><div><h2>' + esc(g.title) + '</h2><div class="sub">' + esc(g.location || (g.source === 'app' ? 'App' : 'Servidor')) + '</div></div><button class="icon-btn" id="close-drawer" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>' +
+      var x = explainError(g);
+      drawer.innerHTML = '<div class="head"><div><h2>' + esc(x.headline) + '</h2><div class="sub">' + esc(x.level) + '</div></div><button class="icon-btn" id="close-drawer" aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>' +
+        '<div class="explain"><div class="section-label">Qué significa</div><p>' + esc(x.meaning) + '</p><div class="section-label">Qué hacer</div><p>' + esc(x.todo) + '</p></div>' +
         '<div class="facts"><div class="fact"><span>Veces</span><b>' + num(g.occurrences) + '</b></div><div class="fact"><span>Personas</span><b>' + num(g.people) + '</b></div><div class="fact"><span>Primera vez</span><b>' + esc(dateTime(g.firstAt)) + '</b></div><div class="fact"><span>Última vez</span><b>' + esc(dateTime(g.lastAt)) + '</b></div></div>' +
         '<button class="btn ' + (g.resolved ? '' : 'primary') + '" id="resolve">' + (g.resolved ? 'Marcar como no resuelto' : 'Marcar como resuelto') + '</button>' +
-        '<div><div class="section-label">Últimas veces</div><div class="list" style="margin-top:0">' + d.occurrences.map(function (o) {
+        '<details class="tech"><summary>Detalle técnico (para Claude)</summary><div class="sub" style="margin:8px 0">' + esc(g.title) + ' · ' + esc(g.location || (g.source === 'app' ? 'App' : 'Servidor')) + '</div><div class="list" style="margin-top:0">' + d.occurrences.map(function (o) {
           return '<div class="li" style="align-items:flex-start"><div style="min-width:0"><div class="t">' + esc(dateTime(o.created_at)) + (o.app_version ? ' · versión ' + esc(o.app_version) : '') + '</div>' + (o.detail ? '<pre class="sub" style="white-space:pre-wrap;word-break:break-word;font-size:11px;margin-top:6px">' + esc(o.detail) + '</pre>' : '') + '</div></div>';
-        }).join('') + '</div></div>';
+        }).join('') + '</div></details>';
       document.getElementById('close-drawer').onclick = closeDrawer;
       document.getElementById('resolve').onclick = function () {
         api('/errors/' + g.fingerprint + '/resolve', { method: 'POST', body: { resolved: !g.resolved } }).then(function () {
