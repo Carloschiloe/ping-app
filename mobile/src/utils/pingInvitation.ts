@@ -9,9 +9,9 @@ export function inviteTokenFromUrl(url: string | null | undefined): string | nul
     return match ? match[1] : null;
 }
 
-export function inviteMessage(contactName: string, url: string): string {
+export function inviteMessage(contactName: string | null, url: string): string {
     return [
-        `Hola ${contactName}, te invito a conversar conmigo en Vorian.`,
+        `Hola${contactName ? ` ${contactName}` : ''}, te invito a conversar conmigo en Vorian.`,
         'Abre este enlace y quedaremos conectados:',
         url,
     ].join('\n\n');
