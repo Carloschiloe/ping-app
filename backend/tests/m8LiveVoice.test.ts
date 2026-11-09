@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The voice chosen in the panel is read from the database; these tests mock
+// fetch for the provider only.
+vi.mock('../src/services/voiceSettings.service', () => ({ getVoiceSettings: async () => ({ voice: 'cedar', speed: 1 }) }));
+
 import {
     clearM8LiveVoiceTelemetryForTests,
     createM8LiveVoiceSession,

@@ -7,6 +7,7 @@ import { createRateLimitStore } from '../middleware/rateLimitStore';
 import { AppError } from '../utils/AppError';
 import * as admin from './admin.service';
 import * as costs from './costs.service';
+import { VOICES, getVoiceSettings, updateVoiceSettings } from '../services/voiceSettings.service';
 
 // The owner's admin panel API, under /admin/api. Every route except sign-in
 // needs a signed-in account listed in admin_users. Nothing here is cached.
@@ -109,6 +110,11 @@ adminRouter.post('/reports/:id/status',
 
 adminRouter.get('/assistant', handle(() => admin.assistantUsage()));
 adminRouter.get('/system', handle(() => admin.system()));
+
+adminRouter.get('/voice', handle(() => getVoiceSettings()));
+adminRouter.put('/voice',
+    validateRequest(z.object({ body: z.object({ voice: z.enum(VOICES), speed: z.number().min(0.8).max(1.2) }) })),
+    handle((req) => updateVoiceSettings(req.body)));
 
 adminRouter.get('/costs', handle(() => costs.costs()));
 adminRouter.put('/costs/settings',
