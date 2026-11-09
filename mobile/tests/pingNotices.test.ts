@@ -12,12 +12,12 @@ describe('M10 — Ping notices', () => {
         expect(push).toContain("nav.navigate('Main', { screen: 'Chats', params: { screen: 'PingAI'");
     });
 
-    it('lets the user choose the notices in Perfil, saved on their own profile', () => {
-        const profile = read('screens/ProfileScreen.tsx');
+    it('lets the user choose the notices in Ajustes, saved on their own profile', () => {
+        const profile = read('screens/SettingsScreen.tsx');
         for (const column of ['assistant_daily_summary', 'assistant_summary_hour', 'assistant_overdue_notices']) {
             expect(profile).toContain(`update({ ${column}: `);
         }
-        expect(profile).toContain('title="Avisos de Vorian"');
+        expect(profile).toContain('label="AVISOS"');
         expect(profile).toContain('const SUMMARY_HOURS = [6, 7, 8, 9, 10];');
     });
 });

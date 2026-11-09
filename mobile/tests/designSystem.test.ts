@@ -99,6 +99,8 @@ describe('Hoy in the new design', () => {
 describe('Perfil in the new design', () => {
     const files = [
         'screens/ProfileScreen.tsx',
+        'screens/SettingsScreen.tsx',
+        'components/perfil/SettingsKit.tsx',
         'components/perfil/CalendarsSheet.tsx',
         'components/perfil/EditProfileSheet.tsx',
         'components/perfil/FocusModeSheet.tsx',
@@ -114,11 +116,11 @@ describe('Perfil in the new design', () => {
         }
     });
 
-    it('groups its settings in one glass card and shows its sheets as lit glass', () => {
-        const profile = read('screens/ProfileScreen.tsx');
-        expect(profile).toContain('<Glass style={[StyleSheet.absoluteFill, styles.cardGlass]}');
-        expect(profile).toContain('TAB_BAR_CLEARANCE');
-        for (const file of files.slice(1)) {
+    it('groups its settings in glass cards and shows its sheets as lit glass', () => {
+        expect(read('components/perfil/SettingsKit.tsx')).toContain('<Glass style={[StyleSheet.absoluteFill, kit.cardGlass]}');
+        expect(read('screens/ProfileScreen.tsx')).toContain('TAB_BAR_CLEARANCE');
+        expect(read('screens/SettingsScreen.tsx')).toContain('TAB_BAR_CLEARANCE');
+        for (const file of files.slice(3)) {
             expect(read(file), file).toContain('<SheetFill />');
         }
     });
