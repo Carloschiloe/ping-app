@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createMeteredOpenAI } from './aiUsage.service';
 import fs from 'fs';
 
 let openai: OpenAI | null = null;
@@ -68,7 +69,7 @@ function overallConfidence(segments: Array<{ startMs: number; endMs: number; con
 function getOpenAiClient(): OpenAI | null {
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) return null;
-    if (!openai) openai = new OpenAI({ apiKey });
+    if (!openai) openai = createMeteredOpenAI('transcripcion', TRANSCRIPTION_MODEL, { apiKey });
     return openai;
 }
 

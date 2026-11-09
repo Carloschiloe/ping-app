@@ -2,6 +2,7 @@
 // accept function tools through /v1/responses. A slow request is hedged like
 // the other semantic calls. Nothing is stored at the provider (store: false).
 import OpenAI from 'openai';
+import { createMeteredOpenAI } from '../aiUsage.service';
 import { hedgedSemanticRequest, traceSemanticProvider } from '../semanticOpenAiTransport.service';
 import type { AssistantChatMessage, AssistantModel, AssistantModelResponse, AssistantToolDefinition } from './assistantTypes';
 
@@ -34,7 +35,7 @@ export class OpenAiAssistantModel implements AssistantModel {
     private readonly client: OpenAI;
 
     public constructor(public readonly modelName: string, apiKey = process.env.OPENAI_API_KEY) {
-        this.client = new OpenAI({ apiKey, timeout: TIMEOUT_MS, maxRetries: 1 });
+        this.client = createMeteredOpenAI('asistente', modelName, { apiKey, timeout: TIMEOUT_MS, maxRetries: 1 });
     }
 
     async complete(messages: AssistantChatMessage[], tools: AssistantToolDefinition[]): Promise<AssistantModelResponse> {

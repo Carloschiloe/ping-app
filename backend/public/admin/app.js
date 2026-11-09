@@ -161,7 +161,7 @@
   document.getElementById('logout').addEventListener('click', function () { closeDrawer(); showLogin(); });
 
   // ---------- routing ----------
-  var VIEWS = { resumen: viewOverview, usuarios: viewUsers, planes: viewPlans, errores: viewErrors, opiniones: viewFeedback, asistente: viewAssistant, sistema: viewSystem, ajustes: viewSettings };
+  var VIEWS = { resumen: viewOverview, usuarios: viewUsers, planes: viewPlans, errores: viewErrors, opiniones: viewFeedback, asistente: viewAssistant, gastos: viewCosts, sistema: viewSystem, ajustes: viewSettings };
   function route() {
     if (!session) return;
     var name = (location.hash || '#resumen').slice(1);
@@ -541,6 +541,119 @@
         '<div class="kpis">' + kpi('Últimas 24 horas', num(a.day), 'mensajes al asistente') + kpi('Últimos 7 días', num(a.week)) + kpi('Últimos 30 días', num(a.month)) + kpi('Por voz (30 días)', num(a.voiceMonth)) + '</div>' +
         '<div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>';
       bindUserLinks();
+    }, failView);
+  }
+
+  // ---------- Gastos ----------
+  var FEATURES = { asistente: 'Asistente Vorian (texto)', voz_en_vivo: 'Asistente por voz', voz_transcripcion: 'Voz: entender lo que dices', transcripcion: 'Notas de voz y llamadas', resumen_chat: 'Resúmenes de chats', resumen_llamada: 'Resúmenes de llamadas', compromisos: 'Detectar compromisos' };
+  function usd(v) {
+    v = Number(v || 0);
+    var digits = v === 0 ? 2 : v < 0.01 ? 4 : v < 0.1 ? 3 : 2;
+    return 'US$ ' + v.toLocaleString('es-CL', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+  function tokens(v) {
+    v = Number(v || 0);
+    return v >= 1e6 ? (v / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' M' : v >= 1e3 ? (v / 1e3).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' mil' : num(v);
+  }
+  function costChart(days) {
+    if (!days.length) return '<div class="empty">Todavía no hay gasto en inteligencia artificial registrado. Aparece apenas alguien use el asistente.</div>';
+    var byDay = {};
+    days.forEach(function (d) { byDay[d.day] = Number(d.cost); });
+    var series = [], max = 0;
+    for (var i = 29; i >= 0; i--) {
+      var day = new Date(Date.now() - i * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      series.push({ day: day, cost: byDay[day] || 0 });
+      max = Math.max(max, byDay[day] || 0);
+    }
+    max = max || 1;
+    var H = 190, bw = 640 / series.length;
+    var bars = series.map(function (d, i) {
+      var h = d.cost ? Math.max(2, (H - 26) * d.cost / max) : 0;
+      return '<rect x="' + (i * bw + 2).toFixed(1) + '" y="' + (H - h).toFixed(1) + '" width="' + (bw - 4).toFixed(1) + '" height="' + h.toFixed(1) + '" rx="3" fill="' + (i === series.length - 1 ? '#7DB2FF' : 'url(#gc)') + '"><title>' + esc(d.day) + ': ' + esc(usd(d.cost)) + '</title></rect>';
+    }).join('');
+    var label = function (d) { return new Date(d.day + 'T12:00:00').toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }); };
+    return '<svg class="chart" viewBox="0 0 640 214" role="img" aria-label="Gasto diario en inteligencia artificial">' +
+      '<defs><linearGradient id="gc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5B9BFF"/><stop offset="1" stop-color="#2563EB" stop-opacity=".55"/></linearGradient></defs>' +
+      '<g stroke="rgba(255,255,255,.06)"><line x1="0" y1="16" x2="640" y2="16"/><line x1="0" y1="98" x2="640" y2="98"/><line x1="0" y1="190" x2="640" y2="190"/></g>' +
+      '<text x="0" y="11" fill="#6f7a8c" font-size="10">' + esc(usd(max)) + '</text>' + bars +
+      '<g fill="#6f7a8c" font-size="11"><text x="0" y="210">' + esc(label(series[0])) + '</text><text x="300" y="210">' + esc(label(series[15])) + '</text><text x="612" y="210">hoy</text></g></svg>';
+  }
+  function meter(label, used, limit, unit) {
+    var share = limit ? used / limit : 0, tone = share >= 0.9 ? 'red' : share >= 0.8 ? 'amber' : '';
+    return '<div class="frow"><div class="fl"><span>' + esc(label) + '</span><b>' + num(used) + ' de ' + num(limit) + (unit ? ' ' + esc(unit) : '') + '</b></div><div class="bar ' + tone + '"><i style="width:' + Math.min(100, Math.max(used ? 2 : 0, Math.round(share * 100))) + '%"></i></div></div>';
+  }
+  function viewCosts() {
+    api('/costs').then(function (c) {
+      if (current !== 'gastos') return;
+      var t = c.totals, ai = c.ai;
+      var budget = '<div class="delta">Sin presupuesto. Ponlo abajo para recibir avisos.</div>';
+      if (t.budget) {
+        var share = t.budgetUsed || 0, tone = share >= 1 ? 'red' : share >= 0.8 ? 'amber' : 'green';
+        budget = '<div class="frow" style="margin-top:6px"><div class="fl"><span>Usado</span><b>' + Math.round(share * 100) + ' %</b></div><div class="bar ' + tone + '"><i style="width:' + Math.min(100, Math.max(2, Math.round(share * 100))) + '%"></i></div></div>';
+      }
+      var total = ai.byFeature.reduce(function (sum, f) { return sum + f.cost; }, 0) || 1;
+      var features = ai.byFeature.length ? ai.byFeature.map(function (f) {
+        return '<div class="frow"><div class="fl"><span>' + esc(FEATURES[f.feature] || f.feature) + '</span><b>' + esc(usd(f.cost)) + '</b></div><div class="bar"><i style="width:' + Math.max(2, Math.round(f.cost / total * 100)) + '%"></i></div><div class="sub" style="margin-top:4px">' + num(f.calls) + ' usos · ' + tokens(f.input_tokens) + ' tokens de entrada · ' + tokens(f.output_tokens) + ' de salida</div></div>';
+      }).join('') : '<div class="empty">Sin uso este mes.</div>';
+      var models = ai.byModel.length ? '<table><thead><tr><th>Modelo</th><th>Usos</th><th>Entrada</th><th>Salida</th><th>Costo</th></tr></thead><tbody>' + ai.byModel.map(function (m) {
+        return '<tr><td>' + esc(m.model) + '</td><td>' + num(m.calls) + '</td><td>' + tokens(m.input_tokens) + '</td><td>' + tokens(m.output_tokens) + '</td><td><b>' + esc(usd(m.cost)) + '</b></td></tr>';
+      }).join('') + '</tbody></table>' : '<div class="empty">Sin uso este mes.</div>';
+      var people = ai.topUsers.length ? ai.topUsers.map(function (u) {
+        return '<div class="li click" data-user="' + esc(u.user_id) + '"><div class="av">' + initials(u.name) + '</div><div><div class="t">' + esc(u.name) + '</div><div class="s">' + num(u.calls) + ' usos</div></div><div class="r"><b>' + esc(usd(u.cost)) + '</b></div></div>';
+      }).join('') : '<div class="empty">Nadie ha generado gasto este mes.</div>';
+      var o = c.official, official;
+      if (!o.configured) official = '<div class="note">Para ver lo que OpenAI te cobra de verdad, crea una llave de administrador en platform.openai.com → Settings → Admin keys y pégala en Render como <b>OPENAI_ADMIN_KEY</b>.</div>';
+      else if (!o.ok) official = '<div class="sub">OpenAI no respondió. Se vuelve a intentar en unos minutos.</div>';
+      else official = '<div class="sys"><span>Cobrado este mes</span><span class="end"><b>' + esc(usd(o.monthUsd)) + '</b></span></div><div class="sys"><span>Cobrado hoy</span><span class="end">' + esc(usd(o.todayUsd)) + '</span></div><div class="sys"><span>Calculado por Vorian este mes</span><span class="end">' + esc(usd(t.monthAi)) + '</span></div><div class="sub" style="margin-top:8px">OpenAI actualiza su cuenta con algunas horas de retraso.</div>';
+      var a = c.agora, agora;
+      if (!a.configured) agora = '<div class="sub">Faltan las claves de Agora en el servidor.</div>';
+      else if (!a.ok) agora = '<div class="sub">Agora no respondió. Se vuelve a intentar en unos minutos.</div>';
+      else agora = meter('Minutos usados (gratis hasta 10.000)', a.audioMinutes + a.videoMinutes, a.freeMinutes, 'min') +
+        '<div class="sys"><span>Audio · Video</span><span class="end">' + num(a.audioMinutes) + ' · ' + num(a.videoMinutes) + ' min</span></div><div class="sys"><span>Costo estimado</span><span class="end"><b>' + esc(usd(a.estimatedUsd)) + '</b></span></div>';
+      var sb = c.supabase;
+      var supa = meter('Base de datos', sb.databaseMb, sb.databaseLimitMb, 'MB') + meter('Fotos y archivos', sb.storageMb, sb.storageLimitMb, 'MB') + meter('Usuarios activos del mes', sb.monthlyUsers, sb.monthlyUsersLimit, '') +
+        '<div class="sys"><span>Plan</span><span class="end"><span class="chip mute">' + (sb.plan === 'pro' ? 'Pro' : 'Gratis') + '</span><b>' + esc(usd(sb.price)) + ' al mes</b></span></div>';
+      var planNames = { free: 'Gratis', starter: 'Starter', standard: 'Standard', pro: 'Pro' };
+      var render = '<div class="sys"><span>Plan del servidor</span><span class="end"><span class="chip mute">' + esc(planNames[c.render.plan] || c.render.plan) + '</span><b>' + esc(usd(c.render.price)) + ' al mes</b></span></div>' +
+        (c.render.plan === 'free' ? '<div class="sub" style="margin-top:8px">El plan gratis se duerme tras 15 minutos sin uso y aguanta unas 400 personas usando la app a la vez.</div>' : '');
+      var st = c.settings;
+      var opts = function (map, value) { return Object.keys(map).map(function (k) { return '<option value="' + k + '"' + (k === value ? ' selected' : '') + '>' + esc(map[k]) + '</option>'; }).join(''); };
+      main.innerHTML = header('Gastos', 'Lo que cuesta Vorian este mes, en dólares', '<span class="sub">Se actualiza solo cada 30 segundos</span>') +
+        '<div class="kpis">' +
+        kpi('Hoy en inteligencia artificial', esc(usd(t.today)), 'últimos 7 días: ' + esc(usd(t.week))) +
+        kpi('Este mes, todo', esc(usd(t.month)), 'inteligencia artificial: ' + esc(usd(t.monthAi))) +
+        kpi('Proyección a fin de mes', esc(usd(t.projected)), 'si se sigue usando igual') +
+        '<div class="card kpi"><div class="label">Presupuesto del mes</div><div class="num">' + (t.budget ? esc(usd(t.budget)) : '—') + '</div>' + budget + '</div>' +
+        '</div><div class="grid2">' +
+        '<div class="card"><h3>Gasto diario en inteligencia artificial<span class="legend"><span><i style="background:#5B9BFF"></i>Últimos 30 días</span></span></h3>' + costChart(ai.byDay) + '</div>' +
+        '<div class="card"><h3>En qué se gasta</h3><div class="sub">Este mes · ' + num(ai.calls) + ' usos de OpenAI</div><div class="funnel">' + features + '</div></div></div>' +
+        '<div class="grid2">' +
+        '<div class="card"><h3>Tokens por modelo</h3><div class="sub">Este mes</div>' + models + '</div>' +
+        '<div class="card"><h3>Quiénes gastan más</h3><div class="sub">Este mes</div><div class="list">' + people + '</div></div></div>' +
+        '<div class="grid3">' +
+        '<div class="card"><h3>Cuenta oficial de OpenAI</h3><div class="list">' + official + '</div></div>' +
+        '<div class="card"><h3>Llamadas (Agora)</h3><div class="funnel">' + agora + '</div></div>' +
+        '<div class="card"><h3>Base de datos (Supabase)</h3><div class="funnel">' + supa + '</div></div></div>' +
+        '<div class="grid2 even" style="margin-top:14px">' +
+        '<div class="card"><h3>Servidor (Render)</h3><div class="list">' + render + '</div></div>' +
+        '<form class="card" id="costs-form"><h3>Presupuesto y planes</h3><div class="settings-form">' +
+        '<label>Presupuesto mensual (dólares)<input type="number" name="budget" min="0" step="0.01" placeholder="Sin presupuesto" value="' + (st.monthlyBudgetUsd == null ? '' : st.monthlyBudgetUsd) + '"></label>' +
+        '<label>Plan de Render<select name="render">' + opts(planNames, st.renderPlan) + '</select></label>' +
+        '<label>Plan de Supabase<select name="supabase">' + opts({ free: 'Gratis', pro: 'Pro' }, st.supabasePlan) + '</select></label>' +
+        '</div><p class="sub" style="margin:14px 0">Al llegar al 80 % y al 100 % del presupuesto te llega un aviso al teléfono, una vez por mes. Cambia el plan aquí cuando lo cambies en Render o Supabase.</p>' +
+        '<button class="btn primary" type="submit">Guardar</button></form></div>';
+      bindUserLinks();
+      document.getElementById('costs-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var f = e.target, raw = f.budget.value.trim();
+        api('/costs/settings', { method: 'PUT', body: { monthlyBudgetUsd: raw === '' ? null : Number(raw), renderPlan: f.render.value, supabasePlan: f.supabase.value } })
+          .then(function () { toast('Cambios guardados'); viewCosts(); }, function (err) { toast(err.message, true); });
+      });
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(function () {
+        var editing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#costs-form');
+        if (current === 'gastos' && !editing && !drawer.classList.contains('open') && document.visibilityState === 'visible') viewCosts();
+      }, 30000);
     }, failView);
   }
 

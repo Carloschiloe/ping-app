@@ -52,7 +52,7 @@ import {
 } from '../middleware/featureGate';
 import { createAgentRateLimiter } from '../middleware/agentRateLimit';
 import { getRateLimitStoreStatus } from '../middleware/rateLimitStore';
-import { getM8LiveVoiceTelemetryPersistenceStatus } from '../services/m8LiveVoice.service';
+import { getM8LiveVoiceTelemetryPersistenceStatus, recordLiveVoiceUsage } from '../services/m8LiveVoice.service';
 
 export const router = Router();
 
@@ -69,6 +69,7 @@ const appTelemetryRateLimiter = createAgentRateLimiter('app-telemetry', 30);
 const agentVoiceCaptureRateLimiter = createAgentRateLimiter('voice-capture', 10);
 const agentVoiceSessionRateLimiter = createAgentRateLimiter('voice-session', 6);
 const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry', 240);
+const agentVoiceUsageRateLimiter = createAgentRateLimiter('voice-usage', 240);
 
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');
 const calendarEnabled = requireFeature('ENABLE_CALENDAR_INTEGRATION');
@@ -363,6 +364,16 @@ router.post(
     m8LiveVoiceController.createSession,
 );
 router.get('/agent/voice/live/client', m8LiveVoiceController.client);
+router.post(
+    '/agent/voice/live/usage',
+    requireAuth,
+    agentVoiceUsageRateLimiter,
+    validateRequest(appTelemetrySchema.liveVoiceUsageSchema),
+    (req, res) => {
+        recordLiveVoiceUsage(req.user!.id, req.body.kind, req.body.usage);
+        res.status(204).end();
+    },
+);
 router.post(
     '/agent/voice/live/telemetry',
     requireAuth,

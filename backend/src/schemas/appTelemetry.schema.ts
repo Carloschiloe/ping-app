@@ -20,3 +20,25 @@ export const appErrorSchema = z.object({
         platform: z.string().max(20).optional().nullable(),
     }),
 });
+
+// Token counts the live voice page reads from OpenAI's own reply events.
+const count = z.number().int().min(0).max(1_000_000).optional();
+const details = z.object({
+    text_tokens: count,
+    audio_tokens: count,
+    cached_tokens: count,
+    cached_tokens_details: z.object({ text_tokens: count, audio_tokens: count }).partial().optional(),
+}).partial().optional();
+
+export const liveVoiceUsageSchema = z.object({
+    body: z.object({
+        voiceSessionId: z.string().max(120).optional(),
+        kind: z.enum(['voz_en_vivo', 'voz_transcripcion']),
+        usage: z.object({
+            input_tokens: count,
+            output_tokens: count,
+            input_token_details: details,
+            output_token_details: details,
+        }),
+    }),
+});

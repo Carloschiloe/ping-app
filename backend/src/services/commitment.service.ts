@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createMeteredOpenAI } from './aiUsage.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { NotificationService } from './notification.service';
 import { assertCommitmentConversationParticipant, assertCommitmentOwner, assertCommitmentOwnerOrResponsible, assertConversationParticipant, assertOwnContact } from '../utils/authz';
@@ -28,7 +29,7 @@ import { dispatchCommitmentStatusMemoryEvent } from './canonicalMemoryEvents.ser
 let openai: OpenAI | null = null;
 function getOpenAiClient(): OpenAI {
     if (!openai) {
-        openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        openai = createMeteredOpenAI('compromisos', 'gpt-4o-mini', { apiKey: process.env.OPENAI_API_KEY });
     }
     return openai;
 }

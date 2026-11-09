@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createMeteredOpenAI } from './aiUsage.service';
 import { extractExplicitTimeHint, parseDateFromText } from './date-parser.service';
 
 let openai: OpenAI | null = null;
@@ -6,7 +7,7 @@ let openai: OpenAI | null = null;
 function getOpenAiClient(): OpenAI {
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-    if (!openai) openai = new OpenAI({ apiKey });
+    if (!openai) openai = createMeteredOpenAI('resumen_chat', 'gpt-4o-mini', { apiKey });
     return openai;
 }
 

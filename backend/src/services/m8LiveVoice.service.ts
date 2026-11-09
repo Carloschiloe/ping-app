@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { AppError } from '../utils/AppError';
 import type { M8LiveVoiceSessionRequest, M8LiveVoiceTelemetry } from '../schemas/m8LiveVoice.schema';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { recordAiUsage } from './aiUsage.service';
 import { M8_VOICE_TRANSCRIPTION_PROMPT } from './m8VoiceTranscriptionPrompt';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
@@ -103,7 +104,7 @@ function sanitizeTelemetryText(value: string | undefined, maxLength: number): st
         .slice(0, maxLength);
 }
 
-function modelForLiveVoice(): string {
+export function modelForLiveVoice(): string {
     const model = process.env.M8_LIVE_VOICE_MODEL?.trim() || DEFAULT_MODEL;
     if (!/^[a-zA-Z0-9._-]{2,80}$/.test(model)) throw new AppError('Invalid live voice model configuration', 500);
     return model;
@@ -642,4 +643,32 @@ export function clearM8LiveVoiceTelemetryForTests(): void {
     telemetryPersistenceLastSuccessAt = null;
     telemetryPersistenceLastFailureAt = null;
     telemetryPersistenceLastFailureCode = null;
+}
+
+type RealtimeDetails = { text_tokens?: number; audio_tokens?: number; cached_tokens?: number; cached_tokens_details?: { text_tokens?: number; audio_tokens?: number } };
+export type RealtimeUsage = { input_tokens?: number; output_tokens?: number; input_token_details?: RealtimeDetails; output_token_details?: RealtimeDetails };
+
+/** Prices one live-voice answer (or its transcription) with the model this server configured. */
+export function recordLiveVoiceUsage(userId: string, kind: 'voz_en_vivo' | 'voz_transcripcion', usage: RealtimeUsage): void {
+    const input = usage.input_token_details ?? {};
+    const output = usage.output_token_details ?? {};
+    const cached = input.cached_tokens_details ?? {};
+    const audioIn = input.audio_tokens ?? 0;
+    const textIn = input.text_tokens ?? (audioIn ? 0 : usage.input_tokens ?? 0);
+    const model = kind === 'voz_en_vivo'
+        ? modelForLiveVoice()
+        : process.env.M8_LIVE_VOICE_TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-transcribe';
+    recordAiUsage({
+        feature: kind,
+        model,
+        userId,
+        usage: {
+            inputTokens: textIn,
+            cachedInputTokens: cached.text_tokens ?? (cached.audio_tokens === undefined ? input.cached_tokens ?? 0 : 0),
+            audioInputTokens: audioIn,
+            cachedAudioInputTokens: cached.audio_tokens ?? 0,
+            outputTokens: output.text_tokens ?? (output.audio_tokens ? 0 : usage.output_tokens ?? 0),
+            audioOutputTokens: output.audio_tokens ?? 0,
+        },
+    });
 }
