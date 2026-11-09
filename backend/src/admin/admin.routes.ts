@@ -6,6 +6,7 @@ import { validateRequest } from '../middleware/validate';
 import { createRateLimitStore } from '../middleware/rateLimitStore';
 import { AppError } from '../utils/AppError';
 import * as admin from './admin.service';
+import * as costs from './costs.service';
 
 // The owner's admin panel API, under /admin/api. Every route except sign-in
 // needs a signed-in account listed in admin_users. Nothing here is cached.
@@ -108,6 +109,17 @@ adminRouter.post('/reports/:id/status',
 
 adminRouter.get('/assistant', handle(() => admin.assistantUsage()));
 adminRouter.get('/system', handle(() => admin.system()));
+
+adminRouter.get('/costs', handle(() => costs.costs()));
+adminRouter.put('/costs/settings',
+    validateRequest(z.object({
+        body: z.object({
+            monthlyBudgetUsd: z.number().min(0).max(1_000_000).nullable(),
+            renderPlan: z.enum(Object.keys(costs.RENDER_PLANS) as [string, ...string[]]),
+            supabasePlan: z.enum(Object.keys(costs.SUPABASE_PLANS) as [string, ...string[]]),
+        }),
+    })),
+    handle((req) => costs.updateCostSettings(req.body)));
 
 adminRouter.get('/settings', handle(() => admin.getSettings()));
 adminRouter.put('/settings',

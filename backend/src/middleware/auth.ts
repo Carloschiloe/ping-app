@@ -5,6 +5,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { AppError } from '../utils/AppError';
 import { safeErrorLog } from '../utils/safeError';
 import { TtlCache } from '../utils/ttlCache';
+import { runAsUser } from '../services/aiUsage.service';
 
 // Asking Supabase Auth about every request is the slowest step under load: a
 // person opening the app sends several requests within seconds. A token it
@@ -114,7 +115,8 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
                 }
             }
 
-            next();
+            // Lets AI usage further down know whose request it was.
+            runAsUser(req.user.id, () => next());
         } catch (error) {
             console.error('Auth middleware error:', safeErrorLog(error));
             next(new AppError('Internal server error during authentication', 500));

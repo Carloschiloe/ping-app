@@ -3,6 +3,7 @@ import { runInitiativeEngine } from './assistant/assistantInitiative.service';
 import { reconcilePendingAgentExecutionHistory } from './agentConversationTurn.service';
 import { getEnvConfig } from '../config/env';
 import { runTrialNotices } from './access.service';
+import { runBudgetAlert } from '../admin/costs.service';
 
 const env = getEnvConfig();
 let hasScheduledJobs = false;
@@ -60,6 +61,7 @@ export function startScheduledJobs() {
     // is claimed in the database, so it is never sent twice.
     setInterval(() => {
         runTrialNotices().catch((err) => console.error('[CronCoordinator] runTrialNotices failed:', err));
+        runBudgetAlert().catch((err) => console.error('[CronCoordinator] runBudgetAlert failed:', err));
     }, 60 * 60_000);
     hasScheduledJobs = true;
 }

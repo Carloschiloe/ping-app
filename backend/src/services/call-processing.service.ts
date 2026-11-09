@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createMeteredOpenAI } from './aiUsage.service';
 import fs from 'fs';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { transcribeAudio } from './transcription.service';
@@ -10,7 +11,7 @@ let openai: OpenAI | null = null;
 function getOpenAiClient(): OpenAI {
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-    if (!openai) openai = new OpenAI({ apiKey });
+    if (!openai) openai = createMeteredOpenAI('resumen_llamada', 'gpt-4o', { apiKey });
     return openai;
 }
 
