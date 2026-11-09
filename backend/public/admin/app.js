@@ -109,6 +109,7 @@
       method: options.method || 'GET', headers: headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
     }).then(function (res) {
+      if (options.blob && res.ok) return res.blob().then(function (data) { return { res: res, data: data }; });
       return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
     });
   }
@@ -537,12 +538,34 @@
     ['coral', 'Coral · femenina, alegre'], ['sage', 'Sage · femenina, serena'], ['shimmer', 'Shimmer · femenina, luminosa'], ['alloy', 'Alloy · neutra'],
   ];
   function voiceCard(v) {
-    var opts = VOICE_NAMES.map(function (n) { return '<option value="' + n[0] + '"' + (n[0] === v.voice ? ' selected' : '') + '>' + esc(n[1]) + '</option>'; }).join('');
-    return '<form class="card" id="voice-form"><h3>Voz del asistente</h3><div class="settings-form">' +
-      '<label>Voz<select name="voice">' + opts + '</select></label>' +
-      '<label>Velocidad: <b id="speed-label">' + Number(v.speed).toFixed(2).replace('.', ',') + '</b><input type="range" name="speed" min="0.8" max="1.2" step="0.05" value="' + v.speed + '"></label>' +
-      '</div><p class="sub" style="margin:14px 0">1,00 es la velocidad normal. Más bajo habla más pausado; más alto, más rápido. El cambio se nota en la siguiente conversación por voz, sin actualizar la app.</p>' +
+    var rows = VOICE_NAMES.map(function (n) {
+      var parts = n[1].split(' · ');
+      return '<label class="voice-row"><input type="radio" name="voice" value="' + n[0] + '"' + (n[0] === v.voice ? ' checked' : '') + '>' +
+        '<span class="vn"><b>' + esc(parts[0]) + '</b><small>' + esc(parts[1]) + '</small></span>' +
+        '<button type="button" class="btn play" data-voice="' + n[0] + '" aria-label="Escuchar ' + esc(parts[0]) + '">▶ Escuchar</button></label>';
+    }).join('');
+    return '<form class="card" id="voice-form"><h3>Voz del asistente</h3><div class="sub">Escucha cada voz y marca la que quieras. La muestra dice: «Hola, soy Vorian. Mañana tienes dos cosas…»</div>' +
+      '<div class="voices">' + rows + '</div>' +
+      '<div class="settings-form"><label>Velocidad: <b id="speed-label">' + Number(v.speed).toFixed(2).replace('.', ',') + '</b><input type="range" name="speed" min="0.8" max="1.2" step="0.05" value="' + v.speed + '"></label></div>' +
+      '<p class="sub" style="margin:14px 0">1,00 es la velocidad normal; la muestra se escucha con la velocidad que elijas. El cambio se nota en la siguiente conversación por voz, sin actualizar la app.</p>' +
       '<button class="btn primary" type="submit">Guardar voz</button></form>';
+  }
+  var voiceAudio = null, voiceUrls = {};
+  function playVoice(button, speed) {
+    var voice = button.dataset.voice;
+    if (voiceAudio) { voiceAudio.pause(); document.querySelectorAll('.btn.play').forEach(function (b) { b.textContent = '▶ Escuchar'; }); }
+    if (voiceAudio && voiceAudio.dataset.voice === voice && !voiceAudio.ended && voiceAudio.dataset.playing === '1') { voiceAudio.dataset.playing = '0'; return; }
+    button.textContent = 'Cargando…';
+    var ready = voiceUrls[voice] ? Promise.resolve(voiceUrls[voice]) : api('/voice/sample/' + voice, { blob: true }).then(function (blob) { return (voiceUrls[voice] = URL.createObjectURL(blob)); });
+    ready.then(function (url) {
+      voiceAudio = new Audio(url);
+      voiceAudio.dataset.voice = voice; voiceAudio.dataset.playing = '1';
+      voiceAudio.preservesPitch = true;
+      voiceAudio.playbackRate = speed;
+      voiceAudio.onended = function () { button.textContent = '▶ Escuchar'; voiceAudio.dataset.playing = '0'; };
+      button.textContent = '■ Detener';
+      return voiceAudio.play();
+    }).catch(function (err) { button.textContent = '▶ Escuchar'; toast(err && err.message ? err.message : 'No se pudo reproducir', true); });
   }
   function viewAssistant() {
     Promise.all([api('/assistant'), api('/voice')]).then(function (r) {
@@ -553,10 +576,16 @@
       }).join('') : '<div class="empty">Nadie ha usado el asistente este mes.</div>';
       main.innerHTML = header('Uso del asistente', 'Cuánto se usa Vorian, el asistente') +
         '<div class="kpis">' + kpi('Últimas 24 horas', num(a.day), 'mensajes al asistente') + kpi('Últimos 7 días', num(a.week)) + kpi('Últimos 30 días', num(a.month)) + kpi('Por voz (30 días)', num(a.voiceMonth)) + '</div>' +
-        '<div class="grid2"><div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>' + voiceCard(v) + '</div>';
+        '<div class="grid2 even"><div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>' + voiceCard(v) + '</div>';
       bindUserLinks();
       var form = document.getElementById('voice-form');
-      form.speed.addEventListener('input', function () { document.getElementById('speed-label').textContent = Number(form.speed.value).toFixed(2).replace('.', ','); });
+      form.speed.addEventListener('input', function () {
+        document.getElementById('speed-label').textContent = Number(form.speed.value).toFixed(2).replace('.', ',');
+        if (voiceAudio) voiceAudio.playbackRate = Number(form.speed.value);
+      });
+      form.querySelectorAll('.btn.play').forEach(function (b) {
+        b.addEventListener('click', function (e) { e.preventDefault(); playVoice(b, Number(form.speed.value)); });
+      });
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         api('/voice', { method: 'PUT', body: { voice: form.voice.value, speed: Number(form.speed.value) } })
@@ -566,7 +595,7 @@
   }
 
   // ---------- Gastos ----------
-  var FEATURES = { asistente: 'Asistente Vorian (texto)', voz_en_vivo: 'Asistente por voz', voz_transcripcion: 'Voz: entender lo que dices', transcripcion: 'Notas de voz y llamadas', resumen_chat: 'Resúmenes de chats', resumen_llamada: 'Resúmenes de llamadas', compromisos: 'Detectar compromisos' };
+  var FEATURES = { asistente: 'Asistente Vorian (texto)', voz_en_vivo: 'Asistente por voz', voz_transcripcion: 'Voz: entender lo que dices', transcripcion: 'Notas de voz y llamadas', resumen_chat: 'Resúmenes de chats', resumen_llamada: 'Resúmenes de llamadas', compromisos: 'Detectar compromisos', muestra_voz: 'Muestras de voz del panel' };
   function usd(v) {
     v = Number(v || 0);
     var digits = v === 0 ? 2 : v < 0.01 ? 4 : v < 0.1 ? 3 : 2;

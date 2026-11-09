@@ -159,6 +159,9 @@ app.get(['/admin', '/admin/'], (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  // Same policy as the rest of the site, plus blob: audio for the voice
+  // samples the panel fetches with the admin's session.
+  res.setHeader('Content-Security-Policy', "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;media-src 'self' blob:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests");
   res.sendFile(join(process.cwd(), 'public/admin/index.html'));
 });
 app.use('/admin', express.static(join(process.cwd(), 'public/admin'), {
