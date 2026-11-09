@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import { inviteMessage, inviteTokenFromUrl } from '../src/utils/pingInvitation';
 
@@ -25,5 +27,15 @@ describe('invitation links the app opens', () => {
         expect(text).toContain('Vorian');
         expect(text).not.toMatch(/\bPing\b/);
         expect(text.endsWith('https://vorian.app/invite/abc')).toBe(true);
+    });
+
+    it('greets without a name when shared from Perfil', () => {
+        expect(inviteMessage(null, 'https://vorian.app/invite/abc')).toMatch(/^Hola, te invito/);
+    });
+
+    it('Perfil offers to invite someone with a personal link', () => {
+        const profile = readFileSync(join(__dirname, '../src/screens/ProfileScreen.tsx'), 'utf8');
+        expect(profile).toContain('title="Invitar a alguien a Vorian"');
+        expect(profile).toContain("apiClient.post('/invite-links'");
     });
 });

@@ -122,7 +122,7 @@ export function CalendarsSheet({
                                             <Switch
                                                 value={!!acc.is_auto_sync_enabled}
                                                 onValueChange={() => handleToggleAutoSync(acc.id, !!acc.is_auto_sync_enabled)}
-                                                trackColor={{ false: colors.glassRaised, true: colors.accent }}
+                                                trackColor={{ false: colors.switchOff, true: colors.accent }}
                                                 thumbColor={colors.onAccent}
                                             />
                                         </View>

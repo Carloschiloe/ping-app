@@ -60,8 +60,8 @@ export function Toggle({ value, onValueChange }: { value: boolean; onValueChange
         <Switch
             value={value}
             onValueChange={onValueChange}
-            trackColor={{ false: colors.glassRaised, true: colors.accent }}
-            thumbColor={colors.onAccent}
+            trackColor={{ false: colors.switchOff, true: colors.accent }}
+            thumbColor={value ? colors.onAccent : colors.silver}
         />
     );
 }

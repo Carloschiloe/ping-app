@@ -92,7 +92,7 @@ export function ReportSheet({ target, onClose }: { target: ReportTarget | null; 
                     <Switch
                         value={alsoBlock}
                         onValueChange={setAlsoBlock}
-                        trackColor={{ false: colors.glassRaised, true: colors.accent }}
+                        trackColor={{ false: colors.switchOff, true: colors.accent }}
                         thumbColor={colors.onAccent}
                         accessibilityLabel="También bloquear"
                     />

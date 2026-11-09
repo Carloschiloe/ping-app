@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Share } from 'react-native';
 import { CachedImage } from '../design/CachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAccess, useUpdateProfile, type Access } from '../api/queries';
 import { resolvePrivateFileUrl } from '../lib/privateFiles';
+import { apiClient } from '../api/client';
+import { PING_PUBLIC_INVITE_URL, inviteMessage } from '../utils/pingInvitation';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import Reanimated, { FadeInDown } from 'react-native-reanimated';
@@ -87,6 +89,23 @@ export default function ProfileScreen() {
     const plan = planLine(access);
     const openSettings = () => navigation.navigate('Settings');
 
+    const [inviting, setInviting] = useState(false);
+    const inviteSomeone = async () => {
+        if (inviting) return;
+        setInviting(true);
+        try {
+            // A personal link connects whoever opens it with you.
+            const link = await apiClient.post('/invite-links', {})
+                .then((result: any) => (typeof result?.url === 'string' ? result.url : PING_PUBLIC_INVITE_URL))
+                .catch(() => PING_PUBLIC_INVITE_URL);
+            await Share.share({ title: 'Invitación a Vorian', message: inviteMessage(null, link) });
+        } catch (error: any) {
+            if (error?.message) Alert.alert('No se pudo compartir', 'Inténtalo nuevamente.');
+        } finally {
+            setInviting(false);
+        }
+    };
+
     return (
         <ScrollView
             style={styles.container}
@@ -152,6 +171,16 @@ export default function ProfileScreen() {
             </Reanimated.View>
 
             <Section order={1}>
+                <Row
+                    icon="person-add-outline"
+                    title="Invitar a alguien a Vorian"
+                    subtitle="Comparte tu enlace y quedarán conectados"
+                    onPress={inviteSomeone}
+                    accessibilityLabel="Invitar a alguien a Vorian"
+                />
+            </Section>
+
+            <Section order={2}>
                 {!!plan && (
                     <Row icon={plan.icon} title={plan.title} subtitle={plan.subtitle} />
                 )}
@@ -164,7 +193,7 @@ export default function ProfileScreen() {
                 />
             </Section>
 
-            <Section order={2}>
+            <Section order={3}>
                 <TouchableOpacity style={styles.logoutRow} onPress={handleLogout} accessibilityLabel="Cerrar sesión">
                     <Ionicons name="log-out-outline" size={19} color={colors.danger} />
                     <Text style={styles.logoutText}>Cerrar sesión</Text>

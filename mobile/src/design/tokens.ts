@@ -32,6 +32,8 @@ export const colors = {
     textFaint: 'rgba(244,246,249,0.60)',
     silver: '#D3D8E0',
     silverTint: 'rgba(211,216,224,0.20)',
+    // Track of a switch that is off: clearly there, but quieter than blue.
+    switchOff: 'rgba(211,216,224,0.34)',
 
     accent: '#3B82F6',
     accentBright: '#7DB2FF',
