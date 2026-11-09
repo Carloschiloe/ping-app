@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useInviteLinks } from '../hooks/useInviteLinks';
 import type { ConversationsStackParamList, MainTabParamList, RootStackParamList } from './types';
 import { FloatingTabBar } from '../design/FloatingTabBar';
 import { GlassBackdrop } from '../design/Glass';
@@ -152,6 +153,7 @@ export const AppNavigator = () => {
     };
 
     const signedIn = !!session && !!profileComplete && !passwordRecoveryPending;
+    useInviteLinks(signedIn && !!welcomeSeen, navigationRef);
     if (!initialized || (session && profileComplete === null) || (signedIn && welcomeSeen === null)) {
         return (
             <GlassBackdrop>

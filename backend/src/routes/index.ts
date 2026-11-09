@@ -198,6 +198,13 @@ router.post(
     validateRequest(conversationInvitationSchema.acceptInvitationSchema),
     conversationController.acceptInvitation
 );
+router.post('/invite-links', requireAuth, conversationController.createInviteLink);
+router.post(
+    '/invite-links/accept',
+    requireAuth,
+    validateRequest(conversationInvitationSchema.acceptInviteLinkSchema),
+    conversationController.acceptInviteLink
+);
 
 router.get('/conversations', requireAuth, conversationController.list);
 router.get('/conversations/:id/messages', requireAuth, conversationController.getMessages);
