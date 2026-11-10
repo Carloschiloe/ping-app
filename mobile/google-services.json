@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "328336790778",
+    "project_id": "vorian-6c3fe",
+    "storage_bucket": "vorian-6c3fe.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:328336790778:android:2cdef6b396e667fa27e543",
+        "android_client_info": {
+          "package_name": "com.carloschiloe.ping"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIDmdNfpMEnWR18UtEKBL5TMI26rOD-pQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
