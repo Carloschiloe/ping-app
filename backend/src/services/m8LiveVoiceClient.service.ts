@@ -106,9 +106,9 @@ main{text-align:center;padding:28px}.aura{display:block;width:220px;height:220px
   let greeted=false,greetingMicHeld=false;
   const setMicEnabled=(enabled)=>{if(mic)mic.getAudioTracks().forEach(track=>{track.enabled=enabled})};
   const releaseGreetingMic=()=>{if(!greetingMicHeld)return;greetingMicHeld=false;setMicEnabled(true)};
-  // A goodbye said out loud: Vorian answers in one line and ends the conversation once it has spoken.
+  // A goodbye said out loud: Vorian answers in one line, ends the voice once it has spoken and leaves the person in the chat.
   let farewellPending=false;
-  const sayFarewell=(callId)=>{farewellPending=true;setMicEnabled(false);telemetry('voice_stage',{stage:'farewell',detailCode:'closed_by_voice',sideEffects:0});sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core_presentation:{kind:'farewell',authorizedText:'Listo, hasta luego.'}})}});createResponse('farewell','none','Listo, hasta luego.');setAudioGate(true);setTimeout(stop,6000)};
+  const sayFarewell=(callId)=>{farewellPending=true;post({type:'write'});setMicEnabled(false);telemetry('voice_stage',{stage:'farewell',detailCode:'closed_by_voice',sideEffects:0});sendEvent({type:'conversation.item.create',item:{type:'function_call_output',call_id:callId,output:JSON.stringify({core_presentation:{kind:'farewell',authorizedText:'Listo, hasta luego.'}})}});createResponse('farewell','none','Listo, hasta luego.');setAudioGate(true);setTimeout(stop,6000)};
   const greet=()=>{if(greeted||closed||failed)return;greeted=true;greetingMicHeld=true;setMicEnabled(false);setTimeout(releaseGreetingMic,9000);const name=String((cfg&&cfg.firstName)||'').replace(/[^A-Za-zÀ-ÿ' -]/g,'').trim().slice(0,30);createResponse('greeting','none','Hola'+(name?' '+name:'')+', ¿cómo estás? ¿En qué te puedo ayudar hoy?');setAudioGate(true)};
   function onEvent(raw){
     let event;try{event=JSON.parse(raw.data||raw)}catch{telemetry('error',{detailCode:'provider_event_invalid_json',sideEffects:0});return}
