@@ -7,7 +7,7 @@ const read = (file: string) => fs.readFileSync(path.join(__dirname, '../src', fi
 describe('M10 — Ping notices', () => {
     it('opens the chat with Ping when a Ping notice is tapped, also from a closed app', () => {
         const push = read('hooks/usePushNotifications.ts');
-        expect(push).toContain("if (data?.type === 'ping_assistant') openPingChat(navigationRef);");
+        expect(push).toContain("if (data?.type === 'ping_assistant') openPingNotice(navigationRef, data);");
         expect(push).toContain('getLastNotificationResponseAsync()');
         expect(push).toContain("nav.navigate('Main', { screen: 'Chats', params: { screen: 'PingAI'");
     });

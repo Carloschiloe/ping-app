@@ -42,4 +42,16 @@ describe('hands-free voice', () => {
         expect(read('components/agent/LiveVoiceSession.tsx')).toContain("if (message.type === 'farewell') closeReasonRef.current = 'farewell';");
         expect(read('screens/AgentPreviewScreen.tsx')).toContain("if (reason === 'farewell') navigation.navigate('ConversationsList');");
     });
+
+    it('the summary of the day opens the voice to say it, on arrival with the app open or on tapping it', () => {
+        const push = read('hooks/usePushNotifications.ts');
+        expect(push).toContain("data?.kind === 'daily_summary' && typeof data?.spoken === 'string'");
+        expect(push).toContain('if (briefing) openBriefing(navigationRef, briefing);');
+        expect(push).toContain('openPingNotice(navigationRef, launchData);');
+        expect(push).toContain("new Set(['Call', 'IncomingCall'])");
+        const screen = read('screens/AgentPreviewScreen.tsx');
+        expect(screen).toContain('briefing={pendingBriefing}');
+        expect(screen).toContain('setPendingBriefing(undefined);');
+        expect(read('components/agent/LiveVoiceSession.tsx')).toContain('briefing: briefing?.trim() || undefined,');
+    });
 });

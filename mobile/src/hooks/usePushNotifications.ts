@@ -45,6 +45,35 @@ const openPingChat = (navigationRef: any) => {
     }, 300);
 };
 
+// The day's summary: Vorian opens in live voice and says it out loud.
+const SCREENS_NOT_TO_INTERRUPT = new Set(['Call', 'IncomingCall']);
+export const spokenSummary = (data: any): string | null =>
+    data?.type === 'ping_assistant' && data?.kind === 'daily_summary' && typeof data?.spoken === 'string' && data.spoken.trim()
+        ? data.spoken
+        : null;
+
+const openBriefing = (navigationRef: any, briefing: string) => {
+    const nav = navigationRef?.current ?? navigationRef;
+    if (!nav) return;
+    setTimeout(() => {
+        try {
+            if (SCREENS_NOT_TO_INTERRUPT.has(nav.getCurrentRoute?.()?.name)) return;
+            nav.navigate('Main', {
+                screen: 'Chats',
+                params: { screen: 'PingAI', params: { surface: publicPingSurface(), startWith: 'voice', briefing, briefingAt: Date.now() } },
+            });
+        } catch {
+            // Navigation may no longer be mounted.
+        }
+    }, 300);
+};
+
+const openPingNotice = (navigationRef: any, data: any) => {
+    const briefing = spokenSummary(data);
+    if (briefing) openBriefing(navigationRef, briefing);
+    else openPingChat(navigationRef);
+};
+
 export const usePushNotifications = (navigationRef?: any) => {
     const { user } = useAuth();
     const subscriptions = useRef<any[]>([]);
@@ -103,18 +132,22 @@ export const usePushNotifications = (navigationRef?: any) => {
                 Notifications.addNotificationReceivedListener((notification) => {
                     const data = notification.request.content.data as any;
                     if (data?.type === 'incoming_call') handleIncomingCall(data);
+                    // With the app open, the summary does not wait for a tap: Vorian starts talking.
+                    const briefing = spokenSummary(data);
+                    if (briefing) openBriefing(navigationRef, briefing);
                 }),
                 Notifications.addNotificationResponseReceivedListener((response) => {
                     const data = response.notification.request.content.data as any;
                     if (data?.type === 'incoming_call') handleIncomingCall(data);
-                    if (data?.type === 'ping_assistant') openPingChat(navigationRef);
+                    if (data?.type === 'ping_assistant') openPingNotice(navigationRef, data);
                 }),
             ];
 
             // The app was closed and opened by tapping a notice.
             const launch = await Notifications.getLastNotificationResponseAsync();
-            if (active && (launch?.notification.request.content.data as any)?.type === 'ping_assistant') {
-                openPingChat(navigationRef);
+            const launchData = launch?.notification.request.content.data as any;
+            if (active && launchData?.type === 'ping_assistant') {
+                openPingNotice(navigationRef, launchData);
             }
         };
 

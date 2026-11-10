@@ -109,8 +109,22 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         voiceEntryRef.current = false;
         setLiveVoiceVisible(true);
     }, []);
+    // The day's summary arrived: open the voice to say it, unless Vorian is already talking.
+    const [pendingBriefing, setPendingBriefing] = useState<string | undefined>(() => route.params?.briefing);
+    const briefingAt = route.params?.briefingAt;
+    const lastBriefingAtRef = useRef(briefingAt);
+    useEffect(() => {
+        if (!briefingAt || briefingAt === lastBriefingAtRef.current || !route.params?.briefing || !liveVoiceEnabled) return;
+        lastBriefingAtRef.current = briefingAt;
+        if (liveVoiceVisible) return;
+        setPendingBriefing(route.params.briefing);
+        voiceEntryRef.current = true;
+        setLiveVoiceVisible(true);
+    }, [briefingAt, route.params?.briefing, liveVoiceEnabled, liveVoiceVisible]);
     const closeLiveVoice = useCallback((reason: LiveVoiceCloseReason) => {
         setLiveVoiceVisible(false);
+        // Said once; tapping "Hablar" later starts a normal conversation.
+        setPendingBriefing(undefined);
         // A voice session can confirm actions this chat never saw.
         invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true });
         // Saying goodbye out loud ends at the chat list, wherever the voice was opened from.
@@ -641,6 +655,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
                 visible={liveVoiceVisible}
                 instant={voiceEntryRef.current}
                 conversationId={historyConversationId}
+                briefing={pendingBriefing}
                 onClose={closeLiveVoice}
             />
             <ReportSheet target={reportTarget} onClose={() => setReportTarget(null)} />
