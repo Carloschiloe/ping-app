@@ -7,6 +7,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { createRateLimitStore } from './middleware/rateLimitStore';
 import { createHash, randomUUID } from 'crypto';
 import { router } from './routes';
+import { commitmentSync } from './middleware/commitmentSync';
 import { globalErrorHandler } from './middleware/errorHandler';
 import { getEnvConfig } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
@@ -166,7 +167,7 @@ app.use('/admin', express.static(join(process.cwd(), 'public/admin'), {
 }));
 
 // Main router. Old public file addresses leave the server already signed.
-app.use('/api', legacyMediaUrls, router);
+app.use('/api', legacyMediaUrls, commitmentSync, router);
 
 // Healthcheck
 app.get('/health', (req, res) => {
