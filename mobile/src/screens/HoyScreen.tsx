@@ -287,7 +287,7 @@ export default function HoyScreen() {
             await cancelCommitment({ id });
         } catch (error: any) {
             if (error?.status === 403) {
-                Alert.alert('No puedes cancelarlo', 'Solo quien creó este compromiso puede cancelarlo.');
+                Alert.alert('No puedes cancelarlo', 'Solo quien lo creó o quien lo aceptó puede cancelarlo.');
                 return;
             }
             Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
@@ -727,7 +727,7 @@ export default function HoyScreen() {
             <RescheduleModal item={rescheduleItem} onClose={handleRescheduleClose} onSaveDate={handleSaveDate} />
             <CloseCommitmentSheet
                 item={closeItem}
-                canCancel={!!closeItem && closeItem.owner_user_id === user?.id}
+                canCancel={!!closeItem && (closeItem.owner_user_id === user?.id || closeItem.assigned_to_user_id === user?.id)}
                 isSaving={isClosing}
                 progress={review ? { index: review.index, total: review.ids.length } : null}
                 onClose={() => { setCloseItem(null); setReview(null); }}

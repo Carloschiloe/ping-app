@@ -15,6 +15,8 @@ export interface AssistantCommitment {
     assignedToUserId: string | null;
     /** Proposals only: whether the actor still has to answer it. */
     actorCanRespond?: boolean;
+    /** Other people it is with: the chat where it was made, or its contact. */
+    withPeople?: string[];
 }
 
 export interface AssistantPerson {

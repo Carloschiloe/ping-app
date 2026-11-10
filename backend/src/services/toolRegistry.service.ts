@@ -236,17 +236,15 @@ export const TOOL_REGISTRY: Record<string, ToolContract> = {
     // M-9 — cancel_commitment, the seventh WRITE tool. Reuses the SAME
     // canonical writer mobile's own "Cancelar" menu action already calls
     // (commitment.service.ts#cancelCommitment -> apply_commitment_transition
-    // _with_evidence), never a parallel write path. `commitment_owner` (not
-    // `commitment_owner_or_assignee`) is deliberate: cancel is verified
-    // owner-only at the canonical RPC level
-    // (commitmentTransitions.ts#computeCancel, "Only the owner can cancel
-    // this commitment") -- an assignee who could reschedule/complete cannot
-    // cancel, and this contract must say so accurately.
+    // _with_evidence), never a parallel write path. Since 2026-11-10 the
+    // owner decided that the person who accepted a commitment may cancel it
+    // too (commitmentTransitions.ts#computeCancel), so this contract is
+    // owner-or-assignee like resolve/reschedule.
     cancel_commitment: {
         toolId: 'cancel_commitment', version: 1, category: 'WRITE', domain: 'commitment',
-        description: 'Cancels an existing, already-canonical commitment. Owner-only — an assignee cannot cancel someone else\'s commitment, only the owner who created it.',
+        description: 'Cancels an existing, already-canonical commitment. The person who created it or the person it was given to can cancel it.',
         argumentNames: ['commitmentId'], sideEffectClass: 'state_change',
-        authorizationRequirement: 'commitment_owner', confirmationPolicy: 'explicit',
+        authorizationRequirement: 'commitment_owner_or_assignee', confirmationPolicy: 'explicit',
         supportsDryRun: true, availability: 'available_now', requiredContext: ['actorUserId'],
         auditCategory: 'write.commitment', failureModes: ['not_authorized', 'invalid_lifecycle', 'entity_not_found'],
     },

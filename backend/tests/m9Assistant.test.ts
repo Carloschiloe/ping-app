@@ -122,7 +122,7 @@ describe('M9 assistant tools — safety contract', () => {
         expect(chat.world.executed).toHaveLength(0);
     });
 
-    it('refuses refs it never showed and changes the user does not own', async () => {
+    it('refuses refs it never showed, and lets the person a commitment was given to cancel it', async () => {
         const chat = new Conversation();
         const output = await chat.say('cancela todo', [
             [['propose_cancel', { ref: 'c99' }]],
@@ -131,12 +131,14 @@ describe('M9 assistant tools — safety contract', () => {
                 const listed = JSON.parse((messages[messages.length - 1] as { content: string }).content);
                 return [['propose_cancel', { ref: listed.items[0].ref }]];
             },
-            'No puedo cancelar eso.',
+            '¿Confirmas que lo cancelo?',
         ]);
-        const [unknown, , notOwner] = toolResults(output);
+        const [unknown, , givenToMe] = toolResults(output);
         expect(unknown).toMatchObject({ error: 'unknown_ref' });
-        expect(notOwner.error).toBeTruthy();
-        expect(chat.world.pending.size).toBe(0);
+        // Pedro asked for the report and the user accepted it: since
+        // 2026-11-10 the person it was given to may cancel it too.
+        expect(givenToMe.error).toBeUndefined();
+        expect(chat.world.pending.size).toBe(1);
     });
 
     it('rejects a new commitment in the past', async () => {

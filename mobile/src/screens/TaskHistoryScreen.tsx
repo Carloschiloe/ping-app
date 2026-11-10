@@ -100,7 +100,7 @@ export default function TaskHistoryScreen() {
             await cancelCommitment({ id });
         } catch (error: any) {
             if (error?.status === 403) {
-                Alert.alert('No puedes cancelarlo', 'Solo quien creó este compromiso puede cancelarlo.');
+                Alert.alert('No puedes cancelarlo', 'Solo quien lo creó o quien lo aceptó puede cancelarlo.');
                 return;
             }
             Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
@@ -312,7 +312,7 @@ export default function TaskHistoryScreen() {
             />
             <CloseCommitmentSheet
                 item={closeItem}
-                canCancel={!!closeItem && closeItem.owner_user_id === user?.id}
+                canCancel={!!closeItem && (closeItem.owner_user_id === user?.id || closeItem.assigned_to_user_id === user?.id)}
                 isSaving={isClosing}
                 onClose={() => setCloseItem(null)}
                 onSubmit={handleCloseSubmit}

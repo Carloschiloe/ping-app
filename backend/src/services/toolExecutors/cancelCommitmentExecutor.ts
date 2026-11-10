@@ -24,7 +24,7 @@ export const cancelCommitmentExecutor: ToolExecutor = {
 
         const { data: current, error } = await supabaseAdmin
             .from('commitments')
-            .select('id, owner_user_id, status, archived_at')
+            .select('id, owner_user_id, assigned_to_user_id, status, archived_at')
             .eq('id', commitmentId)
             .maybeSingle();
         if (error) throw new AppError(error.message, 500);
@@ -37,7 +37,7 @@ export const cancelCommitmentExecutor: ToolExecutor = {
         // TOCTOU re-check discipline every sibling executor already applies
         // for its own authorization property (ownership could change
         // between plan and execute).
-        if (current.owner_user_id !== context.actorUserId) {
+        if (current.owner_user_id !== context.actorUserId && current.assigned_to_user_id !== context.actorUserId) {
             return { status: 'failed_terminal', failureCode: 'not_authorized', verified: false };
         }
 

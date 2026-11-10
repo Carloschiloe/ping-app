@@ -148,9 +148,9 @@ export function CommitmentRow({
     // owner_user_id para el cliente): mismo campo que ya usa isOwner en
     // GroupTaskCard.tsx, nunca un campo nuevo/paralelo.
     const isProposer = isProposal && c.owner_user_id === currentUserId;
-    // Only the person who created the commitment may cancel it (the server
+    // Only the creator or the person it was given to may cancel it (the server
     // answers 403 to anyone else), so the option is shown to them alone.
-    const onCancel = currentUserId && c.owner_user_id === currentUserId ? onCancelProp : undefined;
+    const onCancel = currentUserId && (c.owner_user_id === currentUserId || c.assigned_to_user_id === currentUserId) ? onCancelProp : undefined;
     // ROOT-CAUSE FIX (hallazgo físico real, "Entrenar" no mostraba "Retirar
     // propuesta"): mobile NUNCA recibe el status crudo de
     // commitment_proposals ('pending') -- toAgreementView

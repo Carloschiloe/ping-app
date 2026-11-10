@@ -81,8 +81,8 @@ export function CommitmentDetailSheet({
     const waiting = getWaitingLabel(item, currentUserId, contacts);
 
     const isFinished = ['resolved', 'cancelled', 'rejected'].includes(status);
-    // Only the creator may cancel (the server rejects anyone else).
-    const onCancel = currentUserId && item.owner_user_id === currentUserId ? onCancelProp : undefined;
+    // Only the creator or the person it was given to may cancel it.
+    const onCancel = currentUserId && (item.owner_user_id === currentUserId || item.assigned_to_user_id === currentUserId) ? onCancelProp : undefined;
     // PING — ARCHIVE LIFECYCLE COMPLETION: archive is a VISIBILITY state,
     // orthogonal to isFinished -- an active, resolved, or cancelled
     // commitment can all be archived. While archived, this footer offers

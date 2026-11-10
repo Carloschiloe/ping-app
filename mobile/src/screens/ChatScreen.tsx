@@ -841,6 +841,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
             />
             <CommitmentsStrip
                 items={groupTasks}
+                userId={user?.id}
                 onPress={() => navigation.navigate('TaskHistory', taskHistoryParams)}
             />
             <KeyboardAvoidingView
