@@ -20,5 +20,8 @@ export function getChatKeyboardBehavior(platform: string): ChatKeyboardBehavior 
 export function getChatKeyboardOffset(platform: string, bottomInset: number): number {
     if (platform === 'ios') return 90;
 
-    return Math.max(20, bottomInset + 12);
+    // The keyboard already covers the navigation bar, so only a small
+    // margin is kept; adding the bottom inset here left a big empty gap.
+    void bottomInset;
+    return 8;
 }

@@ -98,7 +98,11 @@ export default function TaskHistoryScreen() {
         if (!ok) return;
         try {
             await cancelCommitment({ id });
-        } catch {
+        } catch (error: any) {
+            if (error?.status === 403) {
+                Alert.alert('No puedes cancelarlo', 'Solo quien creó este compromiso puede cancelarlo.');
+                return;
+            }
             Alert.alert('No se pudo cancelar el compromiso', 'Intenta nuevamente.');
         }
     };

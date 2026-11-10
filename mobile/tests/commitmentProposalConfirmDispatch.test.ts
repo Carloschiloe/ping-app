@@ -805,7 +805,7 @@ describe('PING — RESTORE PHYSICAL FAILURE: handleRestore/handleArchive/handleC
         const src = readSrc('src/screens/HoyScreen.tsx');
         const handleCancelBlock = src.slice(src.indexOf('const handleCancel = useCallback'), src.indexOf('const handleArchive = useCallback'));
         expect(handleCancelBlock).toMatch(/async \(id: string\) => \{/);
-        expect(handleCancelBlock).toMatch(/try \{\s*await cancelCommitment\(\{ id \}\);\s*\} catch \{/);
+        expect(handleCancelBlock).toMatch(/try \{\s*await cancelCommitment\(\{ id \}\);\s*\} catch \(error: any\) \{/);
         expect(handleCancelBlock).toMatch(/Alert\.alert\('No se pudo cancelar el compromiso', 'Intenta nuevamente\.'\);/);
     });
 
