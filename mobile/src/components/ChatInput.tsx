@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TextInput, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, Platform, Text } from 'react-native';
+import { View, TextInput, TouchableOpacity, ActivityIndicator, Pressable, StyleSheet, Platform, Text, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Reanimated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
@@ -94,7 +94,20 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
     const insets = useSafeAreaInsets();
     const [showActions, setShowActions] = React.useState(false);
     const inputRef = React.useRef<TextInput>(null);
-    const bottomPadding = Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16);
+    // While the keyboard is open it already covers the phone's navigation
+    // bar, so keeping that space under the composer only left an empty gap
+    // between the composer and the keyboard.
+    const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+    React.useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+        const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
+        const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
+        return () => { show.remove(); hide.remove(); };
+    }, []);
+    const bottomPadding = keyboardOpen
+        ? space.sm
+        : Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 16);
 
     React.useImperativeHandle(ref, () => ({
         isComposerFocused: () => inputRef.current?.isFocused() ?? false,
@@ -113,6 +126,39 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
         { icon: 'location-outline', label: 'Ubicación', run: onShareLocation },
         { icon: 'calendar-outline', label: 'Compromiso', run: onCreateCommitment },
     ];
+    // The mic works both ways: hold and release to send a quick note, or a
+    // short tap to start and another tap to finish. A plain tap used to
+    // start and stop in the same instant, so nothing was ever recorded.
+    const [tapMode, setTapMode] = React.useState(false);
+    const pressStartedAtRef = React.useRef(0);
+    const stopOnThisPressRef = React.useRef(false);
+    const handleMicPressIn = () => {
+        if (isRecording) {
+            stopOnThisPressRef.current = true;
+            setTapMode(false);
+            onStopRecording();
+            return;
+        }
+        stopOnThisPressRef.current = false;
+        pressStartedAtRef.current = Date.now();
+        onStartRecording();
+    };
+    const handleMicPressOut = () => {
+        if (stopOnThisPressRef.current) {
+            stopOnThisPressRef.current = false;
+            return;
+        }
+        if (Date.now() - pressStartedAtRef.current < TAP_TO_RECORD_MS) {
+            setTapMode(true);
+            return;
+        }
+        setTapMode(false);
+        onStopRecording();
+    };
+    React.useEffect(() => {
+        if (!isRecording) setTapMode(false);
+    }, [isRecording]);
+
     const toggleActions = () => {
         if (!showActions) onOpenAttachments();
         setShowActions((prev) => !prev);
@@ -185,7 +231,7 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
                             <View style={styles.recordingDot} />
                             <View style={styles.recordingCopy}>
                                 <Text style={styles.recordingTitle}>Grabando audio</Text>
-                                <Text style={styles.recordingHint}>Suelta para terminar</Text>
+                                <Text style={styles.recordingHint}>{tapMode ? 'Toca el micrófono para terminar' : 'Suelta para terminar'}</Text>
                             </View>
                             <Text style={styles.recordingTime}>
                                 {formatRecordingDuration(recordingDurationMs)}
@@ -227,9 +273,9 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
                 ) : (
                     <Pressable
                         style={styles.sendBtn}
-                        onPressIn={onStartRecording}
-                        onPressOut={onStopRecording}
-                        accessibilityLabel="Mantén para grabar audio"
+                        onPressIn={handleMicPressIn}
+                        onPressOut={handleMicPressOut}
+                        accessibilityLabel={isRecording ? 'Terminar audio' : 'Grabar audio'}
                     >
                         {!isRecording && <Breath />}
                         <AccentCircle danger={isRecording}>
@@ -244,6 +290,9 @@ export const ChatInput = React.forwardRef<ChatInputHandle, ChatInputProps>(({
 ChatInput.displayName = 'ChatInput';
 
 const FIELD_HEIGHT = 46;
+// A press shorter than this counts as a tap: recording keeps going until
+// the mic is tapped again.
+const TAP_TO_RECORD_MS = 450;
 
 const styles = StyleSheet.create({
     container: { paddingHorizontal: space.sm + 2, paddingTop: space.xs },

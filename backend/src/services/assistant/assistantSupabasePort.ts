@@ -70,17 +70,61 @@ export class SupabaseAssistantDataPort implements AssistantDataPort {
             timeRange: query.from || query.to ? { from: query.from, to: query.to } : undefined,
             orderByDueAtFirst: !query.text,
         }, query.limit);
-        return rows.map(toAssistantCommitment);
+        return this.withPeople(rows);
     }
 
     async getCommitment(id: string): Promise<AssistantCommitment | null> {
         const row = await retrieveVisibleCommitmentById(this.actorUserId, id);
-        return row ? toAssistantCommitment(row) : null;
+        return row ? (await this.withPeople([row]))[0] : null;
+    }
+
+    // Who else a commitment is with: the other people in the chat where it
+    // was made, or the contact it names. Without this a lunch sent in the
+    // chat with Alejandra looked like the user's alone, and Ping could not
+    // say who it was with.
+    private async withPeople(rows: RetrievalCommitment[]): Promise<AssistantCommitment[]> {
+        const items = rows.map(toAssistantCommitment);
+        const conversationIds = [...new Set(rows.map((row) => row.conversationId).filter((id): id is string => !!id))];
+        const contactIds = [...new Set(rows.map((row) => row.counterpartyContactId).filter((id): id is string => !!id))];
+        const peopleByConversation: Record<string, string[]> = {};
+        const contactNames: Record<string, string> = {};
+        try {
+            if (conversationIds.length) {
+                const { data } = await supabaseAdmin
+                    .from('conversation_participants')
+                    .select('conversation_id, user_id')
+                    .in('conversation_id', conversationIds);
+                const members = (data ?? []).filter((row: any) => row.user_id && row.user_id !== this.actorUserId);
+                const names = await this.personNames(members.map((row: any) => row.user_id));
+                for (const row of members as any[]) {
+                    const list = (peopleByConversation[row.conversation_id] ??= []);
+                    if (list.length < 4 && names[row.user_id]) list.push(names[row.user_id]);
+                }
+            }
+            if (contactIds.length) {
+                const { data } = await supabaseAdmin
+                    .from('contacts')
+                    .select('id, display_name')
+                    .eq('owner_user_id', this.actorUserId)
+                    .in('id', contactIds);
+                for (const row of (data ?? []) as any[]) if (row.display_name) contactNames[row.id] = row.display_name;
+            }
+        } catch {
+            // Names are a nicety: the list still works without them.
+        }
+        return items.map((item, index) => {
+            const row = rows[index];
+            const people = [
+                ...(row.conversationId ? peopleByConversation[row.conversationId] ?? [] : []),
+                ...(row.counterpartyContactId && contactNames[row.counterpartyContactId] ? [contactNames[row.counterpartyContactId]] : []),
+            ];
+            return people.length ? { ...item, withPeople: [...new Set(people)] } : item;
+        });
     }
 
     async listProposals(): Promise<AssistantCommitment[]> {
         const rows = await retrieveCommitmentProposals({ actorUserId: this.actorUserId, now: this.now().toISOString() }, 40);
-        return rows.map(toAssistantCommitment);
+        return this.withPeople(rows);
     }
 
     async findPeople(name: string): Promise<AssistantPerson[]> {

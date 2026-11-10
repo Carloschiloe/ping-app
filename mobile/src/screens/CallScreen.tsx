@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
     StyleSheet, View, Text, TouchableOpacity,
-    ActivityIndicator, Alert,
+    ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -11,7 +11,7 @@ import { fonts } from '../design/typography';
 import * as Haptics from 'expo-haptics';
 // SDK 57 hotfix: expo-av retirado de Expo Go -- sólo se usaba aquí para el
 // permiso de micrófono, migrado a expo-audio.
-import { requestRecordingPermissionsAsync } from 'expo-audio';
+import { requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
 import { Camera } from 'expo-camera';
 import { apiClient, API_URL } from '../api/client';
 import { supabase } from '../lib/supabase';
@@ -21,6 +21,10 @@ import {
     getAllowedCallPermissionResources,
     parseCallBridgeMessage,
 } from '../utils/callBridge';
+
+// Switching between earpiece and speaker is done through the phone's audio
+// settings, which the app can only change on Android.
+const canSwitchSpeaker = Platform.OS === 'android';
 
 const CallScreen = ({ route, navigation }: any) => {
     const { conversationId, isIncoming = false } = route.params;
@@ -34,6 +38,10 @@ const CallScreen = ({ route, navigation }: any) => {
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(!isVideo);
     const [connectionLabel, setConnectionLabel] = useState('Conectando...');
+    // Voice calls start on the earpiece, like a normal phone call; video
+    // calls start on the speaker. The person can switch at any time.
+    const [isSpeaker, setIsSpeaker] = useState(isVideo);
+    const [audioRouteTick, setAudioRouteTick] = useState(0);
     const webviewRef = useRef<any>(null);
     const channelRef = useRef<any>(null);
     const isHangingUp = useRef(false);
@@ -119,6 +127,28 @@ const CallScreen = ({ route, navigation }: any) => {
         };
     }, [fetchToken, setupCallChannel]);
 
+    // The call audio plays inside a web view, and Android sends it to the
+    // speaker unless told otherwise. Apply the chosen route, again once the
+    // call connects (joining the call can reset it), and restore the normal
+    // route when the call screen closes.
+    useEffect(() => {
+        if (!canSwitchSpeaker) return;
+        void setAudioModeAsync({
+            playsInSilentMode: true,
+            allowsRecording: true,
+            shouldRouteThroughEarpiece: !isSpeaker,
+        }).catch(() => undefined);
+    }, [isSpeaker, audioRouteTick]);
+
+    useEffect(() => () => {
+        if (!canSwitchSpeaker) return;
+        void setAudioModeAsync({
+            playsInSilentMode: true,
+            allowsRecording: false,
+            shouldRouteThroughEarpiece: false,
+        }).catch(() => undefined);
+    }, []);
+
     const toggleMute = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         const newState = !isMuted;
@@ -131,6 +161,11 @@ const CallScreen = ({ route, navigation }: any) => {
         const newState = !isVideoOff;
         setIsVideoOff(newState);
         webviewRef.current?.injectJavaScript(`window.toggleVideo(${newState}); true;`);
+    };
+
+    const toggleSpeaker = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setIsSpeaker((prev: boolean) => !prev);
     };
 
     const switchCamera = () => {
@@ -239,6 +274,7 @@ const CallScreen = ({ route, navigation }: any) => {
                         setConnectionLabel('Llamada aceptada · conectando audio...');
                     } else if (message.status === 'connected') {
                         setConnectionLabel('Conectada');
+                        setAudioRouteTick((n) => n + 1);
                     } else if (message.status === 'error') {
                         setConnectionLabel('No se pudo conectar');
                     }
@@ -271,6 +307,19 @@ const CallScreen = ({ route, navigation }: any) => {
                             </TouchableOpacity>
                             <Text style={styles.controlLabel}>{isMuted ? 'Silenciado' : 'Micrófono'}</Text>
                         </View>
+
+                        {canSwitchSpeaker && (
+                            <View style={styles.controlCol}>
+                                <TouchableOpacity
+                                    style={[styles.controlBtn, isSpeaker && styles.controlBtnActive]}
+                                    onPress={toggleSpeaker}
+                                    accessibilityLabel={isSpeaker ? 'Usar el auricular' : 'Usar el altavoz'}
+                                >
+                                    <Ionicons name={isSpeaker ? 'volume-high' : 'ear'} size={24} color={colors.text} />
+                                </TouchableOpacity>
+                                <Text style={styles.controlLabel}>{isSpeaker ? 'Altavoz' : 'Auricular'}</Text>
+                            </View>
+                        )}
 
                         <View style={styles.controlCol}>
                             <TouchableOpacity style={[styles.controlBtn, styles.hangupBtn]} onPress={hangup}>

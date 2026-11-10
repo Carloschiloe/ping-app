@@ -53,11 +53,11 @@ describe('Closing a commitment says how it went', () => {
         expect(options.every((o) => o.date.getHours() === 10 && o.date.getMinutes() === 0)).toBe(true);
     });
 
-    it('only the owner is offered "No se hizo", since only the owner can call it off', () => {
+    it('the creator and the person it was given to are offered "No se hizo", since both can call it off', () => {
         const sheet = read('components/compromisos/CloseCommitmentSheet.tsx');
         expect(sheet).toContain("o.outcome !== 'not_done' || canCancel");
-        expect(read('screens/HoyScreen.tsx')).toContain('canCancel={!!closeItem && closeItem.owner_user_id === user?.id}');
-        expect(read('components/GroupTaskCard.tsx')).toContain('canCancel={isOwner}');
+        expect(read('screens/HoyScreen.tsx')).toContain('canCancel={!!closeItem && (closeItem.owner_user_id === user?.id || closeItem.assigned_to_user_id === user?.id)}');
+        expect(read('components/GroupTaskCard.tsx')).toContain('canCancel={isOwner || isAssignee}');
     });
 
     it('the overdue notice walks through each overdue item, and every close can be undone', () => {

@@ -182,9 +182,14 @@ describe('computeCommitmentTransition: resolve', () => {
 });
 
 describe('computeCommitmentTransition: cancel', () => {
-    it('solo el owner puede cancelar: el asignado recibe 403', () => {
-        expect(() => computeCommitmentTransition({ action: 'cancel', actorUserId: ASSIGNEE, commitment: snapshot(), now: NOW }))
-            .toThrow('Only the owner can cancel');
+    it('el asignado que aceptó también puede cancelar', () => {
+        const result = computeCommitmentTransition({ action: 'cancel', actorUserId: ASSIGNEE, commitment: snapshot(), now: NOW });
+        expect(result.patch.status).toBe('cancelled');
+    });
+
+    it('un tercero ajeno no puede cancelar: recibe 403', () => {
+        expect(() => computeCommitmentTransition({ action: 'cancel', actorUserId: 'stranger-user', commitment: snapshot(), now: NOW }))
+            .toThrow('Only the owner or the assigned user can cancel');
     });
 
     it('el owner cancela correctamente', () => {

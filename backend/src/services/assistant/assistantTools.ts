@@ -110,10 +110,16 @@ function statusLabel(item: AssistantCommitment, now: Date): string {
     return 'pendiente';
 }
 
+function joinNames(names: string[]): string {
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}` : names[0];
+}
+
 function relationLabel(item: AssistantCommitment, actorUserId: string, names: Record<string, string>): string {
     const owner = item.ownerUserId;
     const assignee = item.assignedToUserId ?? owner;
-    if (owner === actorUserId && assignee === actorUserId) return 'tuyo';
+    if (owner === actorUserId && assignee === actorUserId) {
+        return item.withPeople?.length ? `tuyo, con ${joinNames(item.withPeople)}` : 'tuyo';
+    }
     if (assignee === actorUserId) return `te lo pidió ${names[owner] ?? 'otra persona'}`;
     if (owner === actorUserId) return `se lo pediste a ${names[assignee] ?? 'otra persona'}`;
     return `entre ${names[owner] ?? 'otra persona'} y ${names[assignee] ?? 'otra persona'}`;
@@ -137,6 +143,7 @@ async function projectCommitments(items: AssistantCommitment[], ctx: AssistantTo
             when: item.dueAt ? formatLocal(item.dueAt, ctx.timezone) : 'sin fecha',
             status: statusLabel(item, ctx.now),
             relation: relationLabel(item, ctx.actorUserId, names),
+            ...(item.withPeople?.length ? { with: item.withPeople } : {}),
         };
     });
 }
@@ -352,7 +359,7 @@ const handlers: Record<string, ToolHandler> = {
         const item = await resolveCommitment(args.ref, ctx);
         if (isError(item)) return item;
         const commitment = item as AssistantCommitment;
-        if (commitment.ownerUserId !== ctx.actorUserId) return { error: 'not_allowed', detail: 'Only the person who created it can cancel it.' };
+        if (commitment.ownerUserId !== ctx.actorUserId && commitment.assignedToUserId !== ctx.actorUserId) return { error: 'not_allowed', detail: 'Only the person who created it or the person it was given to can cancel it.' };
         if (!isOpenCommitmentStatus(commitment.status)) return { error: 'not_open', detail: 'It is already finished or cancelled.' };
         return propose(ctx, 'propose_cancel', 'cancel_commitment', 'cancel_existing_commitment',
             { commitmentId: commitment.id },

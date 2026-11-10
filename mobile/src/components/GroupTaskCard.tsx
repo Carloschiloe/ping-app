@@ -87,6 +87,9 @@ export default function GroupTaskCard({
     const isEveryone = !commitment.assigned_to_user_id;
     // You are an assignee if it's assigned to you specifically, or if it's for everyone and you're not the owner
     const isAssignee = (!!assignedId && currentUserId === assignedId) || (isEveryone && !isOwner);
+    // The person it was given to by name (not "for everyone"): like the
+    // creator, they may cancel it once accepted.
+    const isExplicitAssignee = !!assignedId && currentUserId === assignedId;
     const isAgreementProposal = commitment._isAgreementProposal === true;
     const agreementResponses: AgreementResponse[] = Array.isArray(commitment.agreement_responses)
         ? commitment.agreement_responses
@@ -226,21 +229,20 @@ export default function GroupTaskCard({
             );
             return;
         }
-        Alert.prompt(
-            `Rechazar ${typeLabel}`,
-            'Indica el motivo del rechazo:',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Rechazar',
-                    style: 'destructive',
-                    onPress: (reason?: string) => {
-                        if (!reason) return Alert.alert('Error', 'Debes indicar un motivo');
-                        reject({ id: commitment.id, reason });
-                    }
-                }
-            ]
-        );
+        // Alert.prompt only exists on iOS, so on Android this did nothing.
+        // The reason is optional for the server; a plain confirmation works
+        // on both phones.
+        void confirmAction({
+            title: `Rechazar ${typeLabel}`,
+            message: `${requesterName === 'Tú' ? 'Se' : requesterName} verá que lo rechazaste.`,
+            confirmLabel: 'Rechazar',
+        }).then((ok) => {
+            if (!ok) return;
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            reject({ id: commitment.id, reason: '' }, {
+                onError: () => Alert.alert('No se pudo rechazar', 'La respuesta no fue guardada. Inténtalo nuevamente.'),
+            });
+        });
     };
 
     const handlePostpone = () => {
@@ -404,6 +406,14 @@ export default function GroupTaskCard({
         }
     };
     const canOpenMenu = !hideActions && !isCompactOperationCard && (!isFinished || (isReopenable && (isOwner || isAssignee)));
+    // When it is waiting on this person's answer, the answers sit on the
+    // card itself instead of hiding behind the three dots.
+    const canAnswerHere = !hideActions && !isCompactOperationCard && !isFinished
+        && ((isAgreementProposal && canRespondToAgreement) || (!isAgreementProposal && isExplicitAssignee && (isProposed || isCounter)));
+    const canSuggestOtherDate = canAnswerHere && isAgreementProposal;
+    const proposerLine = canAnswerHere && requesterName !== 'Tú' && requesterName !== 'Alguien'
+        ? `${requesterName} te propone ${isMeeting ? 'una reunión' : 'esto'}`
+        : canAnswerHere ? 'Espera tu respuesta' : null;
 
     return (
         <TouchableOpacity
@@ -416,8 +426,15 @@ export default function GroupTaskCard({
             { backgroundColor: colors.bubbleThem, borderColor: colors.separator },
             isTimelineNode && styles.timelineCard,
             (isFinished || isPast) && styles.cardFinished,
+            canAnswerHere && styles.cardAwaiting,
         ]}
         >
+            {!!proposerLine && (
+                <View style={styles.proposerRow}>
+                    <Ionicons name="person-circle-outline" size={15} color={colors.accentBright} />
+                    <Text style={styles.proposerText} numberOfLines={1}>{proposerLine}</Text>
+                </View>
+            )}
             {canSetDate ? (
                 <TouchableOpacity
                     onPress={() => setShowDatePicker(true)}
@@ -494,6 +511,43 @@ export default function GroupTaskCard({
                 </TouchableOpacity>
             )}
 
+            {canAnswerHere && (
+                <View style={styles.answerRow}>
+                    <TouchableOpacity
+                        style={[styles.answerBtn, styles.answerBtnPrimary]}
+                        onPress={handleAccept}
+                        disabled={isRespondingToProposal}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Aceptar ${commitment.title}`}
+                    >
+                        <Ionicons name="checkmark" size={16} color={colors.onAccent} />
+                        <Text style={[styles.answerText, { color: colors.onAccent }]}>Aceptar</Text>
+                    </TouchableOpacity>
+                    {canSuggestOtherDate && (
+                        <TouchableOpacity
+                            style={styles.answerBtn}
+                            onPress={handlePostpone}
+                            disabled={isRespondingToProposal}
+                            accessibilityRole="button"
+                            accessibilityLabel="Proponer otra fecha"
+                        >
+                            <Ionicons name="time-outline" size={16} color={colors.accentBright} />
+                            <Text style={styles.answerText}>Otra fecha</Text>
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                        style={styles.answerBtn}
+                        onPress={handleReject}
+                        disabled={isRespondingToProposal}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Rechazar ${commitment.title}`}
+                    >
+                        <Ionicons name="close" size={16} color={colors.textSoft} />
+                        <Text style={[styles.answerText, { color: colors.textSoft }]}>Rechazar</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
             {/* Actions Modal */}
             {!hideActions && (
                 <Modal
@@ -530,7 +584,7 @@ export default function GroupTaskCard({
                             </TouchableOpacity>
                         )}
 
-                        {!isAgreementProposal && isOwner && !isDone && !isRejected && !isCancelled && (
+                        {!isAgreementProposal && (isOwner || isExplicitAssignee) && !isDone && !isRejected && !isCancelled && (
                             <TouchableOpacity
                                 style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.separator }]}
                                 onPress={() => { setShowActions(false); handleCancel(); }}
@@ -634,7 +688,7 @@ export default function GroupTaskCard({
 
             <CloseCommitmentSheet
                 item={showClose ? commitment : null}
-                canCancel={isOwner}
+                canCancel={isOwner || isAssignee}
                 inModal
                 isSaving={isClosing}
                 onClose={() => setShowClose(false)}
@@ -855,6 +909,26 @@ const styles = StyleSheet.create({
         borderWidth: StyleSheet.hairlineWidth,
     },
     cardFinished: { opacity: 0.55 },
+    // Waiting on this person: blue edge, and the card wraps so the
+    // "who proposes" line and the answer buttons take full rows.
+    cardAwaiting: { flexWrap: 'wrap', borderColor: colors.accent, borderWidth: 1.5 },
+    proposerRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
+    proposerText: { flex: 1, fontFamily: fonts.semibold, fontSize: 12.5, color: colors.accentBright },
+    answerRow: { width: '100%', flexDirection: 'row', gap: 8, marginTop: 6 },
+    answerBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        paddingVertical: 8,
+        borderRadius: 10,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    answerBtnPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+    answerText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.accentBright },
     detailDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: colors.accentTint },
     dayBadge: { width: 52, borderRadius: 8, paddingVertical: 4, alignItems: 'center' },
     dayBadgeDay: { fontSize: 12, fontFamily: fonts.extrabold, textTransform: 'capitalize' },

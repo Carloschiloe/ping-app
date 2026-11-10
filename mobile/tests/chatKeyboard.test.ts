@@ -19,8 +19,8 @@ describe('chat keyboard layout', () => {
     // keyboard. A positive offset is what actually reserves extra space
     // above the keyboard for Android's edge-to-edge navigation area.
     it('raises the Android composer above edge-to-edge navigation controls with a POSITIVE offset (negative would shrink, not grow, the avoided height)', () => {
-        expect(getChatKeyboardOffset('android', 24)).toBe(36);
-        expect(getChatKeyboardOffset('android', 0)).toBe(20);
+        expect(getChatKeyboardOffset('android', 24)).toBe(8);
+        expect(getChatKeyboardOffset('android', 0)).toBe(8);
         expect(getChatKeyboardOffset('android', 24)).toBeGreaterThan(0);
     });
 

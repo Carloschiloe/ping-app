@@ -101,7 +101,7 @@ export const COMMITMENT_TRANSITION_TABLE: Record<CommitmentTransitionAction, {
     cancel: {
         validFromStatuses: ['proposed', 'accepted', 'counter_proposal'],
         eventType: 'cancelled',
-        description: 'Solo el owner puede cancelar el compromiso.',
+        description: 'Quien lo creó o la persona a quien se le asignó puede cancelarlo.',
     },
     reopen: {
         validFromStatuses: ['rejected', 'resolved', 'cancelled'],
@@ -306,8 +306,8 @@ function computeCancel(input: CommitmentTransitionInput): CommitmentTransitionRe
     const { commitment, actorUserId } = input;
     assertValidFromStatus('cancel', commitment);
 
-    if (actorRole(commitment, actorUserId) !== 'owner') {
-        throw new AppError('Only the owner can cancel this commitment', 403);
+    if (!actorRole(commitment, actorUserId)) {
+        throw new AppError('Only the owner or the assigned user can cancel this commitment', 403);
     }
 
     const reason = input.reason?.trim() || null;
