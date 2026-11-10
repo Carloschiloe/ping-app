@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -17,6 +16,7 @@ import { useCalendarAccounts } from '../api/queries';
 import { CalendarsSheet } from '../components/perfil/CalendarsSheet';
 import { FocusModeSheet } from '../components/perfil/FocusModeSheet';
 import { MemorySheet } from '../components/perfil/MemorySheet';
+import { SummaryTimeSheet } from '../components/perfil/SummaryTimeSheet';
 import { FeedbackSheet } from '../components/perfil/FeedbackSheet';
 import { BlockedPeopleSheet } from '../components/perfil/BlockedPeopleSheet';
 import { DeleteAccountSheet } from '../components/perfil/DeleteAccountSheet';
@@ -193,10 +193,8 @@ export default function SettingsScreen() {
         }
     };
 
-    const handleSelectSummaryTime = (date: Date) => {
+    const handleSelectSummaryTime = (hour: number, minute: number) => {
         setSummaryPickerOpen(false);
-        const hour = date.getHours();
-        const minute = date.getMinutes();
         const before = { hour: summaryHour, minute: summaryMinute };
         setSummaryHour(hour);
         setSummaryMinute(minute);
@@ -299,7 +297,7 @@ export default function SettingsScreen() {
                             </TouchableOpacity>
                         </View>
                         <Text style={kit.rowSubtitle}>Días</Text>
-                        <View style={styles.hourChips}>
+                        <View style={styles.dayRow}>
                             {WEEK.map(({ day, short, name }) => {
                                 const selected = summaryDays.includes(day);
                                 return (
@@ -308,7 +306,7 @@ export default function SettingsScreen() {
                                         onPress={() => handleToggleSummaryDay(day)}
                                         accessibilityLabel={`Resumen el ${name}`}
                                         accessibilityState={{ selected }}
-                                        style={[styles.hourChip, selected && styles.hourChipActive]}
+                                        style={[styles.dayChip, selected && styles.hourChipActive]}
                                     >
                                         {selected && <LinearGradient colors={gradients.accent} style={StyleSheet.absoluteFill} />}
                                         <Text style={[styles.hourChipText, selected && styles.hourChipTextActive]}>{short}</Text>
@@ -317,16 +315,13 @@ export default function SettingsScreen() {
                             })}
                         </View>
                         <Text style={styles.daysHint}>{describeDays(summaryDays)}</Text>
-                        {summaryPickerOpen && (
-                            <DateTimePicker
-                                value={timeAt(summaryHour, summaryMinute)}
-                                mode="time"
-                                is24Hour
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onValueChange={(_, date) => handleSelectSummaryTime(date)}
-                                onDismiss={() => setSummaryPickerOpen(false)}
-                            />
-                        )}
+                        <SummaryTimeSheet
+                            visible={summaryPickerOpen}
+                            hour={summaryHour}
+                            minute={summaryMinute}
+                            onClose={() => setSummaryPickerOpen(false)}
+                            onSave={handleSelectSummaryTime}
+                        />
                     </View>
                 )}
                 <Row icon="alarm-outline" title="Avisar si algo se me pasa" divider>
@@ -414,12 +409,6 @@ const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6];
 
 const clock = (hour: number, minute: number) => `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 
-function timeAt(hour: number, minute: number): Date {
-    const date = new Date();
-    date.setHours(hour, minute, 0, 0);
-    return date;
-}
-
 /** Says in words which days were chosen. */
 export function describeDays(days: number[]): string {
     const set = new Set(days);
@@ -438,19 +427,21 @@ const styles = StyleSheet.create({
     back: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderTopColor: colors.glassEdge },
 
     hourRow: { flexDirection: 'column', alignItems: 'flex-start', gap: space.sm, paddingTop: 0, paddingLeft: ICON_INSET },
-    hourChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-    hourChip: {
-        minWidth: 34,
-        height: 34,
-        borderRadius: 17,
+    hourChipActive: { backgroundColor: colors.accent },
+    hourChipText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft },
+    hourChipTextActive: { color: colors.onAccent },
+    // The seven days always fit in one line.
+    dayRow: { flexDirection: 'row', gap: 6, alignSelf: 'stretch', paddingRight: space.lg },
+    dayChip: {
+        flex: 1,
+        maxWidth: 40,
+        aspectRatio: 1,
+        borderRadius: 20,
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
         backgroundColor: colors.glassRaised,
     },
-    hourChipActive: { backgroundColor: colors.accent },
-    hourChipText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft },
-    hourChipTextActive: { color: colors.onAccent },
     timeLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', alignSelf: 'stretch', paddingRight: space.lg },
     timePill: {
         flexDirection: 'row',

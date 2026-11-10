@@ -21,7 +21,7 @@ describe('M10 — Ping notices', () => {
         // Any time and minute, and the days of the week.
         expect(profile).toContain('assistant_summary_hour: hour, assistant_summary_minute: minute');
         expect(profile).toContain('assistant_summary_days: next');
-        expect(profile).toContain('mode="time"');
+        expect(profile).toContain('<SummaryTimeSheet');
         expect(profile).toContain("{ day: 0, short: 'D', name: 'domingo' }");
     });
 });
