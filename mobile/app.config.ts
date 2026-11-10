@@ -1,3 +1,5 @@
+import { existsSync } from 'fs';
+import { join } from 'path';
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 import appJson from './app.json';
 
@@ -29,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...config,
         ...base,
         name: 'Vorian',
-        version: '1.0.4',
+        version: '1.0.5',
         runtimeVersion: { policy: 'appVersion' },
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
@@ -47,17 +49,26 @@ export default ({ config }: ConfigContext): ExpoConfig => {
                 photosPermission: false,
                 savePhotosPermission: 'Vorian necesita permiso para guardar el archivo que elegiste.',
             }],
+            ['expo-speech-recognition', {
+                // «Hola Vorian» is heard on the phone itself, with Google's voice service.
+                microphonePermission: 'Vorian usa el micrófono para escucharte.',
+                speechRecognitionPermission: 'Vorian escucha «Hola Vorian» para abrir la voz.',
+                androidSpeechServicePackages: ['com.google.android.googlequicksearchbox'],
+            }],
             './plugins/withRequiredMicrophonePermission',
         ],
         android: {
             ...base.android,
             package: 'com.carloschiloe.ping',
+            // Notifications on Android travel through Firebase (FCM). The file
+            // comes from the Firebase console; without it no push arrives.
+            ...(existsSync(join(__dirname, 'google-services.json')) ? { googleServicesFile: './google-services.json' } : {}),
             // Chats and the session never go to Google Drive backups.
             allowBackup: false,
             // Native permission changes require a real Android update. Keep
             // the production version code monotonic so the final APK can be
             // installed over the current production baseline.
-            versionCode: 20,
+            versionCode: 21,
             // Contacts and camera are read/capture capabilities used by the
             // product. Media selection itself uses Android's system picker and
             // must not request READ_MEDIA_* permissions.

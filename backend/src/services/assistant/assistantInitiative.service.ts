@@ -217,6 +217,37 @@ async function overdueNotice(recipient: InitiativeRecipient, deps: InitiativeDep
     return true;
 }
 
+/**
+ * The phone's summary alarm rang: the day said now, for the live voice. It
+ * counts as that day's summary, so the server does not send it again later;
+ * when the summary already went out, a fresh one is told without saving it.
+ */
+export async function briefingNow(recipient: InitiativeRecipient, deps: InitiativeDeps, persist: boolean): Promise<{ spoken: string }> {
+    const { hour } = localHourAndMinute(deps.now, recipient.timezone);
+    const localDate = localDateKey(deps.now, recipient.timezone);
+    const evening = hour >= EVENING_SUMMARY_HOUR;
+    const lastDay = evening ? localDateKey(new Date(deps.now.getTime() + 24 * 60 * 60 * 1000), recipient.timezone) : localDate;
+    const until = localDayRangeToIso(undefined, lastDay, recipient.timezone)?.to;
+    const hasAgenda = until ? await deps.hasAgendaUntil(recipient.userId, until) : true;
+    const note = summaryNote({ firstName: recipient.firstName ?? null, hour, evening, hasAgenda });
+    const key = `daily_summary:${recipient.userId}:${localDate}`;
+    const claimed = persist && await deps.claim(key, recipient.userId, 'daily_summary', localDate);
+    try {
+        const conversationId = await deps.selfConversationId(recipient.userId);
+        const { result, memory } = await deps.runTurn({ userId: recipient.userId, text: note, timezone: recipient.timezone, conversationId });
+        const spoken = result.response.answer.trim();
+        if (!spoken) throw new Error('empty_briefing_answer');
+        if (claimed) {
+            await deps.persistTurn({ userId: recipient.userId, conversationId, key, text: note, result: { ...result, initiative: { kind: 'daily_summary' } }, memory });
+            await deps.complete(key);
+        }
+        return { spoken };
+    } catch (error: any) {
+        if (claimed) await deps.fail(key, error?.message ?? String(error));
+        throw error;
+    }
+}
+
 /** One engine pass over every user. One user's failure never stops the rest. */
 export async function runInitiativePass(deps: InitiativeDeps): Promise<{ summaries: number; overdue: number }> {
     const sent = { summaries: 0, overdue: 0 };
@@ -238,25 +269,38 @@ async function rpcOrThrow(name: string, args: Record<string, unknown>): Promise<
     return data;
 }
 
+const RECIPIENT_COLUMNS = 'id, full_name, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_summary_minute, assistant_summary_days, assistant_overdue_notices';
+
+function recipientFromRow(row: any): InitiativeRecipient {
+    return {
+        userId: row.id,
+        timezone: resolveAutomationTimezone(row.timezone),
+        pushToken: typeof row.expo_push_token === 'string' && row.expo_push_token ? row.expo_push_token : null,
+        firstName: typeof row.full_name === 'string' && row.full_name.trim() ? row.full_name.trim().split(/\s+/)[0] : null,
+        dailySummary: row.assistant_daily_summary !== false,
+        summaryHour: Number.isInteger(row.assistant_summary_hour) ? row.assistant_summary_hour : DEFAULT_SUMMARY_HOUR,
+        summaryMinute: Number.isInteger(row.assistant_summary_minute) ? row.assistant_summary_minute : 0,
+        summaryDays: Array.isArray(row.assistant_summary_days) ? row.assistant_summary_days : ALL_WEEK,
+        overdueNotices: row.assistant_overdue_notices !== false,
+    };
+}
+
+/** The summary for one person, now (the phone's alarm rang). */
+export async function briefingNowForUser(userId: string): Promise<{ spoken: string }> {
+    const { data, error } = await supabaseAdmin.from('profiles').select(RECIPIENT_COLUMNS).eq('id', userId).single();
+    if (error || !data) throw new Error(`profiles: ${error?.message ?? 'not_found'}`);
+    return briefingNow(recipientFromRow(data), productionInitiativeDeps(), isAgentConversationTurnPersistenceEnabled());
+}
+
 export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
     return {
         now,
         async listRecipients() {
             const { data, error } = await supabaseAdmin
                 .from('profiles')
-                .select('id, full_name, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_summary_minute, assistant_summary_days, assistant_overdue_notices');
+                .select(RECIPIENT_COLUMNS);
             if (error) throw new Error(`profiles: ${error.message}`);
-            return (data || []).map((row: any) => ({
-                userId: row.id,
-                timezone: resolveAutomationTimezone(row.timezone),
-                pushToken: typeof row.expo_push_token === 'string' && row.expo_push_token ? row.expo_push_token : null,
-                firstName: typeof row.full_name === 'string' && row.full_name.trim() ? row.full_name.trim().split(/\s+/)[0] : null,
-                dailySummary: row.assistant_daily_summary !== false,
-                summaryHour: Number.isInteger(row.assistant_summary_hour) ? row.assistant_summary_hour : DEFAULT_SUMMARY_HOUR,
-                summaryMinute: Number.isInteger(row.assistant_summary_minute) ? row.assistant_summary_minute : 0,
-                summaryDays: Array.isArray(row.assistant_summary_days) ? row.assistant_summary_days : ALL_WEEK,
-                overdueNotices: row.assistant_overdue_notices !== false,
-            }));
+            return (data || []).map(recipientFromRow);
         },
         async hasAgendaUntil(userId, endIso) {
             const port = new SupabaseAssistantDataPort(userId);

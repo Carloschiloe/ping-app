@@ -23,6 +23,9 @@ import { DeleteAccountSheet } from '../components/perfil/DeleteAccountSheet';
 import { ICON_INSET, Row, Section, Toggle, kit } from '../components/perfil/SettingsKit';
 import { openLegal } from '../utils/legalLinks';
 import { loadOpenInVoice, saveOpenInVoice } from '../utils/openInVoice';
+import { loadWakeWord, saveWakeWord } from '../utils/wakeWord';
+import { syncBriefingAlarm } from '../utils/briefingAlarm';
+import { canUseFullScreenAlarm, hasVorianAlarm, openFullScreenAlarmSettings } from '../../modules/vorian-alarm';
 import { exportMyData } from '../utils/exportMyData';
 import { appSoundsEnabled, loadAppSoundsPreference, playAppSound, setAppSoundsEnabled } from '../utils/appSounds';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
@@ -36,7 +39,7 @@ import { fonts, type } from '../design/typography';
 export default function SettingsScreen() {
     const insets = useSafeAreaInsets();
     const navigation = useNavigation();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const isFocused = useIsFocused();
 
     const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
@@ -54,10 +57,31 @@ export default function SettingsScreen() {
     const [summaryMinute, setSummaryMinute] = useState(0);
     const [summaryDays, setSummaryDays] = useState<number[]>(ALL_WEEK);
     const [summaryPickerOpen, setSummaryPickerOpen] = useState(false);
+    const [summaryLoaded, setSummaryLoaded] = useState(false);
+    // The phone's own alarm follows the summary settings, so it rings even if the server sleeps.
+    useEffect(() => {
+        if (!summaryLoaded) return;
+        syncBriefingAlarm({
+            enabled: dailySummaryEnabled,
+            hour: summaryHour,
+            minute: summaryMinute,
+            days: summaryDays,
+            firstName: profile?.full_name?.trim().split(/\s+/)[0] ?? null,
+        });
+    }, [summaryLoaded, dailySummaryEnabled, summaryHour, summaryMinute, summaryDays, profile?.full_name]);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
     const [soundsOn, setSoundsOn] = useState(appSoundsEnabled());
     const [openInVoice, setOpenInVoice] = useState(false);
     useEffect(() => { void loadOpenInVoice().then(setOpenInVoice); }, []);
+    const [wakeWordOn, setWakeWordOn] = useState(false);
+    useEffect(() => { void loadWakeWord().then(setWakeWordOn); }, []);
+    const handleToggleWakeWord = (value: boolean) => {
+        setWakeWordOn(value);
+        void saveWakeWord(value);
+    };
+    // Android 14+ asks once per app before an alarm may light the screen.
+    const [fullScreenAllowed, setFullScreenAllowed] = useState(true);
+    useEffect(() => { if (hasVorianAlarm()) setFullScreenAllowed(canUseFullScreenAlarm()); }, [isFocused]);
     const handleToggleOpenInVoice = (value: boolean) => {
         setOpenInVoice(value);
         void saveOpenInVoice(value);
@@ -132,6 +156,7 @@ export default function SettingsScreen() {
                 setSummaryMinute(data.assistant_summary_minute ?? 0);
                 setSummaryDays(Array.isArray(data.assistant_summary_days) ? data.assistant_summary_days : ALL_WEEK);
                 setOverdueNoticesEnabled(data.assistant_overdue_notices ?? true);
+                setSummaryLoaded(true);
             }
         });
 
@@ -315,6 +340,13 @@ export default function SettingsScreen() {
                             })}
                         </View>
                         <Text style={styles.daysHint}>{describeDays(summaryDays)}</Text>
+                        {!fullScreenAllowed && (
+                            <TouchableOpacity onPress={openFullScreenAlarmSettings} accessibilityLabel="Permitir que el resumen encienda la pantalla" style={styles.allowRow}>
+                                <Ionicons name="alarm-outline" size={16} color={colors.accent} />
+                                <Text style={styles.allowText}>Permite que el resumen encienda la pantalla</Text>
+                                <Ionicons name="chevron-forward" size={14} color={colors.textFaint} />
+                            </TouchableOpacity>
+                        )}
                         <SummaryTimeSheet
                             visible={summaryPickerOpen}
                             hour={summaryHour}
@@ -351,7 +383,10 @@ export default function SettingsScreen() {
             </Section>
 
             <Section order={2} label="VORIAN">
-                <Row icon="mic-outline" title="Abrir directo en voz" subtitle="Al abrir Vorian, empieza a escucharte. Para cerrar, di «chao Vorian»">
+                <Row icon="ear-outline" title="Escuchar «Hola Vorian»" subtitle="Con la app abierta, di «Hola Vorian» para hablarle">
+                    <Toggle value={wakeWordOn} onValueChange={handleToggleWakeWord} />
+                </Row>
+                <Row divider icon="mic-outline" title="Abrir directo en voz" subtitle="Al abrir Vorian, empieza a escucharte. Para cerrar, di «chao Vorian»">
                     <Toggle value={openInVoice} onValueChange={handleToggleOpenInVoice} />
                 </Row>
                 <Row divider icon="bulb-outline" title="Lo que Vorian recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
@@ -455,5 +490,7 @@ const styles = StyleSheet.create({
         borderColor: colors.glassBorder,
     },
     timePillText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text, letterSpacing: 0.5 },
+    allowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space.xs },
+    allowText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.accent },
     daysHint: { fontFamily: fonts.regular, fontSize: 12, color: colors.textFaint },
 });

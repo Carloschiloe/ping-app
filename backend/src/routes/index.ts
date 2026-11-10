@@ -17,6 +17,7 @@ import * as attachmentController from '../controllers/attachment.controller';
 import * as agentTurnController from '../controllers/agentTurn.controller';
 import * as agentConversationTurnController from '../controllers/agentConversationTurn.controller';
 import * as memoryFactsController from '../controllers/memoryFacts.controller';
+import * as assistantBriefingController from '../controllers/assistantBriefing.controller';
 import * as agentVoiceController from '../controllers/agentVoice.controller';
 import * as m8LiveVoiceController from '../controllers/m8LiveVoice.controller';
 import * as accountSafetyController from '../controllers/accountSafety.controller';
@@ -404,6 +405,9 @@ router.get(
     requireAuth,
     m8LiveVoiceController.readTelemetry,
 );
+
+// The phone's summary alarm rang: the day's summary, said in the live voice.
+router.post('/agent/briefing', requireAuth, requirePlan, agentTurnRateLimiter, assistantBriefingController.briefNow);
 
 // Ping Agent Turn — the single entry point: every surface reaches the same
 // assistant, which reads with tools and only proposes changes; a change runs

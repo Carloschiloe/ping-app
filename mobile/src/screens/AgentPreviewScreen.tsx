@@ -23,7 +23,8 @@ import {
 } from '../api/query-modules/agent';
 import { useSelfConversationId, useClearAgentConversationHistory } from '../api/query-modules/conversations';
 import { invalidateCommitmentViews } from '../api/query-invalidation';
-import { ApiError } from '../api/client';
+import { ApiError, apiClient } from '../api/client';
+import { releaseLockScreen } from '../../modules/vorian-alarm';
 import {
     chatStarters, appendAgentTurnMessage, appendErrorMessage, appendUserMessage,
     canSendInput, citationKindLabel, describeCitationsSummary, describeCitationTypes, describeStatusLabel, isLatestAgentMessage,
@@ -70,7 +71,7 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
     const [voiceDraft, setVoiceDraft] = useState<{ text: string; token: string; confidence: number | null } | null>(null);
     const [voiceError, setVoiceError] = useState<string | null>(null);
     // Opened from the Chats aura, the voice view is up from the first frame so the text chat never flashes underneath.
-    const [liveVoiceVisible, setLiveVoiceVisible] = useState(() => route.params?.startWith === 'voice' && (isMainCoreEntry || Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true));
+    const [liveVoiceVisible, setLiveVoiceVisible] = useState(() => route.params?.startWith === 'voice' && !route.params?.briefingRequestAt && (isMainCoreEntry || Constants.expoConfig?.extra?.m8LiveVoiceEnabled === true));
     const [retryBlockedUntil, setRetryBlockedUntil] = useState(0);
     // M-1G.1 fix — el offset fijo de chatKeyboard.ts (90) fue calibrado para
     // el header NATIVO más alto de ChatScreen; el header custom de esta
@@ -121,8 +122,39 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         voiceEntryRef.current = true;
         setLiveVoiceVisible(true);
     }, [briefingAt, route.params?.briefing, liveVoiceEnabled, liveVoiceVisible]);
+    // The summary alarm rang: ask Vorian for the day, then open the voice to say it.
+    const briefingRequestAt = route.params?.briefingRequestAt;
+    const lastBriefingRequestRef = useRef<number | undefined>(undefined);
+    useEffect(() => {
+        if (!briefingRequestAt || briefingRequestAt === lastBriefingRequestRef.current || !liveVoiceEnabled) return;
+        lastBriefingRequestRef.current = briefingRequestAt;
+        let alive = true;
+        const open = (spoken?: string) => {
+            if (!alive) return;
+            setPendingBriefing(spoken);
+            voiceEntryRef.current = true;
+            setLiveVoiceVisible(true);
+        };
+        const timeout = setTimeout(() => open(undefined), 12_000);
+        apiClient.post('/agent/briefing', {})
+            .then((result: any) => { clearTimeout(timeout); open(typeof result?.spoken === 'string' ? result.spoken : undefined); })
+            .catch(() => { clearTimeout(timeout); open(undefined); });
+        return () => { alive = false; clearTimeout(timeout); };
+    }, [briefingRequestAt, liveVoiceEnabled]);
+    // "Hola Vorian" or the app-icon shortcut, while this screen was already open.
+    const voiceAt = route.params?.voiceAt;
+    const lastVoiceAtRef = useRef(voiceAt);
+    useEffect(() => {
+        if (!voiceAt || voiceAt === lastVoiceAtRef.current || !liveVoiceEnabled) return;
+        lastVoiceAtRef.current = voiceAt;
+        if (liveVoiceVisible) return;
+        voiceEntryRef.current = true;
+        setLiveVoiceVisible(true);
+    }, [voiceAt, liveVoiceEnabled, liveVoiceVisible]);
     const closeLiveVoice = useCallback((reason: LiveVoiceCloseReason) => {
         setLiveVoiceVisible(false);
+        // After the summary over the lock screen, the phone locks again as usual.
+        releaseLockScreen();
         // Said once; tapping "Hablar" later starts a normal conversation.
         setPendingBriefing(undefined);
         // A voice session can confirm actions this chat never saw.

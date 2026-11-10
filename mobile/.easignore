@@ -13,8 +13,8 @@
 !.env.example
 **/dist/
 **/web-build/
-**/android/
-**/ios/
+/android/
+/ios/
 **/.git/
 **/build/
 **/.gradle/

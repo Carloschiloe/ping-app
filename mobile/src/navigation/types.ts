@@ -65,6 +65,10 @@ type AgentCoreRouteParams = {
     /** The day's summary for the live voice to say out loud, and when it arrived. */
     briefing?: string;
     briefingAt?: number;
+    /** The summary alarm rang: fetch the day and say it. */
+    briefingRequestAt?: number;
+    /** Open the voice now ("Hola Vorian", the app-icon shortcut). */
+    voiceAt?: number;
     /** The chat Vorian was opened from, so its suggestions fit that chat. */
     chatContext?: AgentChatContext;
 };

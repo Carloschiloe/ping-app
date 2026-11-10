@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { setMicBusy } from '../utils/micBusy';
 import {
     StyleSheet, View, Text, TouchableOpacity,
     ActivityIndicator, Alert, Platform,
@@ -27,6 +28,8 @@ import {
 const canSwitchSpeaker = Platform.OS === 'android';
 
 const CallScreen = ({ route, navigation }: any) => {
+    // A call has the microphone; listening for "Hola Vorian" waits.
+    useEffect(() => { setMicBusy('call', true); return () => setMicBusy('call', false); }, []);
     const { conversationId, isIncoming = false } = route.params;
     const requestedCallType = route.params.type || route.params.callType;
     const isVideo = requestedCallType

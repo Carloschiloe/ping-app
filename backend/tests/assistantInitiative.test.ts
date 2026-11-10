@@ -5,6 +5,7 @@ vi.mock('../src/services/conversation.service', () => ({ getOrCreateSelfConversa
 vi.mock('../src/services/push.service', () => ({ sendPushNotification: vi.fn() }));
 
 import {
+    briefingNow,
     DAILY_INITIATIVE_LIMIT,
     INITIATIVE_NOTE_PREFIX,
     overdueNote,
@@ -202,5 +203,34 @@ describe('M10 — notice preferences', () => {
         const late = deps({ now: new Date('2026-11-02T13:30:00.000Z'), hasAgendaUntil: vi.fn(async () => false), listRecipients: recipient({ summaryHour: 10 }), listOverdue: vi.fn(async () => [CALL]) }); // 10:30
         expect((await runInitiativePass(late)).overdue).toBe(0);
         expect(late.listOverdue).not.toHaveBeenCalled();
+    });
+});
+
+describe('Summary alarm on the phone', () => {
+    const ME = { userId: USER, timezone: 'America/Santiago', pushToken: 'ExponentPushToken[x]', firstName: 'Carlos', ...PREFS };
+
+    it('says the day now and counts it as that day summary, without a push', async () => {
+        const d = deps();
+        expect(await briefingNow(ME, d, true)).toEqual({ spoken: 'Buenos días. Hoy tienes la reunión con Pedro a las 11.' });
+        expect((d.runTurn as any).mock.calls[0][0].text).toContain('Empieza con «Buenos días Carlos»');
+        expect(d.claim).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`, USER, 'daily_summary', '2026-11-02');
+        expect(d.persistTurn).toHaveBeenCalledTimes(1);
+        expect(d.complete).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`);
+        expect(d.push).not.toHaveBeenCalled();
+        // The server's own pass then does not send it again that day.
+        expect(await runInitiativePass(d)).toEqual({ summaries: 0, overdue: 0 });
+    });
+
+    it('when the summary already went out, tells it again without saving a second one', async () => {
+        const d = deps({ claim: vi.fn(async () => false) });
+        expect((await briefingNow(ME, d, true)).spoken).toContain('Pedro');
+        expect(d.persistTurn).not.toHaveBeenCalled();
+        expect(d.complete).not.toHaveBeenCalled();
+    });
+
+    it('releases the claim when the turn fails', async () => {
+        const d = deps({ runTurn: vi.fn(async () => { throw new Error('model down'); }) });
+        await expect(briefingNow(ME, d, true)).rejects.toThrow('model down');
+        expect(d.fail).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`, 'model down');
     });
 });
