@@ -23,8 +23,8 @@ describe('closing the live voice by voice', () => {
         process.env.OPENAI_API_KEY = 'test-only-key';
         const html = getM8LiveVoiceClientHtml();
         expect(html).toContain('if(isVoiceFarewell(selectedInput)){sayFarewell(event.call_id);return}');
-        // The voice closes into the chat, not out of it.
-        expect(html).toContain("farewellPending=true;post({type:'write'});");
+        // The app takes the person back to the chat list.
+        expect(html).toContain("farewellPending=true;post({type:'farewell'});");
         expect(html).toContain("if(event.type==='output_audio_buffer.stopped'&&farewellPending)setTimeout(stop,300);");
         const script = html.slice(html.indexOf('(function(){'), html.lastIndexOf('})();') + 5);
         expect(() => new Function(script)).not.toThrow();

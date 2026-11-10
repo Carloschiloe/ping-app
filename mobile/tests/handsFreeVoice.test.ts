@@ -37,4 +37,9 @@ describe('hands-free voice', () => {
         expect(read('navigation/index.tsx')).toContain('useOpenInVoice(navigationRef);');
         expect(read('hooks/useOpenInVoice.ts')).toContain("startWith: 'voice'");
     });
+
+    it('saying goodbye ends at the chat list', () => {
+        expect(read('components/agent/LiveVoiceSession.tsx')).toContain("if (message.type === 'farewell') closeReasonRef.current = 'farewell';");
+        expect(read('screens/AgentPreviewScreen.tsx')).toContain("if (reason === 'farewell') navigation.navigate('ConversationsList');");
+    });
 });
