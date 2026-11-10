@@ -42,13 +42,37 @@ const PUSH_BODY_CHARS = 180;
 /** Starts every automatic notice; the instructions tell the model who wrote it. */
 export const INITIATIVE_NOTE_PREFIX = 'Aviso automático de Vorian (no lo escribió el usuario):';
 
-const DAILY_SUMMARY_NOTE = `${INITIATIVE_NOTE_PREFIX} es la hora del resumen que el usuario eligió. Escríbele un resumen breve de su día: lo que tiene para hoy y lo que quedó atrasado y sigue abierto. Sin proponer cambios todavía.`;
-const EVENING_SUMMARY_NOTE = `${INITIATIVE_NOTE_PREFIX} es la hora del resumen que el usuario eligió, ya de tarde. Escríbele un resumen breve: lo que le queda para hoy, lo que tiene mañana y lo que quedó atrasado y sigue abierto. Sin proponer cambios todavía.`;
+/** The day's summary is also spoken by the live voice, so it is written to be heard. */
+const SPOKEN_STYLE = 'Escríbelo para ser escuchado en voz alta, como un asistente personal: frases cortas, sin listas ni viñetas, horas dichas como se hablan. Termina preguntándole si quiere hacer algo con alguno.';
+
+export function greetingFor(hour: number): string {
+    return hour < 12 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
+}
+
+/** The note that starts the summary turn: greeting by name, what is on, said to be heard. */
+export function summaryNote(input: { firstName: string | null; hour: number; evening: boolean; hasAgenda: boolean }): string {
+    const hello = `${greetingFor(input.hour)}${input.firstName ? ` ${input.firstName}` : ''}`;
+    const what = !input.hasAgenda
+        ? 'No tiene nada pendiente: díselo con buen ánimo y ofrécele ayuda para organizar su día.'
+        : input.evening
+            ? 'Cuéntale lo que le queda para hoy, lo que tiene mañana y lo que quedó atrasado y sigue abierto.'
+            : 'Cuéntale lo que tiene para hoy, con quién y a qué hora, y lo que quedó atrasado y sigue abierto.';
+    return `${INITIATIVE_NOTE_PREFIX} es la hora del resumen que el usuario eligió. Empieza con «${hello}». ${what} Sin proponer cambios todavía. ${SPOKEN_STYLE}`;
+}
+
+/** What the notification says: an invitation to hear the day, not the summary squeezed in. */
+export function summaryPushBody(firstName: string | null, hour: number): string {
+    return `${greetingFor(hour)}${firstName ? ` ${firstName}` : ''} ☀️ ¿Te cuento tu día?`;
+}
+
+/** Longest summary carried in the notification for the voice to read. */
+const SPOKEN_SUMMARY_CHARS = 1500;
 
 export interface InitiativeRecipient {
     userId: string;
     timezone: string;
     pushToken: string | null;
+    firstName?: string | null;
     /** The user's choices in Perfil. */
     dailySummary: boolean;
     summaryHour: number;
@@ -119,6 +143,7 @@ async function deliver(
     keys: string[],
     note: string,
     deps: InitiativeDeps,
+    notice?: { body: string; spoken: true },
 ): Promise<void> {
     try {
         const conversationId = await deps.selfConversationId(recipient.userId);
@@ -127,8 +152,16 @@ async function deliver(
         if (!answer) throw new Error('empty_initiative_answer');
         const initiativeResult: AgentTurnResponse = { ...result, initiative: { kind } };
         await deps.persistTurn({ userId: recipient.userId, conversationId, key: keys[0], text: note, result: initiativeResult, memory });
-        // Tapping the notification opens the chat with Ping.
-        if (recipient.pushToken) await deps.push(recipient.pushToken, 'Vorian', pushBody(answer), { type: 'ping_assistant', kind });
+        // Tapping the notification opens the chat with Ping; the summary opens
+        // the live voice, which says the answer out loud.
+        if (recipient.pushToken) {
+            await deps.push(
+                recipient.pushToken,
+                'Vorian',
+                notice?.body ?? pushBody(answer),
+                notice ? { type: 'ping_assistant', kind, spoken: answer.slice(0, SPOKEN_SUMMARY_CHARS) } : { type: 'ping_assistant', kind },
+            );
+        }
         for (const key of keys) await deps.complete(key);
     } catch (error: any) {
         for (const key of keys) await deps.fail(key, error?.message ?? String(error));
@@ -148,9 +181,13 @@ async function dailySummary(recipient: InitiativeRecipient, deps: InitiativeDeps
     const evening = recipient.summaryHour >= EVENING_SUMMARY_HOUR;
     const lastDay = evening ? localDateKey(new Date(deps.now.getTime() + 24 * 60 * 60 * 1000), recipient.timezone) : localDate;
     const until = localDayRangeToIso(undefined, lastDay, recipient.timezone)?.to;
-    if (!until || !(await deps.hasAgendaUntil(recipient.userId, until))) return false;
+    if (!until) return false;
+    // Vorian greets every chosen day, also when there is nothing on.
+    const hasAgenda = await deps.hasAgendaUntil(recipient.userId, until);
     if (!(await deps.claim(key, recipient.userId, 'daily_summary', localDate))) return false;
-    await deliver(recipient, 'daily_summary', [key], evening ? EVENING_SUMMARY_NOTE : DAILY_SUMMARY_NOTE, deps);
+    const firstName = recipient.firstName ?? null;
+    const note = summaryNote({ firstName, hour, evening, hasAgenda });
+    await deliver(recipient, 'daily_summary', [key], note, deps, { body: summaryPushBody(firstName, hour), spoken: true });
     return true;
 }
 
@@ -207,12 +244,13 @@ export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
         async listRecipients() {
             const { data, error } = await supabaseAdmin
                 .from('profiles')
-                .select('id, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_summary_minute, assistant_summary_days, assistant_overdue_notices');
+                .select('id, full_name, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_summary_minute, assistant_summary_days, assistant_overdue_notices');
             if (error) throw new Error(`profiles: ${error.message}`);
             return (data || []).map((row: any) => ({
                 userId: row.id,
                 timezone: resolveAutomationTimezone(row.timezone),
                 pushToken: typeof row.expo_push_token === 'string' && row.expo_push_token ? row.expo_push_token : null,
+                firstName: typeof row.full_name === 'string' && row.full_name.trim() ? row.full_name.trim().split(/\s+/)[0] : null,
                 dailySummary: row.assistant_daily_summary !== false,
                 summaryHour: Number.isInteger(row.assistant_summary_hour) ? row.assistant_summary_hour : DEFAULT_SUMMARY_HOUR,
                 summaryMinute: Number.isInteger(row.assistant_summary_minute) ? row.assistant_summary_minute : 0,

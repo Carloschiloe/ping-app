@@ -25,6 +25,8 @@ describe('closing the live voice by voice', () => {
         expect(html).toContain('if(isVoiceFarewell(selectedInput)){sayFarewell(event.call_id);return}');
         // The app takes the person back to the chat list.
         expect(html).toContain("farewellPending=true;post({type:'farewell'});");
+        // Opened from the day's summary, it is said instead of the usual hello.
+        expect(html).toContain("createResponse(briefing?'daily_briefing':'greeting','none',briefing||");
         expect(html).toContain("if(event.type==='output_audio_buffer.stopped'&&farewellPending)setTimeout(stop,300);");
         const script = html.slice(html.indexOf('(function(){'), html.lastIndexOf('})();') + 5);
         expect(() => new Function(script)).not.toThrow();

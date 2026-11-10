@@ -62,6 +62,9 @@ type AgentCoreRouteParams = {
     surface?: 'mobile_text' | 'tablet';
     /** Open Ping in a live voice conversation instead of the text chat. */
     startWith?: 'voice';
+    /** The day's summary for the live voice to say out loud, and when it arrived. */
+    briefing?: string;
+    briefingAt?: number;
     /** The chat Vorian was opened from, so its suggestions fit that chat. */
     chatContext?: AgentChatContext;
 };

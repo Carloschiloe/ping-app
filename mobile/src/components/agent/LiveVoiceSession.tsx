@@ -25,6 +25,8 @@ interface LiveVoiceSessionProps {
     conversationId?: string;
     /** Show without the fade, for when Ping opens straight into voice. */
     instant?: boolean;
+    /** The day's summary, said out loud instead of the usual hello. */
+    briefing?: string;
     /** `write` when the user chose to keep going by text, `farewell` when they said goodbye, `leave` otherwise. */
     onClose: (reason: LiveVoiceCloseReason) => void;
 }
@@ -43,6 +45,7 @@ type LiveConfig = {
     timezone: string;
     firstName?: string;
     canSwitchToText: boolean;
+    briefing?: string;
 };
 
 type LiveVoiceWebViewMessage = {
@@ -65,7 +68,7 @@ function voiceLocale(): string {
 
 const KEEP_AWAKE_TAG = 'vorian-live-voice';
 
-export function LiveVoiceSession({ visible, conversationId, instant = false, onClose }: LiveVoiceSessionProps) {
+export function LiveVoiceSession({ visible, conversationId, instant = false, briefing, onClose }: LiveVoiceSessionProps) {
     const insets = useSafeAreaInsets();
     const { profile } = useAuth();
     const [authorization, setAuthorization] = useState<string | null>(null);
@@ -88,7 +91,8 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
         timezone: getDeviceTimeZone(),
         firstName: profile?.full_name?.trim().split(/\s+/)[0] || undefined,
         canSwitchToText: true,
-    } : null, [authorization, conversationId, profile?.full_name]);
+        briefing: briefing?.trim() || undefined,
+    } : null, [authorization, conversationId, profile?.full_name, briefing]);
     const injected = useMemo(() => config
         ? `(function(){window.__PING_CONFIG=${JSON.stringify(config).replace(/</g, '\\u003c')};window.dispatchEvent(new Event('ping-config'));try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'native_ready',protocolVersion:1,handshakeId:window.__PING_CONFIG.handshakeId}))}catch{};true;})()`
         : '', [config]);

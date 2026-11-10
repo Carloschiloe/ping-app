@@ -59,7 +59,12 @@ describe('M10 — daily summary initiative', () => {
             key: `daily_summary:${USER}:2026-11-02`,
             result: expect.objectContaining({ initiative: { kind: 'daily_summary' } }),
         }));
-        expect(d.push).toHaveBeenCalledWith('ExponentPushToken[x]', 'Vorian', 'Buenos días. Hoy tienes la reunión con Pedro a las 11.', { type: 'ping_assistant', kind: 'daily_summary' });
+        // The notice invites to hear the day; the voice reads the summary itself.
+        expect(d.push).toHaveBeenCalledWith('ExponentPushToken[x]', 'Vorian', 'Buenos días ☀️ ¿Te cuento tu día?', {
+            type: 'ping_assistant', kind: 'daily_summary', spoken: 'Buenos días. Hoy tienes la reunión con Pedro a las 11.',
+        });
+        expect(turn.text).toContain('Empieza con «Buenos días»');
+        expect(turn.text).toContain('para ser escuchado en voz alta');
         expect(d.complete).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`);
         expect(d.listOverdue).not.toHaveBeenCalled();
     });
@@ -71,14 +76,19 @@ describe('M10 — daily summary initiative', () => {
         expect(d.runTurn).toHaveBeenCalledTimes(1);
     });
 
-    it('stays quiet outside the summary hour and on an empty day', async () => {
+    it('stays quiet before the summary time, and greets by name also on a free day', async () => {
         const early = deps({ now: new Date('2026-11-02T10:30:00.000Z') });
         expect(await runInitiativePass(early)).toEqual({ summaries: 0, overdue: 0 });
 
-        const empty = deps({ hasAgendaUntil: vi.fn(async () => false) });
-        expect(await runInitiativePass(empty)).toEqual({ summaries: 0, overdue: 0 });
-        expect(empty.claim).not.toHaveBeenCalled();
-        expect(empty.runTurn).not.toHaveBeenCalled();
+        const empty = deps({
+            hasAgendaUntil: vi.fn(async () => false),
+            listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: 'ExponentPushToken[x]', firstName: 'Carlos', ...PREFS }]),
+        });
+        expect(await runInitiativePass(empty)).toEqual({ summaries: 1, overdue: 0 });
+        const note = (empty.runTurn as any).mock.calls[0][0].text;
+        expect(note).toContain('Empieza con «Buenos días Carlos»');
+        expect(note).toContain('No tiene nada pendiente');
+        expect((empty.push as any).mock.calls[0][2]).toBe('Buenos días Carlos ☀️ ¿Te cuento tu día?');
     });
 
     it('keeps the chat message without a push token, and releases the claim when the turn fails', async () => {
