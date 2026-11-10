@@ -17,7 +17,7 @@ const USER = 'user-1';
 const MORNING = new Date('2026-11-02T11:30:00.000Z'); // 08:30
 const AFTERNOON = new Date('2026-11-02T18:30:00.000Z'); // 15:30
 const CALL = { id: 'c1', title: 'Llamar a Juan', dueAt: '2026-11-02T18:00:00.000Z' }; // 15:00
-const PREFS = { dailySummary: true, summaryHour: 8, overdueNotices: true };
+const PREFS = { dailySummary: true, summaryHour: 8, summaryMinute: 0, summaryDays: [0, 1, 2, 3, 4, 5, 6], overdueNotices: true };
 
 function deps(overrides: Partial<InitiativeDeps> = {}): InitiativeDeps {
     const claimed = new Set<string>();
@@ -159,6 +159,29 @@ describe('M10 — notice preferences', () => {
         const off = deps({ listRecipients: recipient({ dailySummary: false }) });
         expect((await runInitiativePass(off)).summaries).toBe(0);
         expect(off.hasAgendaUntil).not.toHaveBeenCalled();
+    });
+
+    it('sends it at any time and minute the user chose, only on the chosen days', async () => {
+        // 2026-11-02 is a Monday (1).
+        const at1415 = (now: string, prefs: Partial<typeof PREFS> = {}) => deps({ now: new Date(now), listRecipients: recipient({ summaryHour: 14, summaryMinute: 15, ...prefs }) });
+        expect((await runInitiativePass(at1415('2026-11-02T17:10:00.000Z'))).summaries).toBe(0); // 14:10
+        expect((await runInitiativePass(at1415('2026-11-02T17:15:00.000Z'))).summaries).toBe(1); // 14:15
+        expect((await runInitiativePass(at1415('2026-11-02T17:15:00.000Z', { summaryDays: [2, 3, 4, 5] }))).summaries).toBe(0);
+        expect((await runInitiativePass(at1415('2026-11-02T17:15:00.000Z', { summaryDays: [1] }))).summaries).toBe(1);
+    });
+
+    it('still sends a summary missed while the server slept, the same day', async () => {
+        const early = deps({ now: new Date('2026-11-02T10:05:00.000Z'), listRecipients: recipient({ summaryHour: 5, summaryMinute: 30 }) }); // 07:05 for 05:30
+        expect((await runInitiativePass(early)).summaries).toBe(1);
+        const tooLate = deps({ now: new Date('2026-11-02T15:05:00.000Z'), listRecipients: recipient({ summaryHour: 5, summaryMinute: 30 }) }); // 12:05
+        expect((await runInitiativePass(tooLate)).summaries).toBe(0);
+    });
+
+    it('an evening summary also looks at tomorrow', async () => {
+        const night = deps({ now: new Date('2026-11-03T00:00:00.000Z'), listRecipients: recipient({ summaryHour: 21 }) }); // 21:00
+        expect((await runInitiativePass(night)).summaries).toBe(1);
+        expect(night.hasAgendaUntil).toHaveBeenCalledWith(USER, '2026-11-04T03:00:00.000Z');
+        expect((night.runTurn as any).mock.calls[0][0].text).toContain('lo que tiene mañana');
     });
 
     it('skips overdue notices when they are off, and waits until after a later summary hour', async () => {

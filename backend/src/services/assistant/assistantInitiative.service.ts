@@ -16,10 +16,20 @@ import { SupabaseAssistantDataPort } from './assistantSupabasePort';
 import { runAssistantModeTurn } from './assistantTurn.service';
 import type { AgentTurnResponse, AgentTurnInitiativeKind } from '../../types/agentTurn';
 
-/** Used when a profile has no summary hour of its own. */
+/** Used when a profile has no summary time of its own. */
 export const DEFAULT_SUMMARY_HOUR = 8;
-/** Other notices wait for daytime: from the hour after the summary to 21:59 local. */
+export const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6];
+/**
+ * A summary missed because the server was asleep still goes out when it wakes,
+ * up to this long after the chosen time (the free server sleeps from about
+ * 1:00 to 7:00), and never after the day ends.
+ */
+const SUMMARY_CATCH_UP_MINUTES = 6 * 60 + 15;
+/** From this hour the summary looks at tomorrow instead of what is left of today. */
+const EVENING_SUMMARY_HOUR = 18;
+/** Other notices wait for daytime: from the hour after a morning summary (9:00 otherwise) to 21:59 local. */
 const QUIET_FROM_HOUR = 22;
+const NOTICES_FROM_HOUR = 9;
 /** At most this many initiatives per user and local day. */
 export const DAILY_INITIATIVE_LIMIT = 3;
 /** An item counts as newly overdue from 15 minutes after its time, for 3 hours. */
@@ -32,7 +42,8 @@ const PUSH_BODY_CHARS = 180;
 /** Starts every automatic notice; the instructions tell the model who wrote it. */
 export const INITIATIVE_NOTE_PREFIX = 'Aviso automático de Vorian (no lo escribió el usuario):';
 
-const DAILY_SUMMARY_NOTE = `${INITIATIVE_NOTE_PREFIX} es la mañana. Escríbele al usuario un resumen breve de su día: lo que tiene para hoy y lo que quedó atrasado y sigue abierto. Sin proponer cambios todavía.`;
+const DAILY_SUMMARY_NOTE = `${INITIATIVE_NOTE_PREFIX} es la hora del resumen que el usuario eligió. Escríbele un resumen breve de su día: lo que tiene para hoy y lo que quedó atrasado y sigue abierto. Sin proponer cambios todavía.`;
+const EVENING_SUMMARY_NOTE = `${INITIATIVE_NOTE_PREFIX} es la hora del resumen que el usuario eligió, ya de tarde. Escríbele un resumen breve: lo que le queda para hoy, lo que tiene mañana y lo que quedó atrasado y sigue abierto. Sin proponer cambios todavía.`;
 
 export interface InitiativeRecipient {
     userId: string;
@@ -41,7 +52,15 @@ export interface InitiativeRecipient {
     /** The user's choices in Perfil. */
     dailySummary: boolean;
     summaryHour: number;
+    summaryMinute: number;
+    /** Days of the week it goes out, 0 = Sunday. */
+    summaryDays: number[];
     overdueNotices: boolean;
+}
+
+/** 0 = Sunday, for the user's own calendar day. */
+export function localWeekday(now: Date, timezone: string): number {
+    return new Date(`${localDateKey(now, timezone)}T12:00:00.000Z`).getUTCDay();
 }
 
 export interface OverdueItem {
@@ -117,23 +136,34 @@ async function deliver(
     }
 }
 
-/** Daily summary: each user once per local day, in their summary hour. */
+/** Daily summary: once per chosen day, at the user's time (or as soon after as the server can). */
 async function dailySummary(recipient: InitiativeRecipient, deps: InitiativeDeps): Promise<boolean> {
-    if (!recipient.dailySummary || localHourAndMinute(deps.now, recipient.timezone).hour !== recipient.summaryHour) return false;
+    if (!recipient.dailySummary) return false;
+    const { hour, minute } = localHourAndMinute(deps.now, recipient.timezone);
+    const late = hour * 60 + minute - (recipient.summaryHour * 60 + recipient.summaryMinute);
+    if (late < 0 || late >= SUMMARY_CATCH_UP_MINUTES) return false;
+    if (!recipient.summaryDays.includes(localWeekday(deps.now, recipient.timezone))) return false;
     const localDate = localDateKey(deps.now, recipient.timezone);
     const key = `daily_summary:${recipient.userId}:${localDate}`;
-    const endOfToday = localDayRangeToIso(undefined, localDate, recipient.timezone)?.to;
-    if (!endOfToday || !(await deps.hasAgendaUntil(recipient.userId, endOfToday))) return false;
+    const evening = recipient.summaryHour >= EVENING_SUMMARY_HOUR;
+    const lastDay = evening ? localDateKey(new Date(deps.now.getTime() + 24 * 60 * 60 * 1000), recipient.timezone) : localDate;
+    const until = localDayRangeToIso(undefined, lastDay, recipient.timezone)?.to;
+    if (!until || !(await deps.hasAgendaUntil(recipient.userId, until))) return false;
     if (!(await deps.claim(key, recipient.userId, 'daily_summary', localDate))) return false;
-    await deliver(recipient, 'daily_summary', [key], DAILY_SUMMARY_NOTE, deps);
+    await deliver(recipient, 'daily_summary', [key], evening ? EVENING_SUMMARY_NOTE : DAILY_SUMMARY_NOTE, deps);
     return true;
+}
+
+/** Overdue notices start after a morning summary, or at 9:00 when the summary is later in the day. */
+function noticesFromHour(recipient: InitiativeRecipient): number {
+    return recipient.summaryHour < 12 ? recipient.summaryHour + 1 : NOTICES_FROM_HOUR;
 }
 
 /** Overdue notice: once per item and due time, in daytime, within the daily limit. */
 async function overdueNotice(recipient: InitiativeRecipient, deps: InitiativeDeps): Promise<boolean> {
     if (!recipient.overdueNotices) return false;
     const { hour } = localHourAndMinute(deps.now, recipient.timezone);
-    if (hour <= recipient.summaryHour || hour >= QUIET_FROM_HOUR) return false;
+    if (hour < noticesFromHour(recipient) || hour >= QUIET_FROM_HOUR) return false;
     const localDate = localDateKey(deps.now, recipient.timezone);
     const to = new Date(deps.now.getTime() - OVERDUE_GRACE_MS);
     const from = new Date(to.getTime() - OVERDUE_WINDOW_MS);
@@ -177,7 +207,7 @@ export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
         async listRecipients() {
             const { data, error } = await supabaseAdmin
                 .from('profiles')
-                .select('id, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_overdue_notices');
+                .select('id, timezone, expo_push_token, assistant_daily_summary, assistant_summary_hour, assistant_summary_minute, assistant_summary_days, assistant_overdue_notices');
             if (error) throw new Error(`profiles: ${error.message}`);
             return (data || []).map((row: any) => ({
                 userId: row.id,
@@ -185,6 +215,8 @@ export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
                 pushToken: typeof row.expo_push_token === 'string' && row.expo_push_token ? row.expo_push_token : null,
                 dailySummary: row.assistant_daily_summary !== false,
                 summaryHour: Number.isInteger(row.assistant_summary_hour) ? row.assistant_summary_hour : DEFAULT_SUMMARY_HOUR,
+                summaryMinute: Number.isInteger(row.assistant_summary_minute) ? row.assistant_summary_minute : 0,
+                summaryDays: Array.isArray(row.assistant_summary_days) ? row.assistant_summary_days : ALL_WEEK,
                 overdueNotices: row.assistant_overdue_notices !== false,
             }));
         },

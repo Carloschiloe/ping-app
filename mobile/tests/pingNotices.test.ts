@@ -14,10 +14,14 @@ describe('M10 — Ping notices', () => {
 
     it('lets the user choose the notices in Ajustes, saved on their own profile', () => {
         const profile = read('screens/SettingsScreen.tsx');
-        for (const column of ['assistant_daily_summary', 'assistant_summary_hour', 'assistant_overdue_notices']) {
+        for (const column of ['assistant_daily_summary', 'assistant_overdue_notices']) {
             expect(profile).toContain(`update({ ${column}: `);
         }
         expect(profile).toContain('label="AVISOS"');
-        expect(profile).toContain('const SUMMARY_HOURS = [6, 7, 8, 9, 10];');
+        // Any time and minute, and the days of the week.
+        expect(profile).toContain('assistant_summary_hour: hour, assistant_summary_minute: minute');
+        expect(profile).toContain('assistant_summary_days: next');
+        expect(profile).toContain('mode="time"');
+        expect(profile).toContain("{ day: 0, short: 'D', name: 'domingo' }");
     });
 });
