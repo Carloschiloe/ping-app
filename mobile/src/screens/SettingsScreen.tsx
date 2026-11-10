@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -49,6 +50,9 @@ export default function SettingsScreen() {
 
     const [dailySummaryEnabled, setDailySummaryEnabled] = useState(true);
     const [summaryHour, setSummaryHour] = useState(8);
+    const [summaryMinute, setSummaryMinute] = useState(0);
+    const [summaryDays, setSummaryDays] = useState<number[]>(ALL_WEEK);
+    const [summaryPickerOpen, setSummaryPickerOpen] = useState(false);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
     const [soundsOn, setSoundsOn] = useState(appSoundsEnabled());
 
@@ -114,10 +118,12 @@ export default function SettingsScreen() {
                 setLastSeenEnabled(data.privacy_last_seen ?? true);
             }
         });
-        supabase.from('profiles').select('assistant_daily_summary, assistant_summary_hour, assistant_overdue_notices').eq('id', user.id).single().then(({ data }) => {
+        supabase.from('profiles').select('assistant_daily_summary, assistant_summary_hour, assistant_summary_minute, assistant_summary_days, assistant_overdue_notices').eq('id', user.id).single().then(({ data }) => {
             if (data) {
                 setDailySummaryEnabled(data.assistant_daily_summary ?? true);
                 setSummaryHour(data.assistant_summary_hour ?? 8);
+                setSummaryMinute(data.assistant_summary_minute ?? 0);
+                setSummaryDays(Array.isArray(data.assistant_summary_days) ? data.assistant_summary_days : ALL_WEEK);
                 setOverdueNoticesEnabled(data.assistant_overdue_notices ?? true);
             }
         });
@@ -172,9 +178,34 @@ export default function SettingsScreen() {
         await supabase.from('profiles').update({ assistant_daily_summary: value }).eq('id', user!.id);
     };
 
-    const handleSelectSummaryHour = async (hour: number) => {
+    const saveSummaryChoice = async (change: Record<string, unknown>, undo: () => void) => {
+        const { error } = await supabase.from('profiles').update(change).eq('id', user!.id);
+        if (error) {
+            undo();
+            Alert.alert('No se pudo guardar', 'Revisa tu conexión e inténtalo de nuevo.');
+        }
+    };
+
+    const handleSelectSummaryTime = (date: Date) => {
+        setSummaryPickerOpen(false);
+        const hour = date.getHours();
+        const minute = date.getMinutes();
+        const before = { hour: summaryHour, minute: summaryMinute };
         setSummaryHour(hour);
-        await supabase.from('profiles').update({ assistant_summary_hour: hour }).eq('id', user!.id);
+        setSummaryMinute(minute);
+        void saveSummaryChoice({ assistant_summary_hour: hour, assistant_summary_minute: minute }, () => {
+            setSummaryHour(before.hour);
+            setSummaryMinute(before.minute);
+        });
+    };
+
+    const handleToggleSummaryDay = (day: number) => {
+        const next = summaryDays.includes(day) ? summaryDays.filter((d) => d !== day) : [...summaryDays, day].sort();
+        // At least one day; to stop it altogether there is the switch above.
+        if (next.length === 0) return;
+        const before = summaryDays;
+        setSummaryDays(next);
+        void saveSummaryChoice({ assistant_summary_days: next }, () => setSummaryDays(before));
     };
 
     const handleToggleSounds = async (value: boolean) => {
@@ -243,29 +274,52 @@ export default function SettingsScreen() {
             </View>
 
             <Section order={0} label="AVISOS">
-                <Row icon="sunny-outline" title="Resumen de la mañana" subtitle="Lo que tienes para hoy, temprano">
+                <Row icon="sunny-outline" title="Resumen del día" subtitle="Lo que tienes, a la hora y los días que elijas">
                     <Toggle value={dailySummaryEnabled} onValueChange={handleToggleDailySummary} />
                 </Row>
                 {dailySummaryEnabled && (
                     <View style={[kit.row, styles.hourRow]}>
-                        <Text style={kit.rowSubtitle}>Hora del resumen</Text>
+                        <View style={styles.timeLine}>
+                            <Text style={kit.rowSubtitle}>Hora del resumen</Text>
+                            <TouchableOpacity
+                                onPress={() => setSummaryPickerOpen(true)}
+                                accessibilityLabel={`Hora del resumen, ${clock(summaryHour, summaryMinute)}. Toca para cambiarla`}
+                                style={styles.timePill}
+                            >
+                                <Ionicons name="time-outline" size={16} color={colors.accent} />
+                                <Text style={styles.timePillText}>{clock(summaryHour, summaryMinute)}</Text>
+                                <Ionicons name="pencil-outline" size={13} color={colors.textFaint} />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={kit.rowSubtitle}>Días</Text>
                         <View style={styles.hourChips}>
-                            {SUMMARY_HOURS.map((hour) => {
-                                const selected = summaryHour === hour;
+                            {WEEK.map(({ day, short, name }) => {
+                                const selected = summaryDays.includes(day);
                                 return (
                                     <TouchableOpacity
-                                        key={hour}
-                                        onPress={() => handleSelectSummaryHour(hour)}
-                                        accessibilityLabel={`Resumen a las ${hour}`}
+                                        key={day}
+                                        onPress={() => handleToggleSummaryDay(day)}
+                                        accessibilityLabel={`Resumen el ${name}`}
                                         accessibilityState={{ selected }}
                                         style={[styles.hourChip, selected && styles.hourChipActive]}
                                     >
                                         {selected && <LinearGradient colors={gradients.accent} style={StyleSheet.absoluteFill} />}
-                                        <Text style={[styles.hourChipText, selected && styles.hourChipTextActive]}>{hour}</Text>
+                                        <Text style={[styles.hourChipText, selected && styles.hourChipTextActive]}>{short}</Text>
                                     </TouchableOpacity>
                                 );
                             })}
                         </View>
+                        <Text style={styles.daysHint}>{describeDays(summaryDays)}</Text>
+                        {summaryPickerOpen && (
+                            <DateTimePicker
+                                value={timeAt(summaryHour, summaryMinute)}
+                                mode="time"
+                                is24Hour
+                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                onValueChange={(_, date) => handleSelectSummaryTime(date)}
+                                onDismiss={() => setSummaryPickerOpen(false)}
+                            />
+                        )}
                     </View>
                 )}
                 <Row icon="alarm-outline" title="Avisar si algo se me pasa" divider>
@@ -336,8 +390,36 @@ export default function SettingsScreen() {
     );
 }
 
-// Morning summary hours the user can pick (the server accepts 5 to 11).
-const SUMMARY_HOURS = [6, 7, 8, 9, 10];
+// Days for the summary, Monday first as people read a week; 0 = Sunday, as the server counts them.
+const WEEK = [
+    { day: 1, short: 'L', name: 'lunes' },
+    { day: 2, short: 'M', name: 'martes' },
+    { day: 3, short: 'M', name: 'miércoles' },
+    { day: 4, short: 'J', name: 'jueves' },
+    { day: 5, short: 'V', name: 'viernes' },
+    { day: 6, short: 'S', name: 'sábado' },
+    { day: 0, short: 'D', name: 'domingo' },
+];
+const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6];
+
+const clock = (hour: number, minute: number) => `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+
+function timeAt(hour: number, minute: number): Date {
+    const date = new Date();
+    date.setHours(hour, minute, 0, 0);
+    return date;
+}
+
+/** Says in words which days were chosen. */
+export function describeDays(days: number[]): string {
+    const set = new Set(days);
+    if (set.size === 7) return 'Todos los días';
+    if (set.size === 5 && [1, 2, 3, 4, 5].every((d) => set.has(d))) return 'De lunes a viernes';
+    if (set.size === 2 && set.has(0) && set.has(6)) return 'Solo fines de semana';
+    const names = WEEK.filter(({ day }) => set.has(day)).map(({ name }) => name);
+    if (names.length === 1) return `Solo los ${names[0] === 'sábado' || names[0] === 'domingo' ? `${names[0]}s` : names[0]}`;
+    return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`.replace(/^./, (c) => c.toUpperCase());
+}
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
@@ -359,4 +441,18 @@ const styles = StyleSheet.create({
     hourChipActive: { backgroundColor: colors.accent },
     hourChipText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSoft },
     hourChipTextActive: { color: colors.onAccent },
+    timeLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', alignSelf: 'stretch', paddingRight: space.lg },
+    timePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: space.md,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: colors.glassRaised,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.glassBorder,
+    },
+    timePillText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text, letterSpacing: 0.5 },
+    daysHint: { fontFamily: fonts.regular, fontSize: 12, color: colors.textFaint },
 });
