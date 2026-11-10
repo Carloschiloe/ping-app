@@ -113,7 +113,9 @@ export default function AgentPreviewScreen({ navigation, route }: AgentCoreScree
         setLiveVoiceVisible(false);
         // A voice session can confirm actions this chat never saw.
         invalidateCommitmentViews(queryClient, { includeAgreementProposals: true, includeAgentTurns: true });
-        if (reason === 'leave' && voiceEntryRef.current) navigation.goBack();
+        // Saying goodbye out loud ends at the chat list, wherever the voice was opened from.
+        if (reason === 'farewell') navigation.navigate('ConversationsList');
+        else if (reason === 'leave' && voiceEntryRef.current) navigation.goBack();
         voiceEntryRef.current = false;
     }, [navigation, queryClient]);
 

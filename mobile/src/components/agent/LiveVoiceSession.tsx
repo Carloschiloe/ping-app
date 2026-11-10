@@ -25,11 +25,11 @@ interface LiveVoiceSessionProps {
     conversationId?: string;
     /** Show without the fade, for when Ping opens straight into voice. */
     instant?: boolean;
-    /** `write` when the user chose to keep going by text, `leave` otherwise. */
+    /** `write` when the user chose to keep going by text, `farewell` when they said goodbye, `leave` otherwise. */
     onClose: (reason: LiveVoiceCloseReason) => void;
 }
 
-export type LiveVoiceCloseReason = 'leave' | 'write';
+export type LiveVoiceCloseReason = 'leave' | 'write' | 'farewell';
 
 type LiveConfig = {
     apiUrl: string;
@@ -171,6 +171,7 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
         try {
             const message = JSON.parse(event.nativeEvent.data) as LiveVoiceWebViewMessage;
             if (message.type === 'write') closeReasonRef.current = 'write';
+            if (message.type === 'farewell') closeReasonRef.current = 'farewell';
             if (message.type === 'closed') scheduleClose();
             if (message.type === 'config_requested' || message.type === 'webview_ready') injectConfig();
             if (message.type === 'retry') retry();
