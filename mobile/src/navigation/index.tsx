@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useCommitmentSync } from '../hooks/useCommitmentSync';
+import { useOpenInVoice } from '../hooks/useOpenInVoice';
 import { useInviteLinks } from '../hooks/useInviteLinks';
 import type { ConversationsStackParamList, MainTabParamList, ProfileStackParamList, RootStackParamList } from './types';
 import { FloatingTabBar } from '../design/FloatingTabBar';
@@ -140,6 +141,7 @@ export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const PushNotificationHandler = () => {
     usePushNotifications(navigationRef);
     useCommitmentSync();
+    useOpenInVoice(navigationRef);
     return null;
 };
 

@@ -22,6 +22,7 @@ import { BlockedPeopleSheet } from '../components/perfil/BlockedPeopleSheet';
 import { DeleteAccountSheet } from '../components/perfil/DeleteAccountSheet';
 import { ICON_INSET, Row, Section, Toggle, kit } from '../components/perfil/SettingsKit';
 import { openLegal } from '../utils/legalLinks';
+import { loadOpenInVoice, saveOpenInVoice } from '../utils/openInVoice';
 import { exportMyData } from '../utils/exportMyData';
 import { appSoundsEnabled, loadAppSoundsPreference, playAppSound, setAppSoundsEnabled } from '../utils/appSounds';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
@@ -55,6 +56,12 @@ export default function SettingsScreen() {
     const [summaryPickerOpen, setSummaryPickerOpen] = useState(false);
     const [overdueNoticesEnabled, setOverdueNoticesEnabled] = useState(true);
     const [soundsOn, setSoundsOn] = useState(appSoundsEnabled());
+    const [openInVoice, setOpenInVoice] = useState(false);
+    useEffect(() => { void loadOpenInVoice().then(setOpenInVoice); }, []);
+    const handleToggleOpenInVoice = (value: boolean) => {
+        setOpenInVoice(value);
+        void saveOpenInVoice(value);
+    };
 
     const [focusActive, setFocusActive] = useState(false);
     const [focusRemainingLabel, setFocusRemainingLabel] = useState('');
@@ -349,7 +356,10 @@ export default function SettingsScreen() {
             </Section>
 
             <Section order={2} label="VORIAN">
-                <Row icon="bulb-outline" title="Lo que Vorian recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
+                <Row icon="mic-outline" title="Abrir directo en voz" subtitle="Al abrir Vorian, empieza a escucharte. Para cerrar, di «chao Vorian»">
+                    <Toggle value={openInVoice} onValueChange={handleToggleOpenInVoice} />
+                </Row>
+                <Row divider icon="bulb-outline" title="Lo que Vorian recuerda" subtitle="Ver u olvidar lo que le contaste" onPress={() => setMemoryVisible(true)} />
                 <Row divider icon="calendar-outline" title="Cuentas y calendarios" subtitle={integrationsSub} onPress={() => setCalendarsVisible(true)} />
             </Section>
 

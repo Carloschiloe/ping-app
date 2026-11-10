@@ -3,6 +3,7 @@ import { ActivityIndicator, BackHandler, Linking, Platform, StyleSheet, Text, To
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Localization from 'expo-localization';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
@@ -61,6 +62,8 @@ function voiceLocale(): string {
     } catch { /* fallback below */ }
     return 'es-CL';
 }
+
+const KEEP_AWAKE_TAG = 'vorian-live-voice';
 
 export function LiveVoiceSession({ visible, conversationId, instant = false, onClose }: LiveVoiceSessionProps) {
     const insets = useSafeAreaInsets();
@@ -188,6 +191,14 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, onC
             closeTimerRef.current = null;
         }
     }, []);
+
+    // The screen stays on while talking: if it turned off, Android would pause
+    // the voice page and the conversation would drop.
+    useEffect(() => {
+        if (!visible) return;
+        void activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => undefined);
+        return () => { void deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined); };
+    }, [visible]);
 
     // Android's back button ends the conversation like the back arrow does.
     useEffect(() => {
