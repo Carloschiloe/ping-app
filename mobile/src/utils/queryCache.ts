@@ -13,10 +13,17 @@ export const MAX_CACHED_CHATS = 12;
 
 export const queryCacheKey = (userId: string) => `ping.query-cache.${CACHE_VERSION}:${userId}`;
 
+// Whole-screen lists that are worth showing at once on open: the Hoy screen,
+// contacts and the assistant chat id. Commitments of a chat are kept for the
+// same recent chats as its messages.
+const SINGLE_LISTS = new Set(['all-commitments-dashboard', 'contacts', 'agent-self-conversation-id']);
+
 export function isPersistableQuery(query: Pick<Query, 'queryKey' | 'state'>): boolean {
     if (query.state.status !== 'success' || query.state.data == null) return false;
     const [root, conversationId, scrollTarget] = query.queryKey as unknown[];
     if (root === 'conversations') return query.queryKey.length === 1;
+    if (typeof root === 'string' && SINGLE_LISTS.has(root)) return query.queryKey.length === 1;
+    if (root === 'group-tasks-conv') return typeof conversationId === 'string';
     // A chat opened at a searched message is a one-off view, not its latest page.
     return root === 'conversation-messages' && typeof conversationId === 'string' && scrollTarget == null;
 }
@@ -33,7 +40,13 @@ export function trimCacheState(state: DehydratedState, maxChats = MAX_CACHED_CHA
             return { ...q, state: { ...q.state, data: { pages: data.pages.slice(0, 1), pageParams: (data.pageParams ?? []).slice(0, 1) } } };
         });
     const lists = state.queries.filter((q) => q.queryKey[0] === 'conversations');
-    return { mutations: [], queries: [...lists, ...chats] };
+    const keptChats = new Set(chats.map((q) => q.queryKey[1]));
+    const others = state.queries.filter((q) => {
+        const root = q.queryKey[0];
+        if (typeof root === 'string' && SINGLE_LISTS.has(root)) return true;
+        return root === 'group-tasks-conv' && keptChats.has(q.queryKey[1]);
+    });
+    return { mutations: [], queries: [...lists, ...chats, ...others] };
 }
 
 export function usePersistedChats(userId?: string | null) {
