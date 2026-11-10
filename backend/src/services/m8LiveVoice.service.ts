@@ -367,6 +367,11 @@ async function downloadJson(path: string): Promise<Record<string, any> | null> {
     const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).download(path);
     if (error) {
         if (/not found|404|object does not exist/i.test(error.message || '')) return null;
+        // Supabase answers a missing file with a bare 400 and an empty
+        // message ("StorageUnknownError"); that is the normal first write of
+        // a session, not an outage.
+        const status = Number((error as any)?.status ?? (error as any)?.statusCode ?? (error as any)?.originalError?.status);
+        if (status === 400 || status === 404) return null;
         throw telemetryStorageError('Live voice telemetry storage unavailable', error, 'download');
     }
     try {
@@ -400,7 +405,14 @@ async function uploadJson(path: string, value: unknown): Promise<void> {
     if (error) throw telemetryStorageError('Live voice telemetry persistence failed', error, 'upload');
 }
 
+// Listing up to 1000 files on every voice event slowed the live
+// conversation; old files only need sweeping now and then.
+const TELEMETRY_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+let lastTelemetryCleanupAt = 0;
+
 async function cleanupExpiredTelemetry(): Promise<void> {
+    if (Date.now() - lastTelemetryCleanupAt < TELEMETRY_CLEANUP_INTERVAL_MS) return;
+    lastTelemetryCleanupAt = Date.now();
     const { data, error } = await supabaseAdmin.storage.from(telemetryBucket()).list('latest', { limit: 1000, sortBy: { column: 'updated_at', order: 'asc' } });
     if (error) throw telemetryStorageError('Live voice telemetry storage unavailable', error, 'list_objects');
     const cutoff = Date.now() - TELEMETRY_RETENTION_MS;

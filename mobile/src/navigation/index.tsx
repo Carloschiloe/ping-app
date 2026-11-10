@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useCommitmentSync } from '../hooks/useCommitmentSync';
 import { useInviteLinks } from '../hooks/useInviteLinks';
 import type { ConversationsStackParamList, MainTabParamList, ProfileStackParamList, RootStackParamList } from './types';
 import { FloatingTabBar } from '../design/FloatingTabBar';
@@ -138,6 +139,7 @@ export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 // Inner component to use hooks with navigation context
 const PushNotificationHandler = () => {
     usePushNotifications(navigationRef);
+    useCommitmentSync();
     return null;
 };
 
