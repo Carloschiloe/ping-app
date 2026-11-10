@@ -21,6 +21,10 @@ describe('chats kept on the phone', () => {
         expect(isPersistableQuery({ queryKey: ['conversation-messages', 'c1', 'm9'], state: ok({ pages: [] }) })).toBe(false);
         expect(isPersistableQuery({ queryKey: ['conversations'], state: { status: 'error', data: undefined } as any })).toBe(false);
         expect(isPersistableQuery({ queryKey: ['commitments'], state: ok([]) })).toBe(false);
+        // The Hoy screen, contacts and a chat's commitments open at once too.
+        expect(isPersistableQuery({ queryKey: ['all-commitments-dashboard'], state: ok([]) })).toBe(true);
+        expect(isPersistableQuery({ queryKey: ['contacts'], state: ok([]) })).toBe(true);
+        expect(isPersistableQuery({ queryKey: ['group-tasks-conv', 'c1', 'u1'], state: ok([]) })).toBe(true);
     });
 
     it('keeps only the newest page of the most recent chats', () => {
