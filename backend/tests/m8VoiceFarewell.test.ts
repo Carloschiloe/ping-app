@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { isVoiceFarewell, M8_VOICE_FAREWELL_BROWSER_SOURCE } from '../src/services/m8VoiceFarewell';
 import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.service';
 
-const GOODBYES = ['Chao Vorian', 'chao', 'Gracias, eso es todo.', 'Listo, gracias. Chao!', 'Cierra', 'cierra la conversación', 'Termina', 'Adiós', 'Hasta luego Vorian', 'nada más, gracias', 'ok, nos vemos', 'Corta la llamada', 'Chao, ciérrate', 'chao cierrate vorian', 'Listo, apágate', 'Ciérrate por favor', 'Ya, chao, gracias', 'Eso nomás quería saber. Chau.', 'Salgas, ciérrate, yo terminé de hablar contigo.', 'Ciérrate, ya terminé de hablar contigo', 'ok gracias, eso era todo', 'apágate vorian', 'Bueno, chao Vorian, gracias.', 'ciérrate ya'];
-const NOT_GOODBYES = ['Cierra el compromiso con Juan', 'termina la reunión a las cinco', 'gracias', '¿Qué tengo mañana?', 'chao con el almuerzo de mañana, cancélalo', '', 'apaga la luz del living a las 8', 'Chao, y recuérdame mañana llamar a Juan', 'Fíjate qué tengo mañana', 'Termina la tarea de informe', 'cierra la venta con Pedro el lunes'];
+const GOODBYES = ['Chao Vorian', 'chao', 'Gracias, eso es todo.', 'Listo, gracias. Chao!', 'Cierra', 'cierra la conversación', 'Termina', 'Adiós', 'Hasta luego Vorian', 'nada más, gracias', 'ok, nos vemos', 'Corta la llamada', 'Chao, ciérrate', 'chao cierrate vorian', 'Listo, apágate', 'Ciérrate por favor', 'Ya, chao, gracias', 'Eso nomás quería saber. Chau.', 'Salgas, ciérrate, yo terminé de hablar contigo.', 'Ciérrate, ya terminé de hablar contigo', 'ok gracias, eso era todo', 'apágate vorian', 'Bueno, chao Vorian, gracias.', 'ciérrate ya', 'Olvídalo. No necesito nada de ti. Chao chao.', 'Chao, te dije.', 'Nada, te saludé sin querer.', 'chao no necesito nada', 'Chao, no necesito nada', 'No, gracias, chao', 'Ya te dije chao', 'chao chao chao', 'Déjalo, no necesito nada', 'Te llamé sin querer, chao', 'No necesito nada, gracias'];
+const NOT_GOODBYES = ['Cierra el compromiso con Juan', 'termina la reunión a las cinco', 'gracias', '¿Qué tengo mañana?', 'chao con el almuerzo de mañana, cancélalo', '', 'apaga la luz del living a las 8', 'Chao, y recuérdame mañana llamar a Juan', 'Fíjate qué tengo mañana', 'Termina la tarea de informe', 'cierra la venta con Pedro el lunes', 'nada', 'no', 'Olvídalo, mejor dime qué tengo mañana', 'No necesito nada para la reunión del lunes, anótalo', 'Chao, te dije que me recuerdes llamar a Juan', 'Te dije que me avises mañana'];
 
 describe('closing the live voice by voice', () => {
     it('recognises a short goodbye and nothing that only contains the word', () => {
@@ -22,9 +22,10 @@ describe('closing the live voice by voice', () => {
         process.env.M8_LIVE_VOICE_MODEL = 'gpt-realtime-2.1';
         process.env.OPENAI_API_KEY = 'test-only-key';
         const html = getM8LiveVoiceClientHtml();
-        expect(html).toContain('if(isVoiceFarewell(selectedInput)){sayFarewell(event.call_id);return}');
         // A goodbye is never sent ahead to the assistant.
         expect(html).toContain('const prefetchCore=(input,turnId)=>{if(isVoiceFarewell(input))return;');
+        expect(html).toContain('if(isVoiceFarewell(value))farewellHeard=true;');
+        expect(html).toContain("if(args.intent==='end_conversation'||farewellHeard||isVoiceFarewell(selectedInput)){");
         // The app takes the person back to the chat list.
         expect(html).toContain("farewellPending=true;post({type:'farewell'});");
         // Opened from the day's summary, it is said instead of the usual hello.
