@@ -22,6 +22,10 @@ export function useWakeWord(navigationRef: any) {
         let restartTimer: ReturnType<typeof setTimeout> | null = null;
         let appActive = AppState.currentState === 'active';
         let failures = 0;
+        // Listening on the phone itself needs the Spanish pack downloaded. When it
+        // is missing the phone says so at once; then Google's online listening is used.
+        let useOnDevice = true;
+        let lastTriedOnDevice = false;
 
         const eligible = () => !disposed && enabled && appActive && !isMicBusy();
 
@@ -37,7 +41,8 @@ export function useWakeWord(navigationRef: any) {
             try {
                 const permission = await ExpoSpeechRecognitionModule.getMicrophonePermissionsAsync();
                 if (!permission.granted || !eligible() || listening) return;
-                const onDevice = (() => { try { return ExpoSpeechRecognitionModule.supportsOnDeviceRecognition(); } catch { return false; } })();
+                const onDevice = useOnDevice && (() => { try { return ExpoSpeechRecognitionModule.supportsOnDeviceRecognition(); } catch { return false; } })();
+                lastTriedOnDevice = onDevice;
                 listening = true;
                 ExpoSpeechRecognitionModule.start({
                     lang: 'es-CL',
@@ -79,8 +84,13 @@ export function useWakeWord(navigationRef: any) {
                 listening = false;
                 scheduleRestart(RESTART_MS);
             }),
-            ExpoSpeechRecognitionModule.addListener('error', () => {
+            ExpoSpeechRecognitionModule.addListener('error', (event: any) => {
                 listening = false;
+                if (lastTriedOnDevice && isMissingLanguage(event)) {
+                    useOnDevice = false;
+                    scheduleRestart(RESTART_MS);
+                    return;
+                }
                 failures += 1;
                 // Repeated failures (no recogniser, no network) back off instead of looping.
                 scheduleRestart(failures > 3 ? BACKOFF_MS * 4 : BACKOFF_MS);
@@ -103,4 +113,10 @@ export function useWakeWord(navigationRef: any) {
             offSetting();
         };
     }, [navigationRef]);
+}
+
+// The phone cannot listen in Spanish by itself (language pack not downloaded).
+export function isMissingLanguage(event: any): boolean {
+    const code = String(event?.error ?? '');
+    return code === 'language-not-supported' || code === 'language-unavailable';
 }
