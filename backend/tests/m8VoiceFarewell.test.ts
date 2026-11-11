@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isVoiceFarewell, M8_VOICE_FAREWELL_BROWSER_SOURCE } from '../src/services/m8VoiceFarewell';
 import { getM8LiveVoiceClientHtml } from '../src/services/m8LiveVoiceClient.service';
 
-const GOODBYES = ['Chao Vorian', 'chao', 'Gracias, eso es todo.', 'Listo, gracias. Chao!', 'Cierra', 'cierra la conversación', 'Termina', 'Adiós', 'Hasta luego Vorian', 'nada más, gracias', 'ok, nos vemos', 'Corta la llamada'];
+const GOODBYES = ['Chao Vorian', 'chao', 'Gracias, eso es todo.', 'Listo, gracias. Chao!', 'Cierra', 'cierra la conversación', 'Termina', 'Adiós', 'Hasta luego Vorian', 'nada más, gracias', 'ok, nos vemos', 'Corta la llamada', 'Chao, ciérrate', 'chao cierrate vorian', 'Listo, apágate', 'Ciérrate por favor', 'Ya, chao, gracias'];
 const NOT_GOODBYES = ['Cierra el compromiso con Juan', 'termina la reunión a las cinco', 'gracias', '¿Qué tengo mañana?', 'chao con el almuerzo de mañana, cancélalo', '', 'apaga la luz del living a las 8'];
 
 describe('closing the live voice by voice', () => {
