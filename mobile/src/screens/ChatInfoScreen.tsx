@@ -156,7 +156,7 @@ export default function ChatInfoScreen({ route, navigation }: ChatInfoScreenProp
         });
         if (!ok) return;
         deleteGroup(conversationId, {
-            onSuccess: () => navigation.navigate('ConversationsList'),
+            onSuccess: () => navigation.popTo('ConversationsList'),
             onError: () => Alert.alert('No se pudo eliminar el grupo', 'Inténtalo nuevamente.'),
         });
     };

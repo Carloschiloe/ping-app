@@ -40,7 +40,9 @@ describe('hands-free voice', () => {
 
     it('saying goodbye ends at the chat list', () => {
         expect(read('components/agent/LiveVoiceSession.tsx')).toContain("if (message.type === 'farewell') closeReasonRef.current = 'farewell';");
-        expect(read('screens/AgentPreviewScreen.tsx')).toContain("if (reason === 'farewell') navigation.navigate('ConversationsList');");
+        expect(read('screens/AgentPreviewScreen.tsx')).toContain("if (reason === 'farewell') navigation.popTo('ConversationsList');");
+        // Going back to the chat list that is already open keeps the tab bar.
+        expect(read('screens/ChatInfoScreen.tsx')).not.toContain("navigate('ConversationsList')");
     });
 
     it('the summary of the day opens the voice to say it, on arrival with the app open or on tapping it', () => {
