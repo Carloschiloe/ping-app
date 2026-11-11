@@ -32,6 +32,13 @@ describe('«Hola Vorian»', () => {
         expect(read('src/screens/CallScreen.tsx')).toContain("setMicBusy('call', true)");
         expect(read('src/components/agent/LiveVoiceSession.tsx')).toContain("setMicBusy('live-voice'");
     });
+
+    it('falls back to online listening when the phone lacks the Spanish pack', () => {
+        const hook = read('src/hooks/useWakeWord.ts');
+        expect(hook).toContain('useOnDevice = false');
+        expect(hook).toContain("'language-not-supported'");
+        expect(hook).toContain('useOnDevice && ');
+    });
 });
 
 describe('Summary alarm on the phone', () => {
