@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Share } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Share } from 'react-native';
 import { CachedImage } from '../design/CachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
@@ -22,11 +22,13 @@ import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 import { colors, gradients, radius, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 import { Glass } from '../design/Glass';
+import { useTopGlass } from '../design/TopGlass';
 
 // Who the person is and their plan. Every setting lives in Ajustes.
 
 export default function ProfileScreen() {
     const insets = useSafeAreaInsets();
+    const topGlass = useTopGlass();
     const navigation = useNavigation<NativeStackNavigationProp<ProfileStackParamList>>();
     const { user, refreshProfile } = useAuth();
     const { data: access } = useAccess(!!user);
@@ -107,8 +109,12 @@ export default function ProfileScreen() {
     };
 
     return (
-        <ScrollView
+        <View style={styles.container}>
+        {topGlass.glass}
+        <Reanimated.ScrollView
             style={styles.container}
+            onScroll={topGlass.onScroll}
+            scrollEventThrottle={16}
             contentContainerStyle={{
                 // Safe area top so content never hides under the status bar.
                 paddingTop: Math.max(insets.top, 16) + 12,
@@ -213,7 +219,8 @@ export default function ProfileScreen() {
                 onSaveAvatar={handleSaveAvatar}
                 onSaveCover={setCoverUrl}
             />
-        </ScrollView>
+        </Reanimated.ScrollView>
+        </View>
     );
 }
 
