@@ -25,7 +25,7 @@ describe('closing the live voice by voice', () => {
         // A goodbye is never sent ahead to the assistant.
         expect(html).toContain('const prefetchCore=(input,turnId)=>{if(isVoiceFarewell(input))return;');
         expect(html).toContain('if(isVoiceFarewell(value))farewellHeard=true;');
-        expect(html).toContain('if(farewellHeard||isVoiceFarewell(selectedInput)){farewellHeard=false;sayFarewell(event.call_id);return}');
+        expect(html).toContain("if(args.intent==='end_conversation'||farewellHeard||isVoiceFarewell(selectedInput)){");
         // The app takes the person back to the chat list.
         expect(html).toContain("farewellPending=true;post({type:'farewell'});");
         // Opened from the day's summary, it is said instead of the usual hello.

@@ -118,8 +118,17 @@ function coreToolDefinition() {
         description: 'Submit the user turn to Vorian Core. Never execute an action directly from voice.',
         parameters: {
             type: 'object',
-            properties: { input: { type: 'string', minLength: 1, maxLength: 4000 } },
-            required: ['input'],
+            properties: {
+                input: { type: 'string', minLength: 1, maxLength: 4000 },
+                // The voice model hears the whole conversation, so it judges
+                // whether the person wants to stop talking, whatever the words.
+                intent: {
+                    type: 'string',
+                    enum: ['request', 'end_conversation'],
+                    description: 'end_conversation when the person, in any words, wants to stop talking to Vorian now: says goodbye, says they need nothing else, that they called by mistake, asks it to close or be quiet, or answers "nothing" to "anything else?". request for everything else, including any goodbye that also asks for something.',
+                },
+            },
+            required: ['input', 'intent'],
             additionalProperties: false,
         },
     };
@@ -134,6 +143,7 @@ export function buildSessionConfig(input: M8LiveVoiceSessionRequest, model: stri
             'Eres la interfaz de voz de Vorian, no un agente separado.',
             'Habla siempre en español de Chile, con una dicción natural, cálida y clara, como en una conversación entre personas: entonación expresiva, ritmo tranquilo y pausas naturales. No cambies al inglés por defecto aunque el dispositivo tenga otro idioma.',
             'Para cada turno del usuario espera la transcripción finalizada y llama a ping_core_turn con esa transcripción exacta. No resumas, corrijas, traduzcas ni sustituyas palabras del usuario; conserva especialmente fechas, horas, números y términos como mañana.',
+            'En intent juzga la intención según el sentido y el contexto de la conversación, no por palabras exactas: usa end_conversation si la persona quiere terminar de hablar ahora (se despide, ya no necesita nada, te llamó sin querer, te pide cerrarte o callarte, o responde que nada cuando le ofreces algo más), aunque lo diga con sus propias palabras o con rabia. Si además pide o pregunta algo, usa request.',
             'Antes de recibir el resultado de Vorian Core no produzcas texto narrativo, audio, hechos, razones ni explicaciones.',
             'Después de recibir core_presentation, verbaliza únicamente authorizedText y conserva confirmationRequired, confirmationLabel y cancelLabel. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
             'Una propuesta nunca es una ejecución: conserva siempre la confirmación explícita requerida por el Core.',
