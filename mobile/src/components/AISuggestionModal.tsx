@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Platform, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { VorianClock } from '../design/VorianClock';
 import { apiClient } from '../api/client';
 import { useContacts, useCreateContact } from '../api/queries';
 import { formatSuggestionDueAt } from '../utils/timeZone';
@@ -44,7 +44,6 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
     const [conflicts, setConflicts] = useState<any[]>([]);
     const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
     const [showPicker, setShowPicker] = useState(false);
-    const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
     const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
     const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false);
@@ -108,42 +107,12 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
             setIsSubmittingCancellation(false);
         }
     };
-    // @react-native-community/datetimepicker v9: `onChange` está deprecado a
-    // favor de `onValueChange` (siempre trae `date`, nunca opcional) +
-    // `onDismiss` (cancelación/back) como callbacks separados -- ya no hace
-    // falta inspeccionar `event.type === 'dismissed'` manualmente, eso ahora
-    // es exactamente lo que dispara `onDismiss`.
-    // Without a date yet, the picker starts at the next full hour.
+    // Without a date yet, Vorian's clock starts at the next full hour.
     const pickerBase = () => {
         if (suggestionData?.dueAt) return new Date(suggestionData.dueAt);
         const next = new Date();
         next.setHours(next.getHours() + 1, 0, 0, 0);
         return next;
-    };
-
-    const onDateChange = (selectedDate: Date) => {
-        if (Platform.OS === 'ios') {
-            // In iOS datetime mode, selectedDate has everything
-            onUpdateData({ ...suggestionData, dueAt: selectedDate.toISOString() });
-        } else {
-            const currentSelected = pickerBase();
-            if (pickerMode === 'date') {
-                currentSelected.setFullYear(selectedDate.getFullYear());
-                currentSelected.setMonth(selectedDate.getMonth());
-                currentSelected.setDate(selectedDate.getDate());
-
-                setShowPicker(false);
-                setTimeout(() => {
-                    setPickerMode('time');
-                    setShowPicker(true);
-                }, 100);
-            } else {
-                currentSelected.setHours(selectedDate.getHours());
-                currentSelected.setMinutes(selectedDate.getMinutes());
-                setShowPicker(false);
-                onUpdateData({ ...suggestionData, dueAt: currentSelected.toISOString() });
-            }
-        }
     };
 
     if (!suggestionData) return null;
@@ -230,10 +199,7 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                             <Text style={styles.inputLabel}>FECHA Y HORA (Toca para cambiar)</Text>
                             <TouchableOpacity 
                                 style={styles.datePreview} 
-                                onPress={() => {
-                                    setPickerMode('date');
-                                    setShowPicker(true);
-                                }}
+                                onPress={() => setShowPicker(true)}
                             >
                                 <Ionicons name={isMeeting ? "calendar" : "list"} size={20} color={colors.accentBright} />
                                 <Text style={[styles.dateText, isMeeting && { color: colors.accentBright }]}>
@@ -242,28 +208,18 @@ export const AISuggestionModal: React.FC<AISuggestionModalProps> = ({
                                 <Ionicons name="pencil" size={14} color={colors.textFaint} style={{ marginLeft: 'auto' }} />
                             </TouchableOpacity>
 
-                            {showPicker && (
-                                <View style={styles.pickerWrapper}>
-                                    <DateTimePicker
-                                        value={pickerBase()}
-                                        mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
-                                        is24Hour={true}
-                                        display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                        onValueChange={(_, date) => onDateChange(date)}
-                                        onDismiss={() => setShowPicker(false)}
-                                        themeVariant="light"
-                                        {...(Platform.OS === 'android' ? { textColor: colors.accentBright } : {})}
-                                    />
-                                    {Platform.OS === 'ios' && (
-                                        <TouchableOpacity 
-                                            style={styles.confirmPickerBtn} 
-                                            onPress={() => setShowPicker(false)}
-                                        >
-                                            <Text style={styles.confirmPickerBtnText}>Confirmar Fecha y Hora</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-                            )}
+                            <VorianClock
+                                visible={showPicker}
+                                title="Fecha y hora"
+                                subtitle={suggestionData.title}
+                                value={pickerBase()}
+                                future
+                                onClose={() => setShowPicker(false)}
+                                onSave={(chosen) => {
+                                    setShowPicker(false);
+                                    onUpdateData({ ...suggestionData, dueAt: chosen.toISOString() });
+                                }}
+                            />
 
                             <View style={styles.statusContainer}>
                                 {isCheckingConflicts && (
@@ -625,22 +581,4 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontFamily: fonts.extrabold,
     },
-    pickerWrapper: {
-        backgroundColor: colors.glassRaised,
-        borderRadius: 16,
-        padding: 8,
-        marginTop: 8,
-    },
-    confirmPickerBtn: {
-        backgroundColor: colors.accent,
-        paddingVertical: 10,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 8,
-    },
-    confirmPickerBtnText: {
-        color: colors.onAccent,
-        fontFamily: fonts.bold,
-        fontSize: 14,
-    }
 });

@@ -1,12 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet, Pressable, Platform } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
-import { format, addDays, startOfDay } from 'date-fns';
-import { es } from 'date-fns/locale';
-import { colors } from '../../design/tokens';
-import { fonts } from '../../design/typography';
-import { SheetFill, sheetSurface } from '../../design/Sheet';
+import React, { useMemo } from 'react';
+import { VorianClock } from '../../design/VorianClock';
+
+// Moving a commitment to another day and time, on Vorian's clock.
 
 interface RescheduleModalProps {
     item: any | null;
@@ -15,204 +10,29 @@ interface RescheduleModalProps {
 }
 
 export function RescheduleModal({ item, onClose, onSaveDate }: RescheduleModalProps) {
-    const initialDate = item?.due_at ? new Date(item.due_at) : addDays(new Date(), 1);
-    const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
-    const [showNativePicker, setShowNativePicker] = useState(false);
-    // Android's native picker has no combined "datetime" mode (only
-    // 'date'|'time') -- mismo patrón ya usado en AISuggestionModal.tsx: se
-    // pide la fecha primero, luego se reabre automáticamente en modo 'time'
-    // conservando lo ya elegido. iOS sigue usando 'datetime' en un solo paso.
-    const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+    const value = useMemo(() => {
+        if (item?.due_at) return new Date(item.due_at);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(10, 0, 0, 0);
+        return tomorrow;
+    }, [item?.due_at]);
 
     if (!item) return null;
 
-    const quickSelect = (daysOffset: number, hour = 10) => {
-        const d = addDays(startOfDay(new Date()), daysOffset);
-        d.setHours(hour, 0, 0, 0);
-        setSelectedDate(d);
-    };
-
-    const openPicker = () => {
-        setPickerMode('date');
-        setShowNativePicker(true);
-    };
-
-    // @react-native-community/datetimepicker v9: `onChange` está deprecado a
-    // favor de `onValueChange` (siempre trae `date`, nunca opcional) +
-    // `onDismiss` (cancelación/back) como callbacks separados -- ver
-    // node_modules/@react-native-community/datetimepicker/src/index.d.ts.
-    const handlePickerValueChange = (date: Date) => {
-        if (Platform.OS === 'ios') {
-            setSelectedDate(date);
-            setShowNativePicker(false);
-            return;
-        }
-        const next = new Date(selectedDate);
-        if (pickerMode === 'date') {
-            next.setFullYear(date.getFullYear());
-            next.setMonth(date.getMonth());
-            next.setDate(date.getDate());
-            setSelectedDate(next);
-            setShowNativePicker(false);
-            setTimeout(() => {
-                setPickerMode('time');
-                setShowNativePicker(true);
-            }, 100);
-        } else {
-            next.setHours(date.getHours());
-            next.setMinutes(date.getMinutes());
-            setSelectedDate(next);
-            setShowNativePicker(false);
-        }
-    };
-
-    const handleConfirm = () => {
-        onSaveDate(item.id, selectedDate.toISOString());
-        onClose();
-    };
-
     return (
-        <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
-            <Pressable style={styles.overlay} onPress={onClose} />
-            <View style={styles.card}>
-                <SheetFill />
-                <View style={styles.header}>
-                    <Text style={[styles.title, { color: colors.text }]}>
-                        {item.due_at ? 'Reprogramar fecha' : 'Poner fecha'}
-                    </Text>
-                    <TouchableOpacity onPress={onClose}>
-                        <Ionicons name="close" size={20} color={colors.textSoft} />
-                    </TouchableOpacity>
-                </View>
-                <Text style={[styles.subtitle, { color: colors.textSoft }]} numberOfLines={1}>
-                    {item.title}
-                </Text>
-
-                {/* Quick Presets */}
-                <View style={styles.presetsRow}>
-                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: colors.glassRaised }]} onPress={() => quickSelect(0, 18)}>
-                        <Text style={[styles.presetText, { color: colors.text }]}>Hoy tarde (18:00)</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: colors.glassRaised }]} onPress={() => quickSelect(1, 10)}>
-                        <Text style={[styles.presetText, { color: colors.text }]}>Mañana 10:00</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.presetBtn, { backgroundColor: colors.glassRaised }]} onPress={() => quickSelect(7, 10)}>
-                        <Text style={[styles.presetText, { color: colors.text }]}>Próxima semana</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Selected Date Preview */}
-                <TouchableOpacity
-                    style={[styles.datePreview, { backgroundColor: colors.glassRaised, borderColor: colors.glassBorder }]}
-                    onPress={openPicker}
-                >
-                    <Ionicons name="calendar-outline" size={18} color={colors.accent} />
-                    <Text style={[styles.datePreviewText, { color: colors.text }]}>
-                        {format(selectedDate, "eeee d 'de' MMMM · HH:mm", { locale: es })}
-                    </Text>
-                    <Ionicons name="pencil-outline" size={14} color={colors.textFaint} />
-                </TouchableOpacity>
-
-                {showNativePicker && (
-                    <DateTimePicker
-                        value={selectedDate}
-                        mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
-                        display="default"
-                        onValueChange={(_, date) => handlePickerValueChange(date)}
-                        onDismiss={() => setShowNativePicker(false)}
-                    />
-                )}
-
-                {/* Footer Buttons */}
-                <View style={styles.footer}>
-                    <TouchableOpacity style={[styles.cancelBtn, { borderColor: colors.glassBorder }]} onPress={onClose}>
-                        <Text style={{ color: colors.textSoft, fontFamily: fonts.semibold }}>Cancelar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.accent }]} onPress={handleConfirm}>
-                        <Text style={{ color: colors.onAccent, fontFamily: fonts.bold }}>Guardar fecha</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-        </Modal>
+        <VorianClock
+            visible={!!item}
+            title={item.due_at ? 'Cambiar fecha' : 'Poner fecha'}
+            subtitle={item.title}
+            value={value}
+            future
+            saveLabel="Guardar fecha"
+            onClose={onClose}
+            onSave={(chosen) => {
+                onSaveDate(item.id, chosen.toISOString());
+                onClose();
+            }}
+        />
     );
 }
-
-const styles = StyleSheet.create({
-    overlay: {
-        flex: 1,
-        backgroundColor: colors.scrim,
-    },
-    card: {
-        position: 'absolute',
-        bottom: 40,
-        left: 20,
-        right: 20,
-        borderRadius: 18,
-        padding: 20,
-        shadowColor: colors.ink,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 10,
-        elevation: 8,
-        gap: 12,
-        ...sheetSurface,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    title: {
-        fontSize: 17,
-        fontFamily: fonts.bold,
-    },
-    subtitle: {
-        fontSize: 13,
-        fontFamily: fonts.medium,
-    },
-    presetsRow: {
-        flexDirection: 'row',
-        gap: 6,
-        flexWrap: 'wrap',
-    },
-    presetBtn: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 6,
-    },
-    presetText: {
-        fontSize: 12,
-        fontFamily: fonts.semibold,
-    },
-    datePreview: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        gap: 10,
-    },
-    datePreviewText: {
-        flex: 1,
-        fontSize: 13,
-        fontFamily: fonts.semibold,
-    },
-    footer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 10,
-        marginTop: 6,
-    },
-    cancelBtn: {
-        paddingHorizontal: 14,
-        paddingVertical: 9,
-        borderRadius: 8,
-        borderWidth: 1,
-    },
-    saveBtn: {
-        paddingHorizontal: 16,
-        paddingVertical: 9,
-        borderRadius: 8,
-    },
-});

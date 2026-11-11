@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { VorianClock } from '../../design/VorianClock';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { colors, radius, space } from '../../design/tokens';
@@ -135,24 +135,22 @@ export function CloseCommitmentSheet({
                                 >
                                     <Ionicons name="calendar-outline" size={14} color={colors.text} />
                                     <Text style={[styles.dateText, !quickDates.some((d) => isQuick(d.date)) && styles.dateTextOn]}>
-                                        {quickDates.some((d) => isQuick(d.date)) ? 'Otra fecha' : format(chosenDue, "d 'de' MMM", { locale: es })}
+                                        {quickDates.some((d) => isQuick(d.date)) ? 'Otra fecha' : format(chosenDue, "d 'de' MMM · HH:mm", { locale: es })}
                                     </Text>
                                 </TouchableOpacity>
                             </View>
-                            {picking && (
-                                <DateTimePicker
-                                    value={chosenDue}
-                                    mode="date"
-                                    minimumDate={new Date()}
-                                    onValueChange={(_, date) => {
-                                        const next = new Date(date);
-                                        next.setHours(10, 0, 0, 0);
-                                        setDueAt(next);
-                                        setPicking(false);
-                                    }}
-                                    onDismiss={() => setPicking(false)}
-                                />
-                            )}
+                            <VorianClock
+                                visible={picking}
+                                title="¿Para cuándo?"
+                                subtitle={item?.title}
+                                value={chosenDue}
+                                future
+                                onClose={() => setPicking(false)}
+                                onSave={(chosen) => {
+                                    setDueAt(chosen);
+                                    setPicking(false);
+                                }}
+                            />
                         </>
                     )}
 
