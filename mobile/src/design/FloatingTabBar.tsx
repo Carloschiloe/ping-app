@@ -45,13 +45,18 @@ function TabButton({ label, focused, onPress }: { label: string; focused: boolea
     );
 }
 
+// The first screen of each tab: the bar is always shown on them.
+const TAB_HOME_SCREENS = new Set(['ConversationsList', 'ProfileHome']);
+
 // Floating frosted bar with a blue pill under the active tab.
 export function FloatingTabBar({ state, navigation, descriptors }: BottomTabBarProps) {
     const insets = useSafeAreaInsets();
     const focusedOptions = state.routes[state.index];
-    const nested = (focusedOptions.state as any)?.index ?? 0;
+    const nestedState = focusedOptions.state as any;
+    const nestedRoute = nestedState?.routes?.[nestedState?.index ?? 0]?.name;
     // Inside a conversation the bar steps aside so the composer has the room.
-    if (nested > 0) return null;
+    // On a list screen (Chats, Perfil) it always shows, however you got there.
+    if ((nestedState?.index ?? 0) > 0 && !TAB_HOME_SCREENS.has(nestedRoute)) return null;
     // A screen can ask for the whole height, e.g. while a sheet is open.
     const style = descriptors[focusedOptions.key]?.options.tabBarStyle as { display?: string } | undefined;
     if (style?.display === 'none') return null;
