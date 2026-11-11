@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -30,6 +30,8 @@ import { exportMyData } from '../utils/exportMyData';
 import { appSoundsEnabled, loadAppSoundsPreference, playAppSound, setAppSoundsEnabled } from '../utils/appSounds';
 import { TAB_BAR_CLEARANCE } from '../design/FloatingTabBar';
 import { Glass } from '../design/Glass';
+import { useTopGlass } from '../design/TopGlass';
+import Reanimated from 'react-native-reanimated';
 import { colors, gradients, space } from '../design/tokens';
 import { fonts, type } from '../design/typography';
 
@@ -38,6 +40,7 @@ import { fonts, type } from '../design/typography';
 
 export default function SettingsScreen() {
     const insets = useSafeAreaInsets();
+    const topGlass = useTopGlass();
     const navigation = useNavigation();
     const { user, profile } = useAuth();
     const isFocused = useIsFocused();
@@ -284,8 +287,12 @@ export default function SettingsScreen() {
         : 'Desactivado';
 
     return (
-        <ScrollView
+        <View style={styles.container}>
+        {topGlass.glass}
+        <Reanimated.ScrollView
             style={styles.container}
+            onScroll={topGlass.onScroll}
+            scrollEventThrottle={16}
             contentContainerStyle={{
                 paddingTop: Math.max(insets.top, 16) + 12,
                 paddingBottom: Math.max(insets.bottom, 12) + TAB_BAR_CLEARANCE,
@@ -426,7 +433,8 @@ export default function SettingsScreen() {
             <FeedbackSheet visible={feedbackVisible} onClose={() => setFeedbackVisible(false)} />
             <BlockedPeopleSheet visible={blockedVisible} onClose={() => setBlockedVisible(false)} />
             <DeleteAccountSheet visible={deleteAccountVisible} onClose={() => setDeleteAccountVisible(false)} />
-        </ScrollView>
+        </Reanimated.ScrollView>
+        </View>
     );
 }
 
