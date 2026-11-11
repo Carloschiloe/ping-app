@@ -53,6 +53,8 @@ export const TOOL_ARGUMENT_SCHEMAS: Record<string, z.ZodTypeAny> = {
         dueAt: z.string().datetime(),
         responsiblePersonId: UUID.nullable(),
         conversationId: UUID.nullable(),
+        // A meeting with someone: the user attends it, in that person's chat.
+        type: z.enum(['task', 'meeting']).optional(),
     }).strict(),
     respond_to_proposal: z.object({
         proposalId: UUID,

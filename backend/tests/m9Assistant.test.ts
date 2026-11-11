@@ -200,6 +200,59 @@ describe('M9 assistant tools — safety contract', () => {
         expect(chat.world.executed).toHaveLength(1);
     });
 
+    it('a meeting with someone is the user own meeting in that chat, not a task for them', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('agenda reunión con Ana mañana a las 3', [
+            [['find_person', { name: 'Ana' }]],
+            [['propose_create_commitment', { title: 'Reunión de Personal', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: 'p1' }]],
+            '¿La agendo?',
+        ]);
+        const proposed = toolResults(output)[1];
+        expect(proposed.summary).toMatch(/^Crear la reunión «Reunión de Personal» con Ana /);
+        const args = output.trace.find((entry) => entry.proposedAction)!.proposedAction!.arguments;
+        expect(args).toMatchObject({ type: 'meeting', responsiblePersonId: null });
+        expect(args.conversationId).toBeTruthy();
+    });
+
+    it('"sí, ponle otro título" runs the heard action with that change, without asking again', async () => {
+        const chat = new Conversation();
+        await chat.say('agenda una reunión mañana a las 3', [
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
+            '¿La agendo?',
+        ], { channel: 'voice' });
+        const yes = await chat.say('Sí, colócale el título Reunión de Personal', [
+            [['confirm_action', { action: 'a1', newTitle: 'Reunión de Personal', newDue: null }]],
+            'Listo.',
+        ], { channel: 'voice', userWordsHeard: true });
+        expect(toolResults(yes)[0]).toMatchObject({ executed: true });
+        expect(toolResults(yes)[0].summary).toContain('«Reunión de Personal»');
+        expect(chat.world.executed).toHaveLength(1);
+        expect(chat.world.executed[0].arguments).toMatchObject({ title: 'Reunión de Personal', type: 'meeting' });
+        expect(yes.memory.actions.map((action) => action.state)).toEqual(['superseded', 'confirmed']);
+    });
+
+    it('a change while agreeing still needs the user to have heard the action first', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('agenda una reunión', [
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
+            [['confirm_action', { action: 'a1', newTitle: 'Otra', newDue: null }]],
+            'ok',
+        ]);
+        expect(toolResults(output)[1]).toMatchObject({ error: 'needs_user_confirmation' });
+        expect(chat.world.executed).toHaveLength(0);
+    });
+
+    it('"dale, pero a las 4" moves the time while agreeing', async () => {
+        const chat = new Conversation();
+        await chat.say('agenda una reunión mañana a las 3', [
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
+            '¿La agendo?',
+        ]);
+        const yes = await chat.say('dale, pero a las 4', [[['confirm_action', { action: 'a1', newTitle: null, newDue: '2026-11-01T16:00' }]], 'Listo.']);
+        expect(toolResults(yes)[0]).toMatchObject({ executed: true });
+        expect(new Date(String(chat.world.executed[0].arguments.dueAt)).toISOString()).toBe(localDateTimeToIso('2026-11-01T16:00', BENCH_TIMEZONE));
+    });
+
     it('tells the model when its answer will be spoken', async () => {
         const spoken = new ScriptedModel(['Ok']);
         const written = new ScriptedModel(['Ok']);

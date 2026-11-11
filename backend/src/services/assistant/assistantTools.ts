@@ -74,7 +74,9 @@ export const ASSISTANT_TOOL_DEFINITIONS: AssistantToolDefinition[] = [
     tool('propose_create_commitment', 'Prepare a new commitment for the user to confirm. Nothing is created until the user confirms in a later message.', {
         title: { type: 'string', description: 'Short activity title in the user\'s words, without the date or time' },
         due: LOCAL_DATE_TIME,
-        person: nullable(REF('the person who should do it, when it is not the user')),
+        kind: { type: 'string', enum: ['task', 'meeting'], description: 'meeting for a reunión, junta, llamada or any appointment at a fixed time; task for something to do' },
+        person: nullable(REF('the person who should do it, when it is not the user (they are asked to accept it)')),
+        with: nullable(REF('the person the user meets with, for a meeting both attend; the user keeps it in their own agenda')),
     }),
     tool('propose_reschedule', 'Prepare moving an existing commitment to a new date/time, for the user to confirm.', { ref: REF('the commitment'), due: LOCAL_DATE_TIME }),
     tool('propose_complete', 'Prepare marking an existing commitment as done, for the user to confirm.', {
@@ -93,7 +95,11 @@ export const ASSISTANT_TOOL_DEFINITIONS: AssistantToolDefinition[] = [
         fact: { type: 'string', description: 'The fact in one short sentence, in the user\'s language and point of view (e.g. "Mi jefe se llama Pedro")' },
     }),
     tool('propose_forget', 'Prepare forgetting a remembered fact, for the user to confirm.', { ref: REF('a remembered fact') }),
-    tool('confirm_action', 'Execute a pending action. Only when the user, in their latest message, clearly agreed to that exact pending action.', { action: REF('the pending action') }),
+    tool('confirm_action', 'Execute a pending action. Only when the user, in their latest message, clearly agreed to it. If in that same message they agreed and also changed its title or time ("sí, ponle de título…", "dale, pero a las 4"), pass the change here: it runs with that change, without asking again.', {
+        action: REF('the pending action'),
+        newTitle: nullable({ type: 'string', description: 'New title the user gave while agreeing, or null' }),
+        newDue: nullable({ ...LOCAL_DATE_TIME, description: 'New local date/time YYYY-MM-DDTHH:MM the user gave while agreeing, or null' }),
+    }),
     tool('discard_action', 'Drop a pending action the user does not want.', { action: REF('the pending action') }),
 ];
 
@@ -214,7 +220,7 @@ async function propose(
     const step = buildStep(toolId, toolName, parsed.data as Record<string, unknown>, summary, sourceIds);
     const pending = await ctx.data.createPendingAction({ steps: [step], objectiveType, summary });
     const ref = ctx.refs.refFor('action', pending.id, summary);
-    ctx.actions.push({ ref, summary, state: 'pending' });
+    ctx.actions.push({ ref, summary, state: 'pending', toolId, toolName, objectiveType, args: parsed.data as Record<string, unknown> });
     const traced = ctx.trace[ctx.trace.length - 1];
     if (traced) traced.proposedAction = { ref, toolId, arguments: parsed.data as Record<string, unknown> };
     return {
@@ -223,6 +229,50 @@ async function propose(
         status: 'waiting_for_user_confirmation',
         instruction: 'In one natural Spanish sentence, tell the user what you will do (e.g. "Voy a crear «…» para el jueves 5 a las 18:00"), keeping the title, person and date exactly as in the summary, and ask whether to go ahead. It runs only if the user agrees in their next message.',
     };
+}
+
+// The user agreed to a pending action they heard and changed its title or
+// time in the same breath: the changed action replaces it and runs at once.
+async function reviseAgreedAction(
+    record: AssistantActionRecord,
+    oldId: string,
+    args: Record<string, any>,
+    ctx: AssistantToolContext,
+): Promise<{ id: string; record: AssistantActionRecord } | ToolResult> {
+    const old = record.args;
+    const revisable = record.toolId === 'create_commitment' || record.toolId === 'reschedule_commitment';
+    if (!old || !revisable || !record.toolName || !record.objectiveType) {
+        return { error: 'change_not_supported', detail: 'That change cannot be applied directly; propose it again with the change and ask once more.' };
+    }
+    const next: Record<string, unknown> = { ...old };
+    let summary = record.summary;
+    if (args.newTitle) {
+        if (record.toolId !== 'create_commitment') return { error: 'change_not_supported', detail: 'Only the time of a reschedule can change; propose again.' };
+        const title = String(args.newTitle).trim();
+        summary = summary.replace(`«${String(old.title)}»`, `«${title}»`);
+        next.title = title;
+    }
+    if (args.newDue) {
+        const dueAt = dueToIso(args.newDue, ctx);
+        if (isError(dueAt)) return dueAt;
+        if (new Date(dueAt as string) <= ctx.now) return { error: 'due_in_past', detail: 'That date and time already passed; ask the user for a future one.' };
+        const key = record.toolId === 'create_commitment' ? 'dueAt' : 'newDueAt';
+        summary = summary.replace(describeLocal(String(old[key]), ctx.timezone), describeLocal(dueAt as string, ctx.timezone));
+        next[key] = dueAt;
+    }
+    const parsed = getToolArgumentSchema(record.toolId!)?.safeParse(next);
+    if (!parsed?.success) return { error: 'invalid_arguments', detail: parsed?.error.issues.map((issue) => issue.message).join('; ') ?? 'unknown tool' };
+    const step = buildStep(record.toolId!, record.toolName, parsed.data as Record<string, unknown>, summary, []);
+    const pending = await ctx.data.createPendingAction({ steps: [step], objectiveType: record.objectiveType, summary });
+    await ctx.data.discardPendingAction(oldId);
+    record.state = 'superseded';
+    const ref = ctx.refs.refFor('action', pending.id, summary);
+    const revised: AssistantActionRecord = {
+        ref, summary, state: 'pending',
+        toolId: record.toolId, toolName: record.toolName, objectiveType: record.objectiveType, args: parsed.data as Record<string, unknown>,
+    };
+    ctx.actions.push(revised);
+    return { id: pending.id, record: revised };
 }
 
 function dueToIso(value: unknown, ctx: AssistantToolContext): string | ToolResult {
@@ -316,7 +366,13 @@ const handlers: Record<string, ToolHandler> = {
         let responsiblePersonId: string | null = null;
         let conversationId: string | null = null;
         let who = '';
-        if (args.person) {
+        const type = args.kind === 'meeting' ? 'meeting' : 'task';
+        if (args.with && !args.person) {
+            const other = await personFromRef(args.with, ctx);
+            if (!other) return { error: 'unknown_ref', detail: 'Find the person first.' };
+            conversationId = other.conversationId ?? null;
+            who = ` con ${other.name}`;
+        } else if (args.person) {
             const person = await personFromRef(args.person, ctx);
             if (!person) return { error: 'unknown_ref', detail: 'Find the person first.' };
             if (!person.conversationId) return { error: 'no_conversation', detail: `There is no chat with ${person.name} to send the request through.` };
@@ -325,9 +381,10 @@ const handlers: Record<string, ToolHandler> = {
             who = ` para ${person.name}`;
         }
         const title = String(args.title ?? '').trim();
+        const what = type === 'meeting' ? 'la reunión ' : '';
         return propose(ctx, 'propose_create_commitment', 'create_commitment', 'create_personal_commitment',
-            { title, dueAt, responsiblePersonId, conversationId },
-            `Crear «${title}»${who} ${describeLocal(dueAt as string, ctx.timezone)}`);
+            { title, dueAt, responsiblePersonId, conversationId, type },
+            `Crear ${what}«${title}»${who} ${describeLocal(dueAt as string, ctx.timezone)}`);
     },
 
     async propose_reschedule(args, ctx) {
@@ -435,17 +492,26 @@ const handlers: Record<string, ToolHandler> = {
         // A "yes" reconstructed by the voice model instead of transcribed from
         // the user is not consent; the action stays pending.
         if (!ctx.userWordsHeard) return { error: 'not_heard', detail: 'The answer was not heard clearly; nothing changed. Ask the user to say it again.' };
-        const outcome = await ctx.data.confirmPendingAction(entry.id);
+        let pendingId = entry.id;
+        let target = record;
+        if (args.newTitle || args.newDue) {
+            const changed = await reviseAgreedAction(record, entry.id, args, ctx);
+            if ('error' in changed) return changed;
+            const revised = changed as { id: string; record: AssistantActionRecord };
+            pendingId = revised.id;
+            target = revised.record;
+        }
+        const outcome = await ctx.data.confirmPendingAction(pendingId);
         if (!outcome.ok) {
-            record.state = outcome.reason === 'failed' ? 'failed' : record.state;
+            target.state = outcome.reason === 'failed' ? 'failed' : target.state;
             return { error: outcome.reason, detail: outcome.reason === 'expired' ? 'It expired; propose it again.' : 'It could not be executed.' };
         }
         const done = outcome.result.status === 'done';
-        record.state = done ? 'confirmed' : 'failed';
+        target.state = done ? 'confirmed' : 'failed';
         const traced = ctx.trace[ctx.trace.length - 1];
         if (traced && done) traced.confirmed = true;
         return done
-            ? { executed: true, summary: record.summary }
+            ? { executed: true, summary: target.summary }
             : { executed: false, status: outcome.result.status, detail: 'It could not be completed; tell the user nothing changed.' };
     },
 
