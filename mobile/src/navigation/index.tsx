@@ -7,6 +7,8 @@ import { View, StyleSheet } from 'react-native';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useCommitmentSync } from '../hooks/useCommitmentSync';
 import { useOpenInVoice } from '../hooks/useOpenInVoice';
+import { useVoiceLinks } from '../hooks/useVoiceLinks';
+import { useWakeWord } from '../hooks/useWakeWord';
 import { useInviteLinks } from '../hooks/useInviteLinks';
 import type { ConversationsStackParamList, MainTabParamList, ProfileStackParamList, RootStackParamList } from './types';
 import { FloatingTabBar } from '../design/FloatingTabBar';
@@ -142,6 +144,8 @@ const PushNotificationHandler = () => {
     usePushNotifications(navigationRef);
     useCommitmentSync();
     useOpenInVoice(navigationRef);
+    useVoiceLinks(navigationRef);
+    useWakeWord(navigationRef);
     return null;
 };
 

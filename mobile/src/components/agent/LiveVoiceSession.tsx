@@ -4,6 +4,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { setMicBusy } from '../../utils/micBusy';
 import * as Localization from 'expo-localization';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
@@ -201,8 +202,12 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, bri
     // the voice page and the conversation would drop.
     useEffect(() => {
         if (!visible) return;
+        setMicBusy('live-voice', true);
         void activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => undefined);
-        return () => { void deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined); };
+        return () => {
+            setMicBusy('live-voice', false);
+            void deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined);
+        };
     }, [visible]);
 
     // Android's back button ends the conversation like the back arrow does.
