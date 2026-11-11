@@ -83,7 +83,7 @@ main{text-align:center;padding:28px}.aura{display:block;width:220px;height:220px
   // The user's own transcription can reach Ping while the realtime model is
   // still selecting the bridge tool. Only a turn that already has that tool
   // response in flight is sent early, so every early request is answered.
-  const prefetchCore=(input,turnId)=>{if(!cfg||!turnId||coreTurnInFlight||prefetchedCore?.turnId===turnId||!responseActive||responsePurpose!=='tool_selection'||responseTurnId!==turnId)return;const promise=requestCore(input,'transcript',coreTurnKey(turnId));promise.catch(()=>{});prefetchedCore={turnId,input,promise};telemetry('core_request_started',{turnId,detailCode:'agent_turn_prefetched_from_transcript',sideEffects:0})};
+  const prefetchCore=(input,turnId)=>{if(isVoiceFarewell(input))return;if(!cfg||!turnId||coreTurnInFlight||prefetchedCore?.turnId===turnId||!responseActive||responsePurpose!=='tool_selection'||responseTurnId!==turnId)return;const promise=requestCore(input,'transcript',coreTurnKey(turnId));promise.catch(()=>{});prefetchedCore={turnId,input,promise};telemetry('core_request_started',{turnId,detailCode:'agent_turn_prefetched_from_transcript',sideEffects:0})};
   async function callCore(input,callId,turnId){
     outputPlaybackPending=false;pendingPlaybackInterruption=false;setAudioGate(false);
     const coreStartedAt=Date.now();
