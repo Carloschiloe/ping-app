@@ -2,7 +2,7 @@
 -- voice, chosen from the admin panel. Only the server reads it.
 
 alter table public.app_settings
-    add column if not exists voice_provider text not null default 'gemini',
+    add column if not exists voice_provider text not null default 'openai',
     add column if not exists gemini_voice text not null default 'Aoede';
 
 alter table public.app_settings drop constraint if exists app_settings_voice_provider_chk;

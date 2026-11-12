@@ -106,13 +106,13 @@ export function geminiConfigured(): boolean {
 
 function providerFallback(): VoiceProviderSettings {
     const fromEnv = process.env.M8_LIVE_VOICE_PROVIDER?.trim() as VoiceProvider | undefined;
-    const provider: VoiceProvider = fromEnv && VOICE_PROVIDERS.includes(fromEnv) ? fromEnv : 'gemini';
+    const provider: VoiceProvider = fromEnv && VOICE_PROVIDERS.includes(fromEnv) ? fromEnv : 'openai';
     return { provider: geminiConfigured() ? provider : 'openai', geminiVoice: 'Aoede', geminiAvailable: geminiConfigured() };
 }
 
 /**
- * Never fails. Without the Google key the answer is always OpenAI. The
- * columns arrive with a migration; until then the default (Google) applies.
+ * Never fails. Without the Google key the answer is always OpenAI. Until the
+ * owner picks Google in the panel, OpenAI keeps speaking as before.
  */
 export async function getVoiceProvider(): Promise<VoiceProviderSettings> {
     const hit = providerCache.get('provider');
