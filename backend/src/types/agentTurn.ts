@@ -23,7 +23,7 @@ export interface AgentTurnResponse {
     debug?: AgentDeviceDebugMetadata;
 }
 
-export type AgentTurnInitiativeKind = 'daily_summary' | 'overdue';
+export type AgentTurnInitiativeKind = 'daily_summary' | 'overdue' | 'owed';
 
 export interface AgentTurnPendingAction {
     /** Conversation-scoped opaque ref, answered with `actionDecision`. */

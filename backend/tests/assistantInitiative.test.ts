@@ -27,6 +27,7 @@ function deps(overrides: Partial<InitiativeDeps> = {}): InitiativeDeps {
         listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: 'ExponentPushToken[x]', ...PREFS }]),
         hasAgendaUntil: vi.fn(async () => true),
         listOverdue: vi.fn(async () => []),
+        listOwed: vi.fn(async () => []),
         countSentOn: vi.fn(async () => 0),
         claim: vi.fn(async (key: string) => {
             if (claimed.has(key)) return false;
@@ -49,7 +50,7 @@ function deps(overrides: Partial<InitiativeDeps> = {}): InitiativeDeps {
 describe('M10 — daily summary initiative', () => {
     it('writes the summary as an initiative turn in the self-chat and notifies the phone', async () => {
         const d = deps();
-        expect(await runInitiativePass(d)).toEqual({ summaries: 1, overdue: 0 });
+        expect(await runInitiativePass(d)).toEqual({ summaries: 1, overdue: 0, owed: 0 });
 
         expect(d.hasAgendaUntil).toHaveBeenCalledWith(USER, '2026-11-03T03:00:00.000Z');
         expect(d.claim).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`, USER, 'daily_summary', '2026-11-02');
@@ -79,13 +80,13 @@ describe('M10 — daily summary initiative', () => {
 
     it('stays quiet before the summary time, and greets by name also on a free day', async () => {
         const early = deps({ now: new Date('2026-11-02T10:30:00.000Z') });
-        expect(await runInitiativePass(early)).toEqual({ summaries: 0, overdue: 0 });
+        expect(await runInitiativePass(early)).toEqual({ summaries: 0, overdue: 0, owed: 0 });
 
         const empty = deps({
             hasAgendaUntil: vi.fn(async () => false),
             listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: 'ExponentPushToken[x]', firstName: 'Carlos', ...PREFS }]),
         });
-        expect(await runInitiativePass(empty)).toEqual({ summaries: 1, overdue: 0 });
+        expect(await runInitiativePass(empty)).toEqual({ summaries: 1, overdue: 0, owed: 0 });
         const note = (empty.runTurn as any).mock.calls[0][0].text;
         expect(note).toContain('Empieza con «Buenos días Carlos»');
         expect(note).toContain('No tiene nada pendiente');
@@ -107,7 +108,7 @@ describe('M10 — daily summary initiative', () => {
 describe('M10 — overdue initiative', () => {
     it('tells the user once that an item passed, offering to move it', async () => {
         const d = deps({ now: AFTERNOON, listOverdue: vi.fn(async () => [CALL]) });
-        expect(await runInitiativePass(d)).toEqual({ summaries: 0, overdue: 1 });
+        expect(await runInitiativePass(d)).toEqual({ summaries: 0, overdue: 1, owed: 0 });
         await runInitiativePass(d);
 
         // Newly overdue: due between 3h15m and 15m ago.
@@ -218,7 +219,7 @@ describe('Summary alarm on the phone', () => {
         expect(d.complete).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`);
         expect(d.push).not.toHaveBeenCalled();
         // The server's own pass then does not send it again that day.
-        expect(await runInitiativePass(d)).toEqual({ summaries: 0, overdue: 0 });
+        expect(await runInitiativePass(d)).toEqual({ summaries: 0, overdue: 0, owed: 0 });
     });
 
     it('when the summary already went out, tells it again without saving a second one', async () => {
@@ -232,5 +233,62 @@ describe('Summary alarm on the phone', () => {
         const d = deps({ runTurn: vi.fn(async () => { throw new Error('model down'); }) });
         await expect(briefingNow(ME, d, true)).rejects.toThrow('model down');
         expect(d.fail).toHaveBeenCalledWith(`daily_summary:${USER}:2026-11-02`, 'model down');
+    });
+});
+
+describe('Follow-up of what others owe the user', () => {
+    const REPORT = { id: 'c9', title: 'Mandar el informe', dueAt: '2026-11-02T12:00:00.000Z', personName: 'Pedro Soto' }; // 09:00
+
+    it('tells the user once and prepares a friendly reminder for that person', async () => {
+        const d = deps({ now: AFTERNOON, listOwed: vi.fn(async () => [REPORT]) });
+        expect(await runInitiativePass(d)).toEqual({ summaries: 0, overdue: 0, owed: 1 });
+        await runInitiativePass(d);
+
+        // Late from one hour after its time, looked for over a whole day.
+        expect(d.listOwed).toHaveBeenCalledWith(USER, '2026-11-01T17:30:00.000Z', '2026-11-02T17:30:00.000Z');
+        expect(d.claim).toHaveBeenCalledWith(`owed:c9:${REPORT.dueAt}`, USER, 'owed', '2026-11-02');
+        expect(d.runTurn).toHaveBeenCalledTimes(1);
+        const note = (d.runTurn as any).mock.calls[0][0].text as string;
+        expect(note).toContain('Pedro Soto tenía que cumplir «Mandar el informe» para hoy a las 09:00');
+        expect(note).toContain('propose_send_message');
+        expect(note).toContain('empieza exactamente con «Pedro todavía no cumple «Mandar el informe», que era para hoy a las 09:00.»');
+        expect(note).toContain('sin reproches');
+        expect(d.persistTurn).toHaveBeenCalledWith(expect.objectContaining({ result: expect.objectContaining({ initiative: { kind: 'owed' } }) }));
+    });
+
+    it('always says why first, even when the model went straight to the message', async () => {
+        const d = deps({
+            now: AFTERNOON, listOwed: vi.fn(async () => [REPORT]),
+            runTurn: vi.fn(async () => ({
+                result: { kind: 'response' as const, response: { status: 'answered' as const, answer: 'Voy a enviarle a Pedro: «Hola Pedro, ¿cómo va el informe?» ¿Se lo envío?', citations: [] } },
+                memory: { version: 1 },
+            })),
+        });
+        await runInitiativePass(d);
+        const saved = (d.persistTurn as any).mock.calls[0][0].result.response.answer as string;
+        expect(saved).toBe('Pedro todavía no cumple «Mandar el informe», que era para hoy a las 09:00. Voy a enviarle a Pedro: «Hola Pedro, ¿cómo va el informe?» ¿Se lo envío?');
+        expect((d.push as any).mock.calls[0][2]).toMatch(/^Pedro todavía no cumple/);
+    });
+
+    it('several people: asks whom to write to, without preparing messages yet', async () => {
+        const other = { id: 'c8', title: 'Enviar la cotización', dueAt: '2026-11-02T13:00:00.000Z', personName: 'Ana Torres' };
+        const d = deps({ now: AFTERNOON, listOwed: vi.fn(async () => [REPORT, other]) });
+        await runInitiativePass(d);
+        const note = (d.runTurn as any).mock.calls[0][0].text as string;
+        expect(note).toContain('Pedro Soto: «Mandar el informe»');
+        expect(note).toContain('Ana Torres: «Enviar la cotización»');
+        expect(note).toContain('sin preparar mensajes todavía');
+    });
+
+    it('stays quiet at night, when notices are off, or over the daily limit', async () => {
+        const night = deps({ now: new Date('2026-11-03T02:00:00.000Z'), hasAgendaUntil: vi.fn(async () => false), listOwed: vi.fn(async () => [REPORT]) }); // 23:00
+        expect((await runInitiativePass(night)).owed).toBe(0);
+        expect(night.listOwed).not.toHaveBeenCalled();
+
+        const off = deps({ now: AFTERNOON, listRecipients: vi.fn(async () => [{ userId: USER, timezone: 'America/Santiago', pushToken: null, ...PREFS, overdueNotices: false }]), listOwed: vi.fn(async () => [REPORT]) });
+        expect((await runInitiativePass(off)).owed).toBe(0);
+
+        const full = deps({ now: AFTERNOON, listOwed: vi.fn(async () => [REPORT]), countSentOn: vi.fn(async () => DAILY_INITIATIVE_LIMIT) });
+        expect((await runInitiativePass(full)).owed).toBe(0);
     });
 });
