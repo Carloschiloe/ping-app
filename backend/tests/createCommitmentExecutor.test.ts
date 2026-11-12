@@ -55,7 +55,19 @@ describe('createCommitmentExecutor — personal vs. shared routing / verificatio
         expect(outcome.verified).toBe(true);
         expect(outcome.createdEntityRefs).toEqual([{ entityType: 'commitment', entityId: 'cm-1' }]);
         expect(mockCreateSharedProposal).not.toHaveBeenCalled();
-        expect(mockCreateConfirmedCommitment).toHaveBeenCalledWith('actor-1', { title: 'entrenar', due_at: '2026-10-01T08:00:00Z' });
+        expect(mockCreateConfirmedCommitment).toHaveBeenCalledWith('actor-1', { title: 'entrenar', due_at: '2026-10-01T08:00:00Z', type: 'task' });
+    });
+
+    it('a meeting with someone stays the user own, in that person chat', async () => {
+        mockCreateConfirmedCommitment.mockResolvedValueOnce({ id: 'cm-2', title: 'Reunión de Personal', due_at: '2026-11-12T18:00:00.000Z', status: 'accepted' } as any);
+        const outcome = await createCommitmentExecutor.execute(ctx(), {
+            title: 'Reunión de Personal', dueAt: '2026-11-12T18:00:00Z', responsiblePersonId: null, conversationId: 'conv-ana', type: 'meeting',
+        });
+        expect(outcome.status).toBe('succeeded');
+        expect(mockCreateSharedProposal).not.toHaveBeenCalled();
+        expect(mockCreateConfirmedCommitment).toHaveBeenCalledWith('actor-1', {
+            title: 'Reunión de Personal', due_at: '2026-11-12T18:00:00Z', type: 'meeting', conversation_id: 'conv-ana',
+        });
     });
 
     // Standing product rule, sección 8: nunca bypassa el lifecycle de

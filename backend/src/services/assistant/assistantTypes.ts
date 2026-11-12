@@ -86,6 +86,11 @@ export interface AssistantActionRecord {
     ref: string;
     summary: string;
     state: 'pending' | 'confirmed' | 'discarded' | 'superseded' | 'failed';
+    /** What it would run, kept so a "sí, pero cambia X" can run it changed. */
+    toolId?: string;
+    toolName?: string;
+    objectiveType?: string;
+    args?: Record<string, unknown>;
 }
 
 /** Chat-completions messages replayed as conversation history. */

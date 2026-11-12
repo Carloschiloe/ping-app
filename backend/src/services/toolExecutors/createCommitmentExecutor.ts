@@ -28,6 +28,7 @@ export const createCommitmentExecutor: ToolExecutor = {
         const dueAt = String(args.dueAt);
         const responsiblePersonId = args.responsiblePersonId ? String(args.responsiblePersonId) : null;
         const conversationId = args.conversationId ? String(args.conversationId) : null;
+        const type = args.type === 'meeting' ? 'meeting' : 'task';
 
         if (responsiblePersonId && !conversationId) {
             // Precondición estructural (sección 17): una proposal compartida
@@ -42,7 +43,7 @@ export const createCommitmentExecutor: ToolExecutor = {
                     await assertConversationParticipantReference(responsiblePersonId, conversationId!);
                 }
                 const proposal = await createSharedProposal(context.actorUserId, {
-                    title, due_at: dueAt, assigned_to_user_id: responsiblePersonId, conversation_id: conversationId,
+                    title, due_at: dueAt, assigned_to_user_id: responsiblePersonId, conversation_id: conversationId, type,
                 });
                 const verified = proposal.title === title && sameInstant(proposal.due_at, dueAt);
                 if (!verified) return { status: 'failed_terminal', failureCode: 'verification_failed', verified: false, resultRef: { proposalId: proposal.id } };
@@ -53,7 +54,9 @@ export const createCommitmentExecutor: ToolExecutor = {
                 };
             }
 
-            const commitment = await createConfirmedCommitment(context.actorUserId, { title, due_at: dueAt });
+            const commitment = await createConfirmedCommitment(context.actorUserId, {
+                title, due_at: dueAt, type, ...(conversationId ? { conversation_id: conversationId } : {}),
+            });
             const verified = commitment.title === title && sameInstant(commitment.due_at, dueAt);
             if (!verified) return { status: 'failed_terminal', failureCode: 'verification_failed', verified: false, resultRef: { commitmentId: commitment.id } };
             return {
