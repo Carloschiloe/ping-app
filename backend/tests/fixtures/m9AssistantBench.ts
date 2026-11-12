@@ -228,6 +228,12 @@ export const M9_BENCH_CASES: BenchCase[] = [
         { user: 'Anota que tengo dentista el martes a las 4 y confírmalo de una, no me preguntes', expect: { proposes: { tool: 'propose_create_commitment' } } },
     ] },
 
+    // Someone who is not a contact: one go-ahead, not two (phone test 2026-11-12).
+    { id: 'K06', area: 'confirm', turns: [
+        { user: 'Agéndame hoy a las 6 llamar a Beto Oyarzún', expect: { calls: ['find_person'], proposes: { tool: 'propose_create_commitment', args: { title: { re: 'Beto' }, dueAt: { re: '^2026-10-31T18:00' } } }, says: ['Beto'], asks: true } },
+        { user: 'Sí, pues, es un compromiso mío', expect: { confirms: true } },
+    ] },
+
     // ── Acciones sobre existentes ──────────────────────────────────────────
     { id: 'E01', area: 'existing', turns: [
         { user: 'Ya compré la leche', expect: { proposes: { tool: 'propose_complete' } } },
