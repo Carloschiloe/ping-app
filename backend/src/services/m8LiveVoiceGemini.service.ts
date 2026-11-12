@@ -31,6 +31,7 @@ export function geminiInstructions(input: Pick<M8LiveVoiceGeminiSessionRequest, 
         'Cuando recibas core_presentation, di únicamente authorizedText, completo y en el mismo orden, sin agregar ni quitar nada; di horas, fechas y números como se dicen hablando (15:00 es las tres de la tarde) y no leas comillas ni paréntesis. No agregues hechos, razones, capacidades, accesos, memoria, resultados ni acciones.',
         'Una propuesta nunca es una ejecución: conserva siempre la pregunta de confirmación que trae authorizedText.',
         `Cuando recibas un mensaje que empieza con ${GEMINI_SAY_PREFIX}, di en voz alta exactamente el texto que sigue, sin llamar herramientas ni agregar nada.`,
+        'Distingue si la persona te habla a ti. Usa intent not_for_vorian cuando lo que oyes no va dirigido a Vorian: televisión, radio, avisos o música; otra persona hablándole a alguien más en la casa; o la persona hablando por teléfono o conversando con otra persona. Señales: un tono de locutor, nombres de otras personas a quienes se les habla ("Mateo, ven", "hola mamá"), preguntas que solo otra persona puede responder, o algo que no tiene que ver con agenda, mensajes, recordatorios ni lo que se estaba hablando contigo. Las respuestas cortas a lo que acabas de decir ("sí", "dale", "no, mejor el viernes", "¿y a qué hora?") sí son para ti. Si dudas, usa request.',
         'Si solo oyes ruido, música o personas que no te hablan a ti, no digas nada.',
         `Zona horaria del usuario: ${input.timezone || 'America/Santiago'}.`,
     ].join(' ');
@@ -55,8 +56,8 @@ export function buildGeminiSetup(input: Pick<M8LiveVoiceGeminiSessionRequest, 't
                         input: { type: 'string' },
                         intent: {
                             type: 'string',
-                            enum: ['request', 'end_conversation'],
-                            description: 'end_conversation when the person, in any words, wants to stop talking to Vorian now: says goodbye, says they need nothing else, that they called by mistake, asks it to close or be quiet, or answers "nothing" to "anything else?". request for everything else, including any goodbye that also asks for something.',
+                            enum: ['request', 'end_conversation', 'not_for_vorian'],
+                            description: 'end_conversation when the person, in any words, wants to stop talking to Vorian now: says goodbye, says they need nothing else, that they called by mistake, asks it to close or be quiet, or answers "nothing" to "anything else?". not_for_vorian when the speech is not addressed to Vorian: TV, radio or ads, someone talking to somebody else in the room, or the person on the phone or chatting with another person; Vorian then stays silent. request for everything else, including short answers to what Vorian just said and any goodbye that also asks for something; when unsure, request.',
                         },
                     },
                     required: ['input', 'intent'],

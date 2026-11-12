@@ -33,10 +33,13 @@ describe("Google's live voice", () => {
         expect(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Aoede');
         expect(setup.tools[0].functionDeclarations.map((f) => f.name)).toEqual(['ping_core_turn']);
         expect(setup.tools[0].functionDeclarations[0].parameters.required).toEqual(['input', 'intent']);
+        expect(setup.tools[0].functionDeclarations[0].parameters.properties.intent.enum).toEqual(['request', 'end_conversation', 'not_for_vorian']);
         expect(setup.contextWindowCompression).toEqual({ triggerTokens: 1000, slidingWindow: { targetTokens: 500 } });
         const text = setup.systemInstruction.parts[0].text;
         expect(text).toContain('di únicamente authorizedText');
         expect(text).toContain(GEMINI_SAY_PREFIX);
+        expect(text).toContain('Usa intent not_for_vorian');
+        expect(text).toContain('Si dudas, usa request.');
         expect(text).toContain('America/Santiago');
     });
 
@@ -91,6 +94,9 @@ describe("Google's live voice", () => {
         expect(html).toContain("if(speechAllowed){speechStarted=true;playChunk(data)}else if(!droppedAudio){droppedAudio=true;telemetry('error',{detailCode:'audio_before_core_result'");
         expect(html).toContain('response:{core_presentation:presentation}');
         expect(html).toContain(`parts:[{text:SAY+' '+text}]`);
+        // Speech not addressed to Vorian (TV, someone else, a phone call) is never sent to Vorian Core.
+        expect(html).toContain("if(args?.intent==='not_for_vorian'){telemetry('input_ignored',{turnId,transcript:safeText(selected,500),detailCode:'not_addressed_to_vorian'");
+        expect(html.indexOf("args?.intent==='not_for_vorian'")).toBeLessThan(html.indexOf('await callCore(selected,call,turnId)'));
         // Goodbyes by meaning or by phrase, as on the OpenAI page.
         expect(html).toContain("if(args?.intent==='end_conversation'||isVoiceFarewell(selected)){sayFarewell(");
         // Spending is reported as Google's.
