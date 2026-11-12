@@ -26,6 +26,13 @@ describe('closing the live voice by voice', () => {
         expect(html).toContain('const prefetchCore=(input,turnId)=>{if(isVoiceFarewell(input))return;');
         expect(html).toContain('if(isVoiceFarewell(value))farewellHeard=true;');
         expect(html).toContain("if(args.intent==='end_conversation'||farewellHeard||isVoiceFarewell(selectedInput)){");
+        // Cheaper voice: the text to say is a conversation item (the style instructions never change,
+        // so the provider reuses what it read), and finished spoken turns stay as their words.
+        expect(html).toContain("if(toolChoice!=='required')sendEvent({type:'conversation.item.create',item:{type:'message',role:'system',content:[{type:'input_text',text:'Di ahora exactamente este texto: '+JSON.stringify(String(spokenText||''))}]}});");
+        expect(html).not.toContain("+JSON.stringify(String(spokenText||''))}})};");
+        expect(html).toContain('Di exactamente el último texto que te indicó el sistema, nada más.');
+        expect(html).toContain('setTimeout(slimHistory,400)');
+        expect(html).toContain("sendEvent({type:'conversation.item.delete',item_id:itemId})");
         // The app takes the person back to the chat list.
         expect(html).toContain("farewellPending=true;post({type:'farewell'});");
         // Opened from the day's summary, it is said instead of the usual hello.
