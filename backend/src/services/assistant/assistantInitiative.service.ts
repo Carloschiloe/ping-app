@@ -35,6 +35,13 @@ export const DAILY_INITIATIVE_LIMIT = 3;
 /** An item counts as newly overdue from 15 minutes after its time, for 3 hours. */
 const OVERDUE_GRACE_MS = 15 * 60 * 1000;
 const OVERDUE_WINDOW_MS = 3 * 60 * 60 * 1000;
+/**
+ * What someone else owes the user counts as late one hour after its time (they
+ * may still be on it), and is looked for over a whole day, so one due while
+ * the server slept is still followed up once it wakes.
+ */
+const OWED_GRACE_MS = 60 * 60 * 1000;
+const OWED_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** A proposal Ping makes unprompted waits until the user sees it. */
 const INITIATIVE_PENDING_TTL_MS = 12 * 60 * 60 * 1000;
 const PUSH_BODY_CHARS = 180;
@@ -93,6 +100,11 @@ export interface OverdueItem {
     dueAt: string;
 }
 
+/** Something the user handed to another person, now late. */
+export interface OwedItem extends OverdueItem {
+    personName: string;
+}
+
 export interface InitiativeDeps {
     now: Date;
     listRecipients(): Promise<InitiativeRecipient[]>;
@@ -100,6 +112,8 @@ export interface InitiativeDeps {
     hasAgendaUntil(userId: string, endIso: string): Promise<boolean>;
     /** Open commitments the user has to do whose time passed between `fromIso` and `toIso`. */
     listOverdue(userId: string, fromIso: string, toIso: string): Promise<OverdueItem[]>;
+    /** Open commitments the user handed to someone else whose time passed between `fromIso` and `toIso`. */
+    listOwed(userId: string, fromIso: string, toIso: string): Promise<OwedItem[]>;
     countSentOn(userId: string, localDate: string): Promise<number>;
     claim(key: string, userId: string, kind: AgentTurnInitiativeKind, localDate: string): Promise<boolean>;
     complete(key: string): Promise<void>;
@@ -134,6 +148,26 @@ export function overdueNote(items: OverdueItem[], now: Date, timezone: string): 
 }
 
 /**
+ * What another person owes the user went past its time: Vorian tells the user
+ * and prepares a friendly reminder in that person's chat, sent only if the
+ * user says yes.
+ */
+/** How a follow-up of one late item starts, so the user hears why before the proposed message. */
+export function owedOpening(item: OwedItem, now: Date, timezone: string): string {
+    return `${item.personName.split(' ')[0]} todavía no cumple «${item.title}», que era para ${whenItWas(item.dueAt, now, timezone)}.`;
+}
+
+export function owedNote(items: OwedItem[], now: Date, timezone: string): string {
+    const tone = 'El recordatorio va en primera persona del usuario, cordial y breve: saluda por el nombre, menciona el compromiso y pregunta cómo va, sin reproches ni presión.';
+    if (items.length === 1) {
+        const [item] = items;
+        return `${INITIATIVE_NOTE_PREFIX} ${item.personName} tenía que cumplir «${item.title}» para ${whenItWas(item.dueAt, now, timezone)} y sigue sin cerrarse. Tu respuesta empieza exactamente con «${owedOpening(item, now, timezone)}», y en la misma respuesta prepárale con find_person y propose_send_message un recordatorio para ${item.personName}, diciéndole el texto y preguntándole si se lo envía. ${tone}`;
+    }
+    const list = items.map((item) => `${item.personName}: «${item.title}» (${whenItWas(item.dueAt, now, timezone)})`).join('; ');
+    return `${INITIATIVE_NOTE_PREFIX} se pasó la fecha de lo que otras personas le deben al usuario y sigue sin cerrarse: ${list}. Avísale en una o dos frases y pregúntale a quién quiere que le escribas para recordárselo, sin preparar mensajes todavía. ${tone}`;
+}
+
+/**
  * Claims every key, then writes one turn for all of them. Claims are released
  * as failed when the turn fails, so a later pass may try again.
  */
@@ -144,12 +178,16 @@ async function deliver(
     note: string,
     deps: InitiativeDeps,
     notice?: { body: string; spoken: true },
+    opening?: string,
 ): Promise<void> {
     try {
         const conversationId = await deps.selfConversationId(recipient.userId);
-        const { result, memory } = await deps.runTurn({ userId: recipient.userId, text: note, timezone: recipient.timezone, conversationId });
-        const answer = result.response.answer.trim();
+        const { result: raw, memory } = await deps.runTurn({ userId: recipient.userId, text: note, timezone: recipient.timezone, conversationId });
+        let answer = raw.response.answer.trim();
         if (!answer) throw new Error('empty_initiative_answer');
+        // The model sometimes goes straight to the proposal; the reason comes first.
+        if (opening && !answer.startsWith(opening.slice(0, 24))) answer = `${opening} ${answer}`;
+        const result: AgentTurnResponse = { ...raw, response: { ...raw.response, answer } };
         const initiativeResult: AgentTurnResponse = { ...result, initiative: { kind } };
         await deps.persistTurn({ userId: recipient.userId, conversationId, key: keys[0], text: note, result: initiativeResult, memory });
         // Tapping the notification opens the chat with Ping; the summary opens
@@ -217,6 +255,29 @@ async function overdueNotice(recipient: InitiativeRecipient, deps: InitiativeDep
     return true;
 }
 
+/** Follow-up of what others owe the user: once per item and due time, in daytime, within the daily limit. */
+async function owedNotice(recipient: InitiativeRecipient, deps: InitiativeDeps): Promise<boolean> {
+    if (!recipient.overdueNotices) return false;
+    const { hour } = localHourAndMinute(deps.now, recipient.timezone);
+    if (hour < noticesFromHour(recipient) || hour >= QUIET_FROM_HOUR) return false;
+    const localDate = localDateKey(deps.now, recipient.timezone);
+    const to = new Date(deps.now.getTime() - OWED_GRACE_MS);
+    const from = new Date(to.getTime() - OWED_WINDOW_MS);
+    const owed = await deps.listOwed(recipient.userId, from.toISOString(), to.toISOString());
+    if (owed.length === 0) return false;
+    if (await deps.countSentOn(recipient.userId, localDate) >= DAILY_INITIATIVE_LIMIT) return false;
+    const claimed: Array<{ item: OwedItem; key: string }> = [];
+    for (const item of owed) {
+        const key = `owed:${item.id}:${item.dueAt}`;
+        if (await deps.claim(key, recipient.userId, 'owed', localDate)) claimed.push({ item, key });
+    }
+    if (claimed.length === 0) return false;
+    const items = claimed.map(({ item }) => item);
+    const opening = items.length === 1 ? owedOpening(items[0], deps.now, recipient.timezone) : undefined;
+    await deliver(recipient, 'owed', claimed.map(({ key }) => key), owedNote(items, deps.now, recipient.timezone), deps, undefined, opening);
+    return true;
+}
+
 /**
  * The phone's summary alarm rang: the day said now, for the live voice. It
  * counts as that day's summary, so the server does not send it again later;
@@ -249,10 +310,10 @@ export async function briefingNow(recipient: InitiativeRecipient, deps: Initiati
 }
 
 /** One engine pass over every user. One user's failure never stops the rest. */
-export async function runInitiativePass(deps: InitiativeDeps): Promise<{ summaries: number; overdue: number }> {
-    const sent = { summaries: 0, overdue: 0 };
+export async function runInitiativePass(deps: InitiativeDeps): Promise<{ summaries: number; overdue: number; owed: number }> {
+    const sent = { summaries: 0, overdue: 0, owed: 0 };
     for (const recipient of await deps.listRecipients()) {
-        for (const [kind, run] of [['summaries', dailySummary], ['overdue', overdueNotice]] as const) {
+        for (const [kind, run] of [['summaries', dailySummary], ['overdue', overdueNotice], ['owed', owedNotice]] as const) {
             try {
                 if (await run(recipient, deps)) sent[kind] += 1;
             } catch (error: any) {
@@ -321,6 +382,28 @@ export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
             if (error) throw new Error(`commitments: ${error.message}`);
             return (data || []).map((row: any) => ({ id: row.id, title: row.title, dueAt: new Date(row.due_at).toISOString() }));
         },
+        async listOwed(userId, fromIso, toIso) {
+            // "Me deben": the user handed it to someone else, who accepted it.
+            const { data, error } = await supabaseAdmin
+                .from('commitments')
+                .select('id, title, due_at, assigned_to_user_id')
+                .eq('status', 'accepted')
+                .eq('owner_user_id', userId)
+                .not('assigned_to_user_id', 'is', null)
+                .neq('assigned_to_user_id', userId)
+                .gte('due_at', fromIso)
+                .lte('due_at', toIso)
+                .order('due_at')
+                .limit(5);
+            if (error) throw new Error(`commitments: ${error.message}`);
+            const rows = data || [];
+            if (!rows.length) return [];
+            const names = await new SupabaseAssistantDataPort(userId).personNames(rows.map((row: any) => row.assigned_to_user_id));
+            return rows.map((row: any) => ({
+                id: row.id, title: row.title, dueAt: new Date(row.due_at).toISOString(),
+                personName: names[row.assigned_to_user_id] ?? 'alguien',
+            }));
+        },
         async countSentOn(userId, localDate) {
             const { count, error } = await supabaseAdmin
                 .from('agent_initiatives')
@@ -367,7 +450,7 @@ export async function runInitiativeEngine(): Promise<void> {
     isRunning = true;
     try {
         const sent = await runInitiativePass(productionInitiativeDeps());
-        if (sent.summaries + sent.overdue > 0) console.info('[Initiative] Notices sent', sent);
+        if (sent.summaries + sent.overdue + sent.owed > 0) console.info('[Initiative] Notices sent', sent);
     } catch (error: any) {
         console.error('[Initiative] Engine pass failed', error?.message ?? error);
     } finally {
