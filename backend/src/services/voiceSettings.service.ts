@@ -85,3 +85,64 @@ export async function updateVoiceSettings(input: VoiceSettings): Promise<VoiceSe
     cache.clear();
     return getVoiceSettings();
 }
+
+// --- Which service speaks ------------------------------------------------------
+// Google's live voice costs about a third of OpenAI's and the owner preferred
+// its voices in a blind test (2026-11-12). OpenAI stays as the fallback: the
+// phone switches to it on its own when Google cannot start.
+
+export const VOICE_PROVIDERS = ['gemini', 'openai'] as const;
+export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
+/** Google's voices, the owner's favourites first. */
+export const GEMINI_VOICES = ['Aoede', 'Sulafat', 'Kore', 'Leda', 'Despina', 'Achernar', 'Callirrhoe', 'Puck', 'Charon', 'Orus'] as const;
+export type GeminiVoice = (typeof GEMINI_VOICES)[number];
+export type VoiceProviderSettings = { provider: VoiceProvider; geminiVoice: GeminiVoice; geminiAvailable: boolean };
+
+const providerCache = new TtlCache<VoiceProviderSettings>(60_000, 1);
+
+export function geminiConfigured(): boolean {
+    return Boolean(process.env.GEMINI_API_KEY?.trim());
+}
+
+function providerFallback(): VoiceProviderSettings {
+    const fromEnv = process.env.M8_LIVE_VOICE_PROVIDER?.trim() as VoiceProvider | undefined;
+    const provider: VoiceProvider = fromEnv && VOICE_PROVIDERS.includes(fromEnv) ? fromEnv : 'openai';
+    return { provider: geminiConfigured() ? provider : 'openai', geminiVoice: 'Aoede', geminiAvailable: geminiConfigured() };
+}
+
+/**
+ * Never fails. Without the Google key the answer is always OpenAI. Until the
+ * owner picks Google in the panel, OpenAI keeps speaking as before.
+ */
+export async function getVoiceProvider(): Promise<VoiceProviderSettings> {
+    const hit = providerCache.get('provider');
+    if (hit) return hit;
+    const fallback = providerFallback();
+    try {
+        const { data, error } = await supabaseAdmin.from('app_settings').select('voice_provider, gemini_voice').eq('id', true).maybeSingle();
+        if (error || !data) return fallback;
+        const row = data as { voice_provider?: string; gemini_voice?: string };
+        const chosen = VOICE_PROVIDERS.includes(row.voice_provider as VoiceProvider) ? (row.voice_provider as VoiceProvider) : fallback.provider;
+        const settings: VoiceProviderSettings = {
+            provider: geminiConfigured() ? chosen : 'openai',
+            geminiVoice: GEMINI_VOICES.includes(row.gemini_voice as GeminiVoice) ? (row.gemini_voice as GeminiVoice) : 'Aoede',
+            geminiAvailable: geminiConfigured(),
+        };
+        providerCache.set('provider', settings);
+        return settings;
+    } catch {
+        return fallback;
+    }
+}
+
+export async function updateVoiceProvider(input: { provider: VoiceProvider; geminiVoice: GeminiVoice }): Promise<VoiceProviderSettings> {
+    const { error } = await supabaseAdmin.from('app_settings').upsert({
+        id: true,
+        voice_provider: input.provider,
+        gemini_voice: input.geminiVoice,
+        updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+    if (error) throw new AppError('Unable to save settings', 500);
+    providerCache.clear();
+    return getVoiceProvider();
+}

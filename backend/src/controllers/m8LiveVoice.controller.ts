@@ -14,23 +14,57 @@ import {
     M8_LIVE_VOICE_DIAGNOSTIC_TIMESTAMP_HEADER,
 } from '../services/m8LiveVoiceInternalDiagnostics.service';
 import { getM8LiveVoiceClientHtml } from '../services/m8LiveVoiceClient.service';
+import { getM8LiveVoiceGeminiClientHtml } from '../services/m8LiveVoiceGeminiClient.service';
+import { createGeminiLiveSession } from '../services/m8LiveVoiceGemini.service';
+import { getVoiceProvider } from '../services/voiceSettings.service';
 import { sanitizeM8LiveVoiceError, traceM8LiveVoiceDiagnostic } from '../services/m8LiveVoiceDiagnostics.service';
 import { publicErrorMessage } from '../utils/safeError';
 
-export function client(_req: Request, res: Response): void {
+// A test server on this computer (http://localhost) is not upgraded to https.
+const CSP = (nonce: string, connect: string, local: boolean) => `default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' https: 'unsafe-inline'; connect-src ${connect}; media-src 'self' blob:${local ? '' : '; upgrade-insecure-requests'}`;
+
+/**
+ * The voice page. Google's unless the panel chose OpenAI, Google is not set up,
+ * or the page asks for OpenAI itself (?provider=openai) because Google could
+ * not start: the conversation then goes on with the previous voice.
+ */
+export async function client(req: Request, res: Response): Promise<void> {
     traceM8LiveVoiceDiagnostic('client_request');
     try {
         const scriptNonce = randomBytes(16).toString('hex');
-        const html = getM8LiveVoiceClientHtml(scriptNonce);
-        traceM8LiveVoiceDiagnostic('client_served', { status: 200, contentLength: Buffer.byteLength(html), environment: process.env.PING_ENVIRONMENT });
+        const forced = req.query?.provider === 'openai';
+        const { provider } = forced ? { provider: 'openai' as const } : await getVoiceProvider();
+        const html = provider === 'gemini' ? getM8LiveVoiceGeminiClientHtml(scriptNonce) : getM8LiveVoiceClientHtml(scriptNonce);
+        traceM8LiveVoiceDiagnostic('client_served', { status: 200, contentLength: Buffer.byteLength(html), environment: process.env.PING_ENVIRONMENT, provider });
         res.status(200).type('html')
             .set('Cache-Control', 'no-store')
-            .set('Content-Security-Policy', `default-src 'self'; base-uri 'self'; font-src 'self' https: data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'nonce-${scriptNonce}'; script-src-attr 'none'; style-src 'self' https: 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; upgrade-insecure-requests`)
+            .set('Content-Security-Policy', CSP(scriptNonce, provider === 'gemini' ? "'self' wss://generativelanguage.googleapis.com" : "'self'", req.hostname === 'localhost' || req.hostname === '127.0.0.1'))
             .send(html);
     } catch (error) {
         traceM8LiveVoiceDiagnostic('client_rejected', { status: error instanceof AppError ? error.statusCode : 404, ...sanitizeM8LiveVoiceError(error) });
         const status = error instanceof AppError ? error.statusCode : 404;
         res.status(status).send('Not found');
+    }
+}
+
+export async function createGeminiSession(req: Request, res: Response): Promise<void> {
+    try {
+        const { provider, geminiVoice } = await getVoiceProvider();
+        if (provider !== 'gemini') throw new AppError('Live voice provider is not configured', 503);
+        const result = await createGeminiLiveSession({ request: req.body, voice: geminiVoice });
+        traceM8LiveVoiceDiagnostic('session_accepted', {
+            actorUserId: req.user!.id,
+            voiceSessionId: req.body?.voiceSessionId,
+            deviceSessionId: req.body?.deviceSessionId,
+            provider: result.provider,
+            model: result.model,
+            status: 201,
+        });
+        res.status(201).json(result);
+    } catch (error) {
+        traceM8LiveVoiceDiagnostic('session_rejected', { actorUserId: req.user?.id, voiceSessionId: req.body?.voiceSessionId, ...sanitizeM8LiveVoiceError(error) });
+        const status = error instanceof AppError ? error.statusCode : 503;
+        res.status(status).json({ error: publicErrorMessage(error, 'Live voice session failed') });
     }
 }
 

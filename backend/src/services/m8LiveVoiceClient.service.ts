@@ -4,23 +4,15 @@ import { M8_VOICE_PRESENTATION_BROWSER_SOURCE } from './m8VoicePresentation.serv
 import { M8_VOICE_TRANSCRIPTION_ECHO_BROWSER_SOURCE } from './m8VoiceTranscriptionPrompt';
 import { M8_VOICE_FAREWELL_BROWSER_SOURCE } from './m8VoiceFarewell';
 
-// Credential-free WebView client served by the configured HTTPS Ping origin. The
-// native shell injects the authenticated session envelope; this document
-// never contains a provider key, SDP in telemetry, or raw conversation text.
-// The bootstrap is a bounded, idempotent protocol: every wait has a timeout,
-// configuration can be requested repeatedly, and every terminal error is
-// recoverable through an explicit retry instead of an infinite spinner.
-const CLIENT_HTML = `<!doctype html>
+/** The page's look, shared by both voice services: Vorian's glass aura and its buttons. */
+export const VOICE_PAGE_HEAD = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"><style>
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#F4F6F9;font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:radial-gradient(120% 60% at 50% 46%,rgba(59,130,246,.16),rgba(59,130,246,0) 60%),linear-gradient(168deg,#2A303B 0%,#14181F 22%,#3A4252 34%,#171B23 48%,#262C38 62%,#0E1116 78%,#1B2029 100%),#08090B}
 main{text-align:center;padding:28px}.aura{display:block;width:220px;height:220px;margin:0 auto 14px}.status{font-size:19px;font-weight:600;letter-spacing:-.2px;margin:8px 0}.hint{font-size:14px;color:rgba(244,246,249,.72);line-height:1.5;max-width:290px;margin:0 auto}.stop,.retry,.write{margin-top:30px;border-radius:999px;padding:13px 28px;font-family:inherit;font-size:16px;font-weight:600}.write{color:#F4F6F9;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);margin-right:10px}.stop{color:#F2735F;background:rgba(255,255,255,.10);border:1px solid rgba(242,115,95,.55)}.retry{color:#FFFFFF;border:0;background:linear-gradient(135deg,#5B9BFF,#2563EB);margin-left:8px}
-</style></head><body><main><canvas id="orb" class="aura" aria-hidden="true"></canvas><div id="status" class="status">Preparando Vorian...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="write" class="write" type="button" hidden>Escribir</button><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline muted></audio></main><script nonce="__M8_SCRIPT_NONCE__">
-(function(){
-  ${M8_VOICE_PRESENTATION_BROWSER_SOURCE}
-  ${M8_VOICE_TRANSCRIPTION_ECHO_BROWSER_SOURCE}
-  ${M8_VOICE_FAREWELL_BROWSER_SOURCE}
-  const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
-  // Ping's aura: a glass core of drifting light with three orbiting arcs; it turns faster while Ping thinks or speaks.
+</style></head><body><main><canvas id="orb" class="aura" aria-hidden="true"></canvas><div id="status" class="status">Preparando Vorian...</div><p id="hint" class="hint">Configurando la conversación segura.</p><button id="write" class="write" type="button" hidden>Escribir</button><button id="stop" class="stop" type="button">Terminar</button><button id="retry" class="retry" type="button" hidden>Reintentar</button><audio id="remote" autoplay playsinline muted></audio></main>`;
+
+/** The aura's motion: calm while listening, faster while thinking or speaking. */
+export const VOICE_AURA_SOURCE = `  // Ping's aura: a glass core of drifting light with three orbiting arcs; it turns faster while Ping thinks or speaks.
   // The soft lights, sheen and halo are painted once; each frame only moves them, so the motion stays smooth.
   const aura=(()=>{const cv=orb,ctx=cv.getContext('2d'),S=220,SP={idle:[1.3,.3],listening:[2.4,1],thinking:[3.8,.6],speaking:[2.4,.8]},C=['125,178,255','29,78,216','211,216,224','91,155,255','120,90,255'],ARCS=[[1.1,1.9,.9,'rgba(240,245,255,.95)'],[1.24,-2.7,.55,'rgba(125,178,255,.9)'],[1.38,3.6,.35,'rgba(211,216,224,.7)']];let mode='thinking',T=0,E=.6,V=0,last=performance.now();const dpr=Math.min(2,window.devicePixelRatio||1);cv.width=cv.height=S*dpr;ctx.scale(dpr,dpr);
     const paint=(fn)=>{const s=document.createElement('canvas');s.width=s.height=128;fn(s.getContext('2d'));return s};
@@ -29,7 +21,21 @@ main{text-align:center;padding:28px}.aura{display:block;width:220px;height:220px
     const draw=()=>{const c=ctx,cx=S/2,R=S*.26*(1+.05*V),H=R*1.9;c.clearRect(0,0,S,S);c.globalAlpha=.35+.45*V;c.drawImage(halo,cx-H,cx-H,H*2,H*2);c.globalAlpha=1;c.save();c.beginPath();c.arc(cx,cx,R,0,6.283);c.clip();c.fillStyle='#07102A';c.fill();c.globalCompositeOperation='lighter';blobs.forEach((sp,i)=>{const a=T*(1.1+i*.37)*(i%2?-1:1)+i*1.26,r=R*(.32+.22*E),x=cx+Math.cos(a)*r,y=cx+Math.sin(a*1.4)*r,s=R*(.62+.2*V+.08*Math.sin(T*3+i));c.drawImage(sp,x-s,y-s,s*2,s*2)});c.globalCompositeOperation='source-over';c.drawImage(sheen,cx-R,cx-R,R*2,R*2);c.restore();c.lineCap='round';ARCS.forEach((a,i)=>{const rr=R*a[0]*(1+.04*V*Math.sin(T*6+i)),st=T*a[1],end=st+6.283*a[2]*(.7+.3*E),w=S*(.012-.002*i);c.beginPath();c.arc(cx,cx,rr,st,end);c.strokeStyle='rgba(125,178,255,.18)';c.lineWidth=w*3.2;c.stroke();c.strokeStyle=a[3];c.lineWidth=w;c.stroke();c.fillStyle='#fff';c.beginPath();c.arc(cx+Math.cos(st)*rr,cx+Math.sin(st)*rr,w,0,6.283);c.fill()});c.beginPath();c.arc(cx,cx,R,0,6.283);c.strokeStyle='rgba(230,236,245,.5)';c.lineWidth=1.5;c.stroke()};
     const frame=(now)=>{const dt=Math.min(.05,(now-last)/1000);last=now;const sp=SP[mode]||SP.idle;E+=(sp[1]-E)*dt*5;const target=mode==='speaking'?Math.abs(Math.sin(now/110)*Math.sin(now/370)):mode==='listening'?.35+.25*Math.abs(Math.sin(now/140)):mode==='thinking'?.2:0;V+=(target-V)*dt*12;T+=dt*sp[0];draw();requestAnimationFrame(frame)};
     requestAnimationFrame(frame);return {set:(next)=>{mode=next}}})();
-  const auraMode=(name)=>name==='audio_output_started'?'speaking':name==='barge_in_detected'?'listening':name==='listening'||name==='session_connected'||name==='webrtc_connected'||name==='data_channel_ready'?'idle':'thinking';
+  const auraMode=(name)=>name==='audio_output_started'?'speaking':name==='barge_in_detected'?'listening':name==='listening'||name==='session_connected'||name==='webrtc_connected'||name==='data_channel_ready'?'idle':'thinking';`;
+
+// Credential-free WebView client served by the configured HTTPS Ping origin. The
+// native shell injects the authenticated session envelope; this document
+// never contains a provider key, SDP in telemetry, or raw conversation text.
+// The bootstrap is a bounded, idempotent protocol: every wait has a timeout,
+// configuration can be requested repeatedly, and every terminal error is
+// recoverable through an explicit retry instead of an infinite spinner.
+const CLIENT_HTML = `${VOICE_PAGE_HEAD}<script nonce="__M8_SCRIPT_NONCE__">
+(function(){
+  ${M8_VOICE_PRESENTATION_BROWSER_SOURCE}
+  ${M8_VOICE_TRANSCRIPTION_ECHO_BROWSER_SOURCE}
+  ${M8_VOICE_FAREWELL_BROWSER_SOURCE}
+  const statusEl=document.getElementById('status'),hintEl=document.getElementById('hint'),orb=document.getElementById('orb'),remote=document.getElementById('remote'),retryEl=document.getElementById('retry');
+${VOICE_AURA_SOURCE}
   const CONFIG_PROTOCOL=${M8_VOICE_PROTOCOL_VERSION}, CONFIG_ATTEMPTS=12, CONFIG_INTERVAL=500, TRANSCRIPT_WAIT_MS=1500;
   let cfg=null,pc=null,dc=null,mic=null,startedAt=Date.now(),firstAudioSent=false,assistantSpeaking=false,outputPlaybackPending=false,pendingPlaybackInterruption=false,coreResultReady=false,responseActive=false,responseHasAudio=false,responseProviderId=null,responseTurnId=null,responseOutputText='',responseAudioDeltaCount=0,responsePurpose='tool_selection',coreTurnInFlight=false,closed=false,failed=false,currentStage='bootstrap',providerSessionId=null,providerSessionCreated=false,configAttempts=0,reconnectAttempts=0,configTimer=null,sessionTimer=null,disconnectTimer=null,resolveSessionCreated=null,rejectSessionCreated=null,activeTurnId=null,turnSequence=0,responseCreateCount=0,audioResponseCount=0,lastVadState='idle',lastWebrtcState='new',lastIceState='new',lastAudioState='idle',pendingTranscript=null,pendingTranscriptTurnId=null,pendingTranscriptWaiter=null,resolvePendingTranscript=null;
   let lastCoreInputSource=null,prefetchedCore=null;

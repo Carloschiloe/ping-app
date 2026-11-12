@@ -29,7 +29,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
 import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
-import { m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
+import { m8LiveVoiceGeminiSessionSchema, m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
 import { MAX_AGENT_VOICE_BYTES } from '../services/agentVoice.service';
 import { MAX_MESSAGE_ATTACHMENT_BYTES } from '../services/privateFile.service';
 import { getDurableAgentRuntimeStatus } from '../services/agentDurableConfig.service';
@@ -371,6 +371,14 @@ router.post(
     validateRequest(m8LiveVoiceSessionSchema),
     m8LiveVoiceController.createSession,
 );
+router.post(
+    '/agent/voice/live/gemini/session',
+    requireAuth,
+    requirePlan,
+    agentVoiceSessionRateLimiter,
+    validateRequest(m8LiveVoiceGeminiSessionSchema),
+    m8LiveVoiceController.createGeminiSession,
+);
 router.get('/agent/voice/live/client', m8LiveVoiceController.client);
 router.post(
     '/agent/voice/live/usage',
@@ -378,7 +386,7 @@ router.post(
     agentVoiceUsageRateLimiter,
     validateRequest(appTelemetrySchema.liveVoiceUsageSchema),
     (req, res) => {
-        recordLiveVoiceUsage(req.user!.id, req.body.kind, req.body.usage);
+        recordLiveVoiceUsage(req.user!.id, req.body.kind, req.body.usage, req.body.provider);
         res.status(204).end();
     },
 );

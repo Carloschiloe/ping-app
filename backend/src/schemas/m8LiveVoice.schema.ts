@@ -12,6 +12,18 @@ export const m8LiveVoiceSessionSchema = z.object({
     }).strict(),
 });
 
+// Google's live voice: the same request without a WebRTC offer.
+export const m8LiveVoiceGeminiSessionSchema = z.object({
+    body: z.object({
+        voiceSessionId: z.string().uuid(),
+        deviceSessionId: z.string().uuid(),
+        conversationId: z.string().uuid().optional(),
+        currentCommitmentId: z.string().uuid().optional(),
+        locale: z.string().trim().min(2).max(20).optional(),
+        timezone: z.string().trim().min(1).max(60).optional(),
+    }).strict(),
+});
+
 export const m8LiveVoiceTelemetrySchema = z.object({
     body: z.object({
         voiceSessionId: z.string().uuid(),
@@ -95,3 +107,4 @@ export const m8LiveVoiceTelemetrySchema = z.object({
 
 export type M8LiveVoiceSessionRequest = z.infer<typeof m8LiveVoiceSessionSchema>['body'];
 export type M8LiveVoiceTelemetry = z.infer<typeof m8LiveVoiceTelemetrySchema>['body'];
+export type M8LiveVoiceGeminiSessionRequest = z.infer<typeof m8LiveVoiceGeminiSessionSchema>['body'];

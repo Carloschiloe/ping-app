@@ -105,6 +105,13 @@ function sanitizeTelemetryText(value: string | undefined, maxLength: number): st
         .slice(0, maxLength);
 }
 
+/** Google's live voice model; the price list knows it by this name. */
+export function geminiLiveModel(): string {
+    const model = process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-3.8-live';
+    if (!/^[a-zA-Z0-9._-]{2,80}$/.test(model)) throw new AppError('Invalid live voice model configuration', 500);
+    return model;
+}
+
 export function modelForLiveVoice(): string {
     const model = process.env.M8_LIVE_VOICE_MODEL?.trim() || DEFAULT_MODEL;
     if (!/^[a-zA-Z0-9._-]{2,80}$/.test(model)) throw new AppError('Invalid live voice model configuration', 500);
@@ -671,13 +678,15 @@ type RealtimeDetails = { text_tokens?: number; audio_tokens?: number; cached_tok
 export type RealtimeUsage = { input_tokens?: number; output_tokens?: number; input_token_details?: RealtimeDetails; output_token_details?: RealtimeDetails };
 
 /** Prices one live-voice answer (or its transcription) with the model this server configured. */
-export function recordLiveVoiceUsage(userId: string, kind: 'voz_en_vivo' | 'voz_transcripcion', usage: RealtimeUsage): void {
+export function recordLiveVoiceUsage(userId: string, kind: 'voz_en_vivo' | 'voz_transcripcion', usage: RealtimeUsage, provider: 'openai' | 'gemini' = 'openai'): void {
     const input = usage.input_token_details ?? {};
     const output = usage.output_token_details ?? {};
     const cached = input.cached_tokens_details ?? {};
     const audioIn = input.audio_tokens ?? 0;
     const textIn = input.text_tokens ?? (audioIn ? 0 : usage.input_tokens ?? 0);
-    const model = kind === 'voz_en_vivo'
+    const model = provider === 'gemini'
+        ? geminiLiveModel()
+        : kind === 'voz_en_vivo'
         ? modelForLiveVoice()
         : process.env.M8_LIVE_VOICE_TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-transcribe';
     recordAiUsage({
