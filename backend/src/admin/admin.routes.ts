@@ -7,7 +7,7 @@ import { createRateLimitStore } from '../middleware/rateLimitStore';
 import { AppError } from '../utils/AppError';
 import * as admin from './admin.service';
 import * as costs from './costs.service';
-import { VOICES, getVoiceSettings, updateVoiceSettings, voiceSample, type VoiceName } from '../services/voiceSettings.service';
+import { GEMINI_VOICES, VOICES, VOICE_PROVIDERS, getVoiceProvider, getVoiceSettings, updateVoiceProvider, updateVoiceSettings, voiceSample, type VoiceName } from '../services/voiceSettings.service';
 
 // The owner's admin panel API, under /admin/api. Every route except sign-in
 // needs a signed-in account listed in admin_users. Nothing here is cached.
@@ -111,7 +111,10 @@ adminRouter.post('/reports/:id/status',
 adminRouter.get('/assistant', handle(() => admin.assistantUsage()));
 adminRouter.get('/system', handle(() => admin.system()));
 
-adminRouter.get('/voice', handle(() => getVoiceSettings()));
+adminRouter.get('/voice', handle(async () => ({ ...(await getVoiceSettings()), ...(await getVoiceProvider()) })));
+adminRouter.put('/voice/provider',
+    validateRequest(z.object({ body: z.object({ provider: z.enum(VOICE_PROVIDERS), geminiVoice: z.enum(GEMINI_VOICES) }) })),
+    handle((req) => updateVoiceProvider(req.body)));
 adminRouter.get('/voice/sample/:voice',
     validateRequest(z.object({ params: z.object({ voice: z.enum(VOICES) }) })),
     async (req: Request, res: Response, next: NextFunction) => {

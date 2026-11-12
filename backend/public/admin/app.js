@@ -611,6 +611,25 @@
     ['ash', 'Ash · masculina, clara'], ['ballad', 'Ballad · masculina, suave'], ['verse', 'Verse · masculina, expresiva'], ['echo', 'Echo · masculina, neutra'],
     ['coral', 'Coral · femenina, alegre'], ['sage', 'Sage · femenina, serena'], ['shimmer', 'Shimmer · femenina, luminosa'], ['alloy', 'Alloy · neutra'],
   ];
+  var GEMINI_VOICE_NAMES = [
+    ['Aoede', 'Aoede · femenina, fresca (tu favorita en la prueba a ciegas)'], ['Sulafat', 'Sulafat · femenina, cálida'], ['Kore', 'Kore · femenina, firme'],
+    ['Leda', 'Leda · femenina, juvenil'], ['Despina', 'Despina · femenina, suave'], ['Achernar', 'Achernar · femenina, delicada'], ['Callirrhoe', 'Callirrhoe · femenina, relajada'],
+    ['Puck', 'Puck · masculina, alegre'], ['Charon', 'Charon · masculina, informativa'], ['Orus', 'Orus · masculina, firme'],
+  ];
+  function providerCard(v) {
+    var radio = function (value, title, detail) {
+      return '<label class="voice-row"><input type="radio" name="provider" value="' + value + '"' + (v.provider === value ? ' checked' : '') + (value === 'gemini' && !v.geminiAvailable ? ' disabled' : '') + '>' +
+        '<span class="vn"><b>' + esc(title) + '</b><small>' + esc(detail) + '</small></span></label>';
+    };
+    var options = GEMINI_VOICE_NAMES.map(function (n) {
+      return '<option value="' + n[0] + '"' + (n[0] === v.geminiVoice ? ' selected' : '') + '>' + esc(n[1]) + '</option>';
+    }).join('');
+    return '<form class="card" id="provider-form"><h3>Quién habla en la voz en vivo</h3><div class="sub">Google cuesta cerca de un tercio y respondió más rápido en las pruebas. Si Google falla al empezar, Vorian usa OpenAI sola.</div>' +
+      '<div class="voices">' + radio('gemini', 'Google', v.geminiAvailable ? 'Más barata y rápida' : 'Falta la clave GEMINI_API_KEY en el servidor') + radio('openai', 'OpenAI', 'La voz anterior; usa la voz elegida abajo') + '</div>' +
+      '<div class="settings-form"><label>Voz de Google: <select name="geminiVoice">' + options + '</select></label></div>' +
+      '<p class="sub" style="margin:14px 0">El cambio se nota en la siguiente conversación por voz, sin actualizar la app.</p>' +
+      '<button class="btn primary" type="submit">Guardar</button></form>';
+  }
   function voiceCard(v) {
     var rows = VOICE_NAMES.map(function (n) {
       var parts = n[1].split(' · ');
@@ -618,7 +637,7 @@
         '<span class="vn"><b>' + esc(parts[0]) + '</b><small>' + esc(parts[1]) + '</small></span>' +
         '<button type="button" class="btn play" data-voice="' + n[0] + '" aria-label="Escuchar ' + esc(parts[0]) + '">▶ Escuchar</button></label>';
     }).join('');
-    return '<form class="card" id="voice-form"><h3>Voz del asistente</h3><div class="sub">Escucha cada voz y marca la que quieras. La muestra dice: «Hola, soy Vorian. Mañana tienes dos cosas…»</div>' +
+    return '<form class="card" id="voice-form"><h3>Voz de OpenAI</h3><div class="sub">Se usa cuando habla OpenAI. Escucha cada voz y marca la que quieras. La muestra dice: «Hola, soy Vorian. Mañana tienes dos cosas…»</div>' +
       '<div class="voices">' + rows + '</div>' +
       '<div class="settings-form"><label>Velocidad: <b id="speed-label">' + Number(v.speed).toFixed(2).replace('.', ',') + '</b><input type="range" name="speed" min="0.8" max="1.2" step="0.05" value="' + v.speed + '"></label></div>' +
       '<p class="sub" style="margin:14px 0">1,00 es la velocidad normal; la muestra se escucha con la velocidad que elijas. El cambio se nota en la siguiente conversación por voz, sin actualizar la app.</p>' +
@@ -650,8 +669,16 @@
       }).join('') : '<div class="empty">Nadie ha usado el asistente este mes.</div>';
       main.innerHTML = header('Uso del asistente', 'Cuánto se usa Vorian, el asistente') +
         '<div class="kpis">' + kpi('Últimas 24 horas', num(a.day), 'mensajes al asistente') + kpi('Últimos 7 días', num(a.week)) + kpi('Últimos 30 días', num(a.month)) + kpi('Por voz (30 días)', num(a.voiceMonth)) + '</div>' +
-        '<div class="grid2 even"><div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>' + voiceCard(v) + '</div>';
+        '<div class="grid2 even"><div class="card"><h3>Quiénes más lo usan</h3><div class="sub">Últimos 30 días. Sirve para detectar abuso o gastos fuera de lo normal.</div><div class="list">' + top + '</div></div>' + providerCard(v) + '</div>' +
+        '<div class="grid2 even">' + voiceCard(v) + '</div>';
       bindUserLinks();
+      var providerForm = document.getElementById('provider-form');
+      providerForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var chosen = providerForm.querySelector('input[name="provider"]:checked');
+        api('/voice/provider', { method: 'PUT', body: { provider: chosen ? chosen.value : 'openai', geminiVoice: providerForm.geminiVoice.value } })
+          .then(function () { toast('Guardado'); }, function (err) { toast(err.message, true); });
+      });
       var form = document.getElementById('voice-form');
       form.speed.addEventListener('input', function () {
         document.getElementById('speed-label').textContent = Number(form.speed.value).toFixed(2).replace('.', ',');

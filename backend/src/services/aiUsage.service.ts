@@ -32,6 +32,8 @@ export const PRICES: Record<string, Price> = {
     'gpt-realtime-2.1': { input: 4, cached: 0.4, output: 24, audioInput: 32, audioOutput: 64, audioCached: 0.4 },
     'gpt-realtime': { input: 4, cached: 0.4, output: 16, audioInput: 32, audioOutput: 64, audioCached: 0.4 },
     'whisper-1': { input: 0, cached: 0, output: 0, perMinute: 0.006 },
+    // Google's live voice (ai.google.dev/gemini-api/docs/pricing, November 2026).
+    'gemini-3.8-live': { input: 0.75, cached: 0.075, output: 4.5, audioInput: 3, audioOutput: 12, audioCached: 0.3 },
     // Spoken output, priced by the minute of audio.
     'gpt-4o-mini-tts': { input: 0, cached: 0, output: 0, perMinute: 0.015 },
 };

@@ -21,7 +21,7 @@ export const appErrorSchema = z.object({
     }),
 });
 
-// Token counts the live voice page reads from OpenAI's own reply events.
+// Token counts the live voice page reads from the voice service's own reply events.
 const count = z.number().int().min(0).max(1_000_000).optional();
 const details = z.object({
     text_tokens: count,
@@ -34,6 +34,8 @@ export const liveVoiceUsageSchema = z.object({
     body: z.object({
         voiceSessionId: z.string().max(120).optional(),
         kind: z.enum(['voz_en_vivo', 'voz_transcripcion']),
+        // Which live voice service answered; without it, OpenAI.
+        provider: z.enum(['openai', 'gemini']).optional(),
         usage: z.object({
             input_tokens: count,
             output_tokens: count,
