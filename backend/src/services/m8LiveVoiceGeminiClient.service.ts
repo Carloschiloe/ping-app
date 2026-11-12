@@ -88,6 +88,8 @@ ${VOICE_AURA_SOURCE}
     const selected=usable(heard)?heard:usable(providerInput)?providerInput:'';
     if(!selected){telemetry('input_ignored',{turnId,detailCode:'missing_core_input',sideEffects:0});if(call)send({toolResponse:{functionResponses:[{id:call.id,name:call.name,response:{core_presentation:{kind:'clarification',authorizedText:''}}}]}});return}
     telemetry('transcript_received',{turnId,transcript:safeText(selected,500),detailCode:usable(heard)?'input_transcription_selected_for_core':'provider_tool_input_fallback',sideEffects:0});
+    // A TV, someone else in the room, or the person talking to somebody else: Vorian stays quiet and keeps listening.
+    if(args?.intent==='not_for_vorian'){telemetry('input_ignored',{turnId,transcript:safeText(selected,500),detailCode:'not_addressed_to_vorian',sideEffects:0});if(call)send({toolResponse:{functionResponses:[{id:call.id,name:call.name,response:{core_presentation:{kind:'clarification',authorizedText:''}}}]}});stage('listening','Vorian está listo','Habla cuando quieras.',{detailCode:'not_addressed_to_vorian',sideEffects:0});return}
     if(args?.intent==='end_conversation'||isVoiceFarewell(selected)){sayFarewell(call,args?.intent==='end_conversation'?'intent':'phrase');return}
     if(coreInFlight){telemetry('input_ignored',{turnId,detailCode:'core_turn_already_in_flight',sideEffects:0});return}
     coreInFlight=true;
