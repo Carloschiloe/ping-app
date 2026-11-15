@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabase';
 import {
     buildCallPageUrl,
     buildCallPageOriginWhitelist,
+    isCallPageUrl,
     getAllowedCallPermissionResources,
     parseCallBridgeMessage,
 } from '../utils/callBridge';
@@ -283,6 +284,7 @@ const CallScreen = ({ route, navigation }: any) => {
                     }
                 }}
                 originWhitelist={buildCallPageOriginWhitelist(API_URL)}
+                onShouldStartLoadWithRequest={(request) => isCallPageUrl(API_URL, request.url)}
             />
 
             {/* Controls overlay */}

@@ -10,9 +10,18 @@ export type CallBridgeMessage = {
     status: CallBridgeStatus;
 };
 
+// The web view compares this against the page's origin alone ("https://host",
+// no path), so "https://host/*" never matched: any change of page inside it,
+// like the live voice switching to its backup voice, was sent to Chrome
+// (2026-11-15). The list names the origin; isCallPageUrl then requires that
+// exact origin, so a look-alike host cannot load inside the app.
 export function buildCallPageOriginWhitelist(apiUrl: string): string[] {
-    const origin = new URL(apiUrl).origin;
-    return [`${origin}/*`];
+    return [new URL(apiUrl).origin];
+}
+
+export function isCallPageUrl(apiUrl: string, url: string): boolean {
+    if (url === 'about:blank') return true;
+    try { return new URL(url).origin === new URL(apiUrl).origin; } catch { return false; }
 }
 
 export function getAllowedCallPermissionResources(isVideo: boolean): string[] {
