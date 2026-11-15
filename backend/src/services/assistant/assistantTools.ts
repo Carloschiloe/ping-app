@@ -527,6 +527,35 @@ const handlers: Record<string, ToolHandler> = {
     },
 };
 
+const PRELOAD_PAST_DAYS = 14;
+const PRELOAD_NEXT_DAYS = 7;
+
+function localDate(date: Date, timezone: string): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+
+/**
+ * The open agenda around today, looked up before the model starts, so the
+ * usual questions ("¿qué tengo mañana?", "muévelo al viernes") are answered
+ * without a whole model round spent asking for it (about 1.5 s on voice).
+ */
+export async function preloadAgenda(ctx: AssistantToolContext): Promise<{ from: string; to: string; result: ToolResult } | null> {
+    const day = 24 * 60 * 60 * 1000;
+    const from = localDate(new Date(ctx.now.getTime() - PRELOAD_PAST_DAYS * day), ctx.timezone);
+    const to = localDate(new Date(ctx.now.getTime() + PRELOAD_NEXT_DAYS * day), ctx.timezone);
+    // Looked up, not yet used: it does not show as a source of the answer.
+    const citations = new Map(ctx.citations);
+    try {
+        const result = await handlers.list_commitments({ from, to, status: 'open', person: null, text: null }, ctx);
+        return isError(result) ? null : { from, to, result };
+    } catch {
+        return null;
+    } finally {
+        ctx.citations.clear();
+        citations.forEach((value, key) => ctx.citations.set(key, value));
+    }
+}
+
 export async function runAssistantTool(name: string, rawArguments: string, ctx: AssistantToolContext): Promise<ToolResult> {
     let args: Record<string, any>;
     try {

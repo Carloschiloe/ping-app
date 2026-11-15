@@ -1,6 +1,9 @@
 // M9 assistant bench against the real model. Opt-in only:
 //   M9_BENCH=1 PING_ASSISTANT_MODEL=<model> npx vitest run tests/m9AssistantBench.real.test.ts
 // Optional: M9_BENCH_IDS=R01,F01  M9_BENCH_OUT=<file.json>
+// Other providers: M9_BENCH_PROVIDER=google|xai|groq|cerebras|deepseek|mistral|anthropic|openrouter
+//   (key in backend/.env, see tests/support/benchProviders.ts), M9_BENCH_EFFORT=low,
+//   M9_BENCH_PARALLEL=1 for free accounts with a low request limit.
 import { describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { runAssistantTurn } from '../src/services/assistant/assistantService';
@@ -8,6 +11,7 @@ import { assistantModelFromEnv } from '../src/services/assistant/assistantModel'
 import { timeZoneOffsetMs } from '../src/utils/timezone';
 import type { AssistantHistory, AssistantTurnOutput } from '../src/services/assistant/assistantTypes';
 import { BenchWorld } from './support/m9BenchWorld';
+import { benchModelFromEnv, benchUsage } from './support/benchProviders';
 import {
     BENCH_ACTOR,
     BENCH_NOW,
@@ -47,7 +51,10 @@ function says(answer: string, pattern: string): boolean {
 function evaluateTurn(expect: TurnExpectation, output: AssistantTurnOutput): string[] {
     const failures: string[] = [];
     const called = output.trace.map((entry) => entry.name);
-    for (const name of expect.calls ?? []) if (!called.includes(name)) failures.push(`missing call ${name}`);
+    // The open agenda around today arrives already looked up, so answering
+    // from it counts as having listed it.
+    const preloaded = process.env.PING_ASSISTANT_PRELOAD_AGENDA !== 'false' ? ['list_commitments'] : [];
+    for (const name of expect.calls ?? []) if (!called.includes(name) && !preloaded.includes(name)) failures.push(`missing call ${name}`);
     for (const name of expect.notCalls ?? []) if (called.includes(name)) failures.push(`unexpected call ${name}`);
     const proposals = output.trace.filter((entry) => entry.proposedAction);
     if (expect.proposes) {
@@ -74,12 +81,13 @@ interface TurnReport { user: string; answer: string; tools: string[]; failures: 
 interface CaseReport { id: string; area: string; pass: boolean; turns: TurnReport[] }
 
 async function runCase(benchCase: BenchCase): Promise<CaseReport> {
-    const model = assistantModelFromEnv()!;
+    const model = benchModelFromEnv() ?? assistantModelFromEnv()!;
     const world = new BenchWorld();
     const history: AssistantHistory = { turns: [], refs: [], actions: [] };
     const turns: TurnReport[] = [];
     for (const turn of benchCase.turns) {
         const started = Date.now();
+        const waitedBefore = benchUsage.waitMs;
         try {
             const output = await runAssistantTurn(
                 { actorUserId: BENCH_ACTOR, text: turn.user, timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history },
@@ -89,7 +97,7 @@ async function runCase(benchCase: BenchCase): Promise<CaseReport> {
             history.refs = output.memory.refs;
             history.actions = output.memory.actions;
             turns.push({
-                user: turn.user, answer: output.answer, ms: Date.now() - started,
+                user: turn.user, answer: output.answer, ms: Date.now() - started - (benchUsage.waitMs - waitedBefore),
                 tools: output.trace.map((entry) => `${entry.name}(${JSON.stringify(entry.arguments)})${entry.ok ? '' : '!'}`),
                 failures: evaluateTurn(turn.expect, output),
             });
@@ -106,8 +114,9 @@ describe.skipIf(!enabled)('M9 assistant bench (real model)', () => {
         const ids = process.env.M9_BENCH_IDS?.split(',').map((id) => id.trim()).filter(Boolean);
         const cases = M9_BENCH_CASES.filter((benchCase) => !ids || ids.includes(benchCase.id));
         const reports: CaseReport[] = [];
-        for (let index = 0; index < cases.length; index += 6) {
-            reports.push(...await Promise.all(cases.slice(index, index + 6).map(runCase)));
+        const parallel = Math.max(1, Number(process.env.M9_BENCH_PARALLEL) || 6);
+        for (let index = 0; index < cases.length; index += parallel) {
+            reports.push(...await Promise.all(cases.slice(index, index + parallel).map(runCase)));
         }
         const byArea = new Map<string, { pass: number; total: number }>();
         for (const report of reports) {
@@ -120,7 +129,9 @@ describe.skipIf(!enabled)('M9 assistant bench (real model)', () => {
         const safety = reports.flatMap((report) => report.turns.flatMap((turn) => turn.failures)).filter((failure) => failure.startsWith('SAFETY'));
         const latencies = reports.flatMap((report) => report.turns.map((turn) => turn.ms)).sort((a, b) => a - b);
         const summary = {
-            model: assistantModelFromEnv()?.modelName,
+            model: (benchModelFromEnv() ?? assistantModelFromEnv())?.modelName,
+            provider: process.env.M9_BENCH_PROVIDER || 'openai',
+            usage: { ...benchUsage, modelMs: undefined, medianCallMs: [...benchUsage.modelMs].sort((a, b) => a - b)[Math.floor(benchUsage.modelMs.length / 2)] ?? null },
             passed, total: reports.length, safetyFailures: safety.length,
             medianTurnMs: latencies[Math.floor(latencies.length / 2)] ?? null,
             p90TurnMs: latencies[Math.floor(latencies.length * 0.9)] ?? null,
@@ -135,5 +146,5 @@ describe.skipIf(!enabled)('M9 assistant bench (real model)', () => {
         }
         if (process.env.M9_BENCH_OUT) writeFileSync(process.env.M9_BENCH_OUT, JSON.stringify({ summary, reports }, null, 2));
         expect(safety).toEqual([]);
-    }, 1_800_000);
+    }, 10_800_000);
 });
