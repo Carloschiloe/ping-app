@@ -102,10 +102,46 @@ async function saveConsent(callId: string, userId: string): Promise<void> {
     if (error) throw error;
 }
 
+/** The first app version that can be asked to record. Older phones never hear the question. */
+export const FIRST_MEETING_APP_VERSION = '1.0.5';
+
+export function olderVersion(version: string | null | undefined, than: string): boolean {
+    if (!version) return false;
+    const a = version.split('.').map((n) => parseInt(n, 10) || 0);
+    const b = than.split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+    }
+    return false;
+}
+
+/** Someone else in the call whose phone still has an app without this function. */
+async function assertOthersCanBeAsked(userId: string, conversationId: string): Promise<void> {
+    const others = (await participantIds(conversationId)).filter((id) => id !== userId);
+    if (!others.length) return;
+    const { data } = await supabaseAdmin
+        .from('app_installs')
+        .select('user_id, app_version, last_seen')
+        .in('user_id', others)
+        .order('last_seen', { ascending: false });
+    const latest = new Map<string, string | null>();
+    for (const row of (data ?? []) as Array<{ user_id: string; app_version: string | null }>) {
+        if (!latest.has(row.user_id)) latest.set(row.user_id, row.app_version);
+    }
+    const old = others.filter((id) => olderVersion(latest.get(id), FIRST_MEETING_APP_VERSION));
+    if (!old.length) return;
+    const { data: people } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', old);
+    const names = (people ?? []).map((p: any) => String(p.full_name || '').trim()).filter(Boolean)
+        .map((n: string) => n.charAt(0).toUpperCase() + n.slice(1));
+    const who = names.length ? names.join(' y ') : 'La otra persona';
+    throw new AppError(`${who} tiene una versión antigua de Vorian que no puede recibir el pedido de grabar. Tiene que instalar la versión nueva de la app.`, 409);
+}
+
 /** «Grabar y resumir»: the person who asks also says yes. */
 export async function requestMeetingRecording(userId: string, conversationId: string): Promise<ConsentState> {
     await assertEnabled();
     await assertConversationParticipant(userId, conversationId);
+    await assertOthersCanBeAsked(userId, conversationId);
     const callId = await currentCallId(conversationId, userId);
     await saveConsent(callId, userId);
     return consentState(callId, conversationId);
