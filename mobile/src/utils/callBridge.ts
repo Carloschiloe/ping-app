@@ -73,7 +73,20 @@ export type MeetingBridgeMessage = {
     state: MeetingRecordingState;
     startedAt?: string;
     seconds?: number;
+    /** Where each piece this phone kept sits in the call; null when it kept everything. */
+    pieces?: MeetingPiece[] | null;
 };
+
+export type MeetingPiece = { at: number; from: number; len: number };
+
+const MAX_PIECES = 20_000;
+
+function readPieces(value: unknown): MeetingPiece[] | null {
+    if (!Array.isArray(value) || value.length > MAX_PIECES) return null;
+    const ok = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+    const pieces = value.filter((p: any) => p && ok(p.at) && ok(p.from) && ok(p.len)).map((p: any) => ({ at: p.at, from: p.from, len: p.len }));
+    return pieces.length === value.length ? pieces : null;
+}
 
 export function parseMeetingBridgeMessage(raw: string): MeetingBridgeMessage | null {
     try {
@@ -87,6 +100,7 @@ export function parseMeetingBridgeMessage(raw: string): MeetingBridgeMessage | n
                 state: value.state,
                 startedAt: typeof value.startedAt === 'string' ? value.startedAt : undefined,
                 seconds: typeof value.seconds === 'number' && Number.isFinite(value.seconds) ? value.seconds : undefined,
+                pieces: readPieces(value.pieces),
             };
         }
     } catch {

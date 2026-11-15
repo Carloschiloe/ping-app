@@ -15,7 +15,7 @@ import { analyzeMeeting, normalizeKey } from './meetingAnalysis';
 import { parseLlmTarget } from './meetingLlm';
 import { MEETING_PIPELINE_VERSION } from './meetingPipeline';
 import { allParticipantsConsented, meetingSummariesEnabled, participantIds, RECORDINGS_BUCKET } from './meetingRecording.service';
-import { GeminiTranscriber, mergeTrackTranscripts, OpenAiStyleTranscriber, transcriptAsDialogue } from './meetingTranscription';
+import { GeminiTranscriber, interleaveTracks, OpenAiStyleTranscriber, transcriptAsDialogue, type TrackPiece } from './meetingTranscription';
 import { MeetingAnalysis, MeetingAnalysisRun, MeetingProviderError, MeetingTranscript, ProposedMeetingCommitment } from './meetingTypes';
 
 const WORKER_ID = randomUUID();
@@ -27,7 +27,8 @@ const BACKUP_TRANSCRIBER_MODEL = process.env.MEETING_BACKUP_TRANSCRIBER_MODEL ||
 const ANALYZERS = (process.env.MEETING_ANALYZERS || 'openai:gpt-6-luna@low,google:gemini-3.1-flash-lite')
     .split(',').map((s) => s.trim()).filter(Boolean).map(parseLlmTarget);
 
-type Track = { path: string; startedAt: string; seconds: number };
+// pieces: when the phone kept only the moments its person spoke (see callTimeMs).
+type Track = { path: string; startedAt: string; seconds: number; pieces?: TrackPiece[] | null };
 type JobRow = {
     id: string;
     call_id: string;
@@ -114,16 +115,23 @@ function meter(feature: 'reunion_transcripcion' | 'reunion_resumen', model: stri
 }
 
 async function transcribe(job: JobRow, byId: Map<string, Person>): Promise<{ transcript: MeetingTranscript; cost: number; seconds: number }> {
-    const entries = Object.entries(job.tracks || {}).filter(([id]) => byId.has(id));
-    if (!entries.length) throw new MeetingProviderError('no_recording', false);
-    const offsets = trackOffsets(entries.map(([, t]) => t));
+    const all = Object.entries(job.tracks || {}).filter(([id]) => byId.has(id));
+    if (!all.length) throw new MeetingProviderError('no_recording', false);
+    const offsets = trackOffsets(all.map(([, t]) => t));
+    const seconds = Math.max(...all.map(([, t], i) => (t.seconds || 0) + offsets[i]));
     const tracks = [];
-    for (const [index, [id, t]] of entries.entries()) {
+    for (const [index, [id, t]] of all.entries()) {
+        // A phone that cut its silences and kept nothing: that person never spoke.
+        if (Array.isArray(t.pieces) && t.pieces.length === 0) continue;
         const { data, error } = await supabaseAdmin.storage.from(RECORDINGS_BUCKET).download(t.path);
         if (error || !data) throw new MeetingProviderError('storage_unavailable', true);
-        tracks.push({ speaker: byId.get(id)!.name, bytes: Buffer.from(await data.arrayBuffer()), mimeType: 'audio/webm', fileName: `${id}.webm`, offsetSec: offsets[index] });
+        tracks.push({
+            speaker: byId.get(id)!.name, bytes: Buffer.from(await data.arrayBuffer()), mimeType: 'audio/webm', fileName: `${id}.webm`,
+            offsetSec: offsets[index], pieces: t.pieces || undefined,
+            spokenSeconds: t.pieces ? t.pieces.reduce((sum, p) => sum + p.len, 0) : t.seconds,
+        });
     }
-    const seconds = Math.max(...entries.map(([, t], i) => (t.seconds || 0) + offsets[i]));
+    if (!tracks.length) throw new MeetingProviderError('no_recording', false);
     try {
         const transcript = await new GeminiTranscriber(TRANSCRIBER_MODEL).transcribeTracks(tracks);
         const cost = meter('reunion_transcripcion', TRANSCRIBER_MODEL, transcript.usage || {}, job.requested_by);
@@ -131,18 +139,25 @@ async function transcribe(job: JobRow, byId: Map<string, Person>): Promise<{ tra
     } catch (error) {
         console.warn('[MeetingWorker] Joint transcription failed, using the backup', { code: (error as any)?.code });
     }
-    // Backup: each track on its own, put in order by time.
+    // Backup: each track on its own, put back in call order by its times.
     const backup = new OpenAiStyleTranscriber('openai', BACKUP_TRANSCRIBER_MODEL);
     const parts = [];
     let cost = 0;
     for (const t of tracks) {
         const one = await backup.transcribe({ bytes: t.bytes, mimeType: t.mimeType, fileName: t.fileName, languageHint: 'es' });
-        const shift = Math.round((t.offsetSec || 0) * 1000);
-        one.segments = one.segments.map((s) => ({ ...s, startMs: s.startMs == null ? null : s.startMs + shift, endMs: s.endMs == null ? null : s.endMs + shift }));
-        cost += meter('reunion_transcripcion', BACKUP_TRANSCRIBER_MODEL, one.usage || { audioSeconds: entries.find(([id]) => byId.get(id)?.name === t.speaker)?.[1].seconds }, job.requested_by);
-        parts.push({ speaker: t.speaker, transcript: one });
+        cost += meter('reunion_transcripcion', BACKUP_TRANSCRIBER_MODEL, one.usage || { audioSeconds: t.spokenSeconds }, job.requested_by);
+        parts.push({ speaker: t.speaker, segments: one.segments, pieces: t.pieces, offsetSec: t.offsetSec, first: one });
     }
-    return { transcript: mergeTrackTranscripts(parts), cost, seconds };
+    const segments = interleaveTracks(parts);
+    const first = parts[0].first;
+    return {
+        transcript: {
+            text: segments.map((x) => x.text).join(' '), segments, language: first.language, durationSec: seconds,
+            provider: first.provider, model: first.model, latencyMs: Math.max(...parts.map((x) => x.first.latencyMs)), usage: null,
+        },
+        cost,
+        seconds,
+    };
 }
 
 async function finish(job: JobRow, patch: Record<string, unknown>): Promise<void> {

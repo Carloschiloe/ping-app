@@ -81,6 +81,9 @@ export class OpenAiStyleTranscriber implements MeetingTranscriber {
 
 // ---------- Google Gemini (audio sent to the model, asked for who said what) ----------
 
+/** One person's microphone; `pieces` when the phone cut its silences. */
+export type CutTrack = { speaker: string; bytes: Buffer; mimeType: string; fileName: string; offsetSec?: number; pieces?: TrackPiece[] };
+
 export class GeminiTranscriber implements MeetingTranscriber {
     readonly id: string;
     readonly diarizes = true;
@@ -91,7 +94,10 @@ export class GeminiTranscriber implements MeetingTranscriber {
      * and writes the conversation in order, with the name taken from the
      * track, so nobody has to guess voices.
      */
-    async transcribeTracks(tracks: Array<{ speaker: string; bytes: Buffer; mimeType: string; fileName: string; offsetSec?: number }>): Promise<MeetingTranscript> {
+    async transcribeTracks(tracks: CutTrack[]): Promise<MeetingTranscript> {
+        // Tracks without their silences: Google writes each one on its own with
+        // times inside that track, and the pieces put every phrase back in the call.
+        if (tracks.some((t) => t.pieces?.length)) return this.transcribeCutTracks(tracks);
         const apiKey = key('GEMINI_API_KEY');
         const names = tracks.map((t) => t.speaker).join(', ');
         const parts: any[] = [];
@@ -125,6 +131,9 @@ export class GeminiTranscriber implements MeetingTranscriber {
             data = await response.json();
             segments = parseGeminiSegments((data.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || '').join(''));
         }
+        // «Pista de Carlos» → «Carlos»: the name always comes from the track.
+        const trackNames = tracks.map((t) => t.speaker);
+        segments = segments.map((seg) => ({ ...seg, speaker: trackNames.find((name) => trackLabelMatches(seg.speaker, name, trackNames)) ?? seg.speaker }));
         const text = joinText(segments);
         if (!text) throw new MeetingProviderError('empty_transcript', true);
         const usage = data.usageMetadata || {};
@@ -132,6 +141,53 @@ export class GeminiTranscriber implements MeetingTranscriber {
             text, segments, language: 'es', durationSec: null, provider: 'google', model: this.model, latencyMs: Date.now() - started,
             usage: geminiUsage(usage),
         };
+        } finally {
+            for (const file of uploaded) {
+                await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, { method: 'DELETE', headers: { 'x-goog-api-key': apiKey } }).catch(() => undefined);
+            }
+        }
+    }
+
+    private async transcribeCutTracks(tracks: CutTrack[]): Promise<MeetingTranscript> {
+        const apiKey = key('GEMINI_API_KEY');
+        const parts: any[] = [];
+        const asFiles = tracks.reduce((sum, t) => sum + t.bytes.length, 0) > GEMINI_INLINE_LIMIT_BYTES;
+        const uploaded: Array<{ uri: string; name: string }> = [];
+        try {
+            for (const [index, t] of tracks.entries()) {
+                parts.push({ text: `Pista ${index + 1}:` });
+                if (asFiles) {
+                    const file = await uploadGeminiFile(apiKey, t);
+                    uploaded.push(file);
+                    parts.push({ file_data: { mime_type: t.mimeType, file_uri: file.uri } });
+                } else {
+                    parts.push({ inline_data: { mime_type: t.mimeType, data: t.bytes.toString('base64') } });
+                }
+            }
+            // Short answer on purpose: Google bills every word it writes back.
+            parts.push({ text: `Estas ${tracks.length} pistas son de la misma llamada. Cada pista es el micrófono de una persona (${tracks.map((t, i) => `pista ${i + 1}: ${t.speaker}`).join(', ')}) y trae solo los momentos en que esa persona habla: los silencios se quitaron. Transcribe cada pista completa, en español, palabra por palabra, sin resumir. Divide cada pista en frases. Devuelve solo JSON con una lista de frases, cada una [número de pista, segundo en que empieza DENTRO DE ESA PISTA con un decimal, "texto"], por ejemplo: [[1,0.0,"Hola, ¿cómo estás?"],[2,0.4,"Bien, ¿y tú?"]]` });
+            const body = { contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 65_536 } };
+            const started = Date.now();
+            let segments: TranscriptSegment[] = [];
+            let data: any = null;
+            for (let attempt = 0; attempt < 2 && !segments.length; attempt += 1) {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body),
+                });
+                if (!response.ok) await failFrom(response, 'google');
+                data = await response.json();
+                segments = parseTrackPhrases((data.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || '').join(''), tracks.map((t) => t.speaker));
+            }
+            const ordered = interleaveTracks(tracks.map((t) => ({
+                speaker: t.speaker, pieces: t.pieces, offsetSec: t.offsetSec,
+                segments: segments.filter((seg) => seg.speaker === t.speaker),
+            })));
+            const text = joinText(ordered);
+            if (!text) throw new MeetingProviderError('empty_transcript', true);
+            return {
+                text, segments: ordered, language: 'es', durationSec: null, provider: 'google', model: this.model, latencyMs: Date.now() - started,
+                usage: geminiUsage(data.usageMetadata || {}),
+            };
         } finally {
             for (const file of uploaded) {
                 await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, { method: 'DELETE', headers: { 'x-goog-api-key': apiKey } }).catch(() => undefined);
@@ -232,8 +288,93 @@ export function parseGeminiSegments(raw: string): TranscriptSegment[] {
     if (typeof list === 'string') return [{ speaker: null, text: list, startMs: null, endMs: null }];
     if (!Array.isArray(list)) return [];
     return list.map((s: any) => ({
-        speaker: s?.speaker ?? s?.hablante ?? null, text: String(s?.text ?? s?.texto ?? ''), startMs: null, endMs: null,
+        speaker: s?.speaker ?? s?.hablante ?? null, text: String(s?.text ?? s?.texto ?? ''),
+        startMs: clockMs(s?.start ?? s?.inicio), endMs: clockMs(s?.end ?? s?.fin),
     })).filter((s: TranscriptSegment) => s.text.trim());
+}
+
+/** "1:05", "01:05.4", "1:02:03" or 65.4 → milliseconds. */
+export function clockMs(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.round(value * 1000);
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const parts = value.trim().split(':').map(Number);
+    if (parts.length > 3 || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+    return Math.round(parts.reduce((total, n) => total * 60 + n, 0) * 1000);
+}
+
+/**
+ * A phone that cut its silences notes each kept piece: where it starts in the
+ * call (at) and where it starts in the file (from), in seconds.
+ */
+export type TrackPiece = { at: number; from: number; len: number };
+
+/** A moment in the cut file → the moment in the call. */
+export function callTimeMs(pieces: TrackPiece[] | undefined, fileMs: number, offsetSec = 0): number {
+    const sec = fileMs / 1000;
+    if (!pieces?.length) return Math.round((offsetSec + sec) * 1000);
+    let piece = pieces[0];
+    for (const p of pieces) {
+        if (p.from <= sec + 0.05) piece = p;
+        else break;
+    }
+    const inside = Math.min(Math.max(0, sec - piece.from), piece.len);
+    return Math.round((offsetSec + piece.at + inside) * 1000);
+}
+
+/** [[track number, seconds, "text"], ...] → phrases named after their track; other shapes are read too. */
+export function parseTrackPhrases(raw: string, trackNames: string[]): TranscriptSegment[] {
+    let parsed: any;
+    try { parsed = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')); } catch { return []; }
+    const list = Array.isArray(parsed) ? parsed : parsed?.segments || parsed?.frases || [];
+    if (!Array.isArray(list)) return [];
+    const out: TranscriptSegment[] = [];
+    for (const item of list) {
+        if (Array.isArray(item)) {
+            const name = trackNames[Number(item[0]) - 1];
+            const text = String(item[2] ?? '').trim();
+            if (name && text) out.push({ speaker: name, text, startMs: clockMs(item[1]), endMs: null });
+        } else if (item && typeof item === 'object') {
+            const said = item.speaker ?? item.pista ?? item.track;
+            const name = typeof said === 'number' ? trackNames[said - 1] : trackNames.find((n) => trackLabelMatches(said, n, trackNames));
+            const text = String(item.text ?? item.texto ?? '').trim();
+            if (name && text) out.push({ speaker: name, text, startMs: clockMs(item.start ?? item.inicio), endMs: null });
+        }
+    }
+    return out;
+}
+
+/** Google writes the track's name in its own way («Pista de Carlos», «carlos»): which track is it? */
+export function trackLabelMatches(said: unknown, track: string, allTracks: string[]): boolean {
+    const plain = (v: unknown) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/^\s*pista\s+(de\s+)?/, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const label = plain(said);
+    if (!label) return false;
+    if (label === plain(track)) return true;
+    if (allTracks.some((other) => plain(other) === label)) return false;
+    return label.split(' ')[0] === plain(track).split(' ')[0];
+}
+
+/** Every track's phrases in call order; the same person's neighbouring phrases read as one turn. */
+export function interleaveTracks(
+    tracks: Array<{ speaker: string; segments: TranscriptSegment[]; pieces?: TrackPiece[]; offsetSec?: number }>,
+): TranscriptSegment[] {
+    const all = tracks.flatMap((t) => {
+        let lastMs = 0;
+        return t.segments.map((seg) => {
+            // A phrase without a time keeps its place right after the one before it.
+            const fileMs = seg.startMs ?? lastMs + 1;
+            lastMs = fileMs;
+            return { speaker: t.speaker, text: seg.text.trim(), startMs: callTimeMs(t.pieces, fileMs, t.offsetSec), endMs: null as number | null };
+        });
+    }).filter((x) => x.text);
+    all.sort((a, b) => a.startMs - b.startMs);
+    const merged: TranscriptSegment[] = [];
+    for (const seg of all) {
+        const last = merged[merged.length - 1];
+        if (last && last.speaker === seg.speaker) last.text = `${last.text} ${seg.text}`;
+        else merged.push({ ...seg });
+    }
+    return merged;
 }
 
 // ---------- Deepgram ----------

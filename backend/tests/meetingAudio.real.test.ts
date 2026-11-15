@@ -235,3 +235,73 @@ describe.skipIf(!process.env.MEETING_AUDIO_TRACKS_STT)('one recording per person
         }
     }, 3_600_000);
 });
+
+// Each phone keeps only the moments its person speaks (MEETING_AUDIO_CUT_DIR
+// holds "enteras" and "recortadas", made by cutting the silences of each track).
+// Compares price and quality of sending whole tracks against cut ones.
+describe.skipIf(!process.env.MEETING_AUDIO_CUT_DIR)('tracks without their silences', () => {
+    it('costs less and keeps who said what, and in what order', async () => {
+        const cutDir = process.env.MEETING_AUDIO_CUT_DIR!;
+        const model = process.env.MEETING_AUDIO_CUT_MODEL || 'gemini-3.1-flash-lite';
+        const analyzeSpec = process.env.MEETING_AUDIO_ANALYZE?.trim() || 'openai:gpt-6-luna@low';
+        const transcriber = new GeminiTranscriber(model);
+        const out: any = {};
+        for (const variant of ['enteras', 'recortadas']) {
+            const rows: any[] = [];
+            for (const id of fs.readdirSync(path.join(cutDir, variant)).sort()) {
+                const testCase = caseFor(id);
+                const trackDir = path.join(cutDir, variant, id);
+                try {
+                    const files = fs.readdirSync(trackDir).filter((f) => f.endsWith('.webm'));
+                    const merged = await transcriber.transcribeTracks(files.map((file) => {
+                        const pieces = path.join(trackDir, file.replace('.webm', '.json'));
+                        return {
+                            speaker: file.replace('.webm', ''), bytes: fs.readFileSync(path.join(trackDir, file)), mimeType: 'audio/webm', fileName: file,
+                            pieces: fs.existsSync(pieces) ? JSON.parse(fs.readFileSync(pieces, 'utf8')) : undefined,
+                        };
+                    }));
+                    const ref = turns(id);
+                    // Order: each spoken turn is matched to the returned turn sharing most words;
+                    // a turn found before the one said earlier counts as out of order.
+                    const words = (t: string) => new Set(t.toLowerCase().normalize('NFD').replace(/[^a-zñ0-9 ]/g, '').split(/\s+/).filter((w) => w.length > 2));
+                    const positions = ref.map((r) => {
+                        const want = words(r.text);
+                        let best = -1, bestScore = 0;
+                        merged.segments.forEach((seg, i) => {
+                            if (seg.speaker !== r.speaker) return;
+                            const have = words(seg.text); let shared = 0; want.forEach((w) => { if (have.has(w)) shared += 1; });
+                            if (shared > bestScore) { bestScore = shared; best = i; }
+                        });
+                        return best;
+                    });
+                    let outOfOrder = 0;
+                    for (let i = 1; i < positions.length; i += 1) if (positions[i] >= 0 && positions[i - 1] >= 0 && positions[i] < positions[i - 1]) outOfOrder += 1;
+                    const run = await analyzeMeeting({ transcript: transcriptAsDialogue(merged), userName: MEETING_USER, participants: testCase.participants, now: new Date(MEETING_NOW), timeZone: MEETING_TIME_ZONE, title: testCase.title }, [parseLlmTarget(analyzeSpec)]);
+                    const people = [...new Set(ref.map((t) => t.speaker))];
+                    const errs = people.map((who) => wordErrorRate(ref.filter((t) => t.speaker === who).map((t) => t.text).join(' '), merged.segments.filter((x) => x.speaker === who).map((x) => x.text).join(' ')));
+                    const u = merged.usage || {};
+                    rows.push({
+                        id,
+                        werByPerson: errs.reduce((a, e) => a + e.wer * e.words, 0) / Math.max(1, errs.reduce((a, e) => a + e.words, 0)),
+                        orderErrors: outOfOrder / Math.max(1, positions.length - 1),
+                        audioTokens: u.audioInputTokens || 0, textTokens: u.inputTokens || 0, outputTokens: u.outputTokens || 0,
+                        costUsd: ((u.audioInputTokens || 0) * 0.5 + (u.inputTokens || 0) * 0.25 + (u.outputTokens || 0) * 1.5) / 1e6,
+                        score: scoreCase(testCase, run.analysis), text: transcriptAsDialogue(merged),
+                    });
+                } catch (error: any) {
+                    rows.push({ id, error: String(error?.message || error).slice(0, 300) });
+                }
+            }
+            const ok = rows.filter((r) => !r.error);
+            const sum = (k: string) => ok.reduce((a, r) => a + r[k], 0);
+            out[variant] = {
+                cases: rows.length, errors: rows.length - ok.length,
+                werByPerson: sum('werByPerson') / Math.max(1, ok.length), orderErrors: sum('orderErrors') / Math.max(1, ok.length),
+                audioTokens: sum('audioTokens'), costUsd: sum('costUsd'),
+                chain: totals(ok.map((r) => r.score), MEETING_CASES), rows,
+            };
+            console.log(variant, JSON.stringify({ ...out[variant], rows: undefined, chain: { perfect: out[variant].chain.perfectCases, recall: out[variant].chain.recall, owners: out[variant].chain.ownerAccuracy, dates: out[variant].chain.dateAccuracy } }));
+        }
+        fs.writeFileSync(path.join(cutDir, `resultado-${model}.json`), JSON.stringify(out, null, 2));
+    }, 3_600_000);
+});

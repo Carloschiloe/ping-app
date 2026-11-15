@@ -460,6 +460,10 @@ router.post('/meetings/:callId/consent', requireAuth, validateRequest(z.object({
 router.post('/meetings/:callId/decline', requireAuth, validateRequest(z.object({ params: meetingCallParams })), meetingController.decline);
 router.post('/meetings/:callId/upload-url', requireAuth, validateRequest(z.object({ params: meetingCallParams })), meetingController.uploadUrl);
 router.post('/meetings/:callId/uploaded', requireAuth,
-    validateRequest(z.object({ params: meetingCallParams, body: z.object({ startedAt: z.string().datetime(), seconds: z.number().min(0).max(4 * 3600) }) })),
+    validateRequest(z.object({ params: meetingCallParams, body: z.object({
+        startedAt: z.string().datetime(),
+        seconds: z.number().min(0).max(4 * 3600),
+        pieces: z.array(z.object({ at: z.number().min(0).max(4 * 3600), from: z.number().min(0).max(4 * 3600), len: z.number().min(0).max(4 * 3600) })).max(20_000).nullable().optional(),
+    }) })),
     meetingController.uploaded);
 router.get('/call', agoraController.renderCallPage);

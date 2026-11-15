@@ -66,9 +66,15 @@ import { parseMeetingBridgeMessage } from '../src/utils/callBridge';
 describe('meeting recording bridge', () => {
     it('reads what the call page says about the recording', () => {
         expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'uploaded', startedAt: '2026-11-16T13:00:00.000Z', seconds: 61.5 })))
-            .toEqual({ type: 'meeting-recording', state: 'uploaded', startedAt: '2026-11-16T13:00:00.000Z', seconds: 61.5 });
+            .toEqual({ type: 'meeting-recording', state: 'uploaded', startedAt: '2026-11-16T13:00:00.000Z', seconds: 61.5, pieces: null });
         expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'recording', seconds: 'x' })))
-            .toEqual({ type: 'meeting-recording', state: 'recording', startedAt: undefined, seconds: undefined });
+            .toEqual({ type: 'meeting-recording', state: 'recording', startedAt: undefined, seconds: undefined, pieces: null });
+    });
+
+    it('keeps the map of the pieces the phone kept, and drops a broken one', () => {
+        const pieces = [{ at: 0, from: 0, len: 2.5 }, { at: 7.1, from: 2.5, len: 1.2 }];
+        expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'uploaded', pieces }))?.pieces).toEqual(pieces);
+        expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'uploaded', pieces: [{ at: -1, from: 0, len: 1 }] }))?.pieces).toBeNull();
     });
 
     it('ignores anything else', () => {

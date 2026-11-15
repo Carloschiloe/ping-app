@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
 import { confirmAction, notify } from '../design/ConfirmDialog';
-import type { MeetingBridgeMessage } from '../utils/callBridge';
+import type { MeetingBridgeMessage, MeetingPiece } from '../utils/callBridge';
 
 // «Grabar y resumir» during a call.
 //
@@ -162,12 +162,13 @@ export function useMeetingRecording(options: {
         });
     }, [beginRecording, broadcast, conversationId, inject, remoteName, set]);
 
-    const reportUploaded = useCallback((startedAt?: string, seconds?: number) => {
+    const reportUploaded = useCallback((startedAt?: string, seconds?: number, pieces?: MeetingPiece[] | null) => {
         const callId = callIdRef.current;
         if (!callId) return;
         apiClient.post(`/meetings/${callId}/uploaded`, {
             startedAt: startedAt || startedAtRef.current || new Date().toISOString(),
             seconds: Math.max(0, Math.round(seconds || 0)),
+            pieces: pieces ?? null,
         }).catch(() => undefined);
     }, []);
 
@@ -179,7 +180,7 @@ export function useMeetingRecording(options: {
         } else if (message.state === 'uploading') {
             set('saving');
         } else if (message.state === 'uploaded') {
-            reportUploaded(message.startedAt, message.seconds);
+            reportUploaded(message.startedAt, message.seconds, message.pieces);
             set('idle');
             uploadDone.current?.();
         } else if (message.state === 'upload-failed') {
