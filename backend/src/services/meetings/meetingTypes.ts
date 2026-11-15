@@ -19,7 +19,7 @@ export interface MeetingTranscript {
     model: string;
     latencyMs: number;
     /** What the provider billed, in its own unit, when it says so. */
-    usage: { audioSeconds?: number; inputTokens?: number; outputTokens?: number } | null;
+    usage: { audioSeconds?: number; inputTokens?: number; audioInputTokens?: number; outputTokens?: number } | null;
 }
 
 export interface MeetingTranscriber {

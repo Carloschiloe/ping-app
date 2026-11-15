@@ -2,6 +2,7 @@ import { app } from './app';
 import { getEnvConfig, validateEnvironment } from './config/env';
 import { startAgentHistoryReconciler, startScheduledJobs } from './services/cronCoordinator';
 import { startAudioTranscriptionWorker } from './services/audioTranscriptionWorker.service';
+import { startMeetingWorker } from './services/meetings/meetingWorker.service';
 import {
     diagnosePrivateAgentTurnDatabase,
     getLatestPrivateAgentTurnContractDiagnostic,
@@ -37,6 +38,7 @@ const host = '0.0.0.0';
 startScheduledJobs();
 startAgentHistoryReconciler();
 startAudioTranscriptionWorker();
+startMeetingWorker();
 void runPrivateDatabaseDiagnostic();
 
 app.listen(env.port, host, () => {

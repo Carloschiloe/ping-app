@@ -91,15 +91,28 @@ export class GeminiTranscriber implements MeetingTranscriber {
      * and writes the conversation in order, with the name taken from the
      * track, so nobody has to guess voices.
      */
-    async transcribeTracks(tracks: Array<{ speaker: string; bytes: Buffer; mimeType: string; fileName: string }>): Promise<MeetingTranscript> {
+    async transcribeTracks(tracks: Array<{ speaker: string; bytes: Buffer; mimeType: string; fileName: string; offsetSec?: number }>): Promise<MeetingTranscript> {
         const apiKey = key('GEMINI_API_KEY');
         const names = tracks.map((t) => t.speaker).join(', ');
         const parts: any[] = [];
+        // Each phone starts recording at a slightly different moment; the
+        // offset says when its track starts in the call.
+        const offsets = tracks.some((t) => (t.offsetSec ?? 0) > 0);
+        // Long calls go up as files first: Google takes at most 20 MB inside the request.
+        const asFiles = tracks.reduce((sum, t) => sum + t.bytes.length, 0) > GEMINI_INLINE_LIMIT_BYTES;
+        const uploaded: Array<{ uri: string; name: string }> = [];
+        try {
         for (const t of tracks) {
-            parts.push({ text: `Pista de ${t.speaker}:` });
-            parts.push({ inline_data: { mime_type: t.mimeType, data: t.bytes.toString('base64') } });
+            parts.push({ text: offsets ? `Pista de ${t.speaker} (empieza en el segundo ${Math.round(t.offsetSec ?? 0)} de la llamada):` : `Pista de ${t.speaker}:` });
+            if (asFiles) {
+                const file = await uploadGeminiFile(apiKey, t);
+                uploaded.push(file);
+                parts.push({ file_data: { mime_type: t.mimeType, file_uri: file.uri } });
+            } else {
+                parts.push({ inline_data: { mime_type: t.mimeType, data: t.bytes.toString('base64') } });
+            }
         }
-        parts.push({ text: `Estas ${tracks.length} pistas son la misma llamada, sincronizadas desde el segundo 0. Cada pista es el micrófono de una persona (${names}); en su pista solo se oye a esa persona. Transcribe la conversación completa en español, palabra por palabra, en el orden en que se habló, intercalando a las personas según el momento en que hablan. El hablante de cada turno es el nombre de la pista donde se oye. Devuelve solo JSON: {"segments":[{"speaker":"...","start":"mm:ss","text":"..."}]}` });
+        parts.push({ text: `Estas ${tracks.length} pistas son la misma llamada${offsets ? ', y cada una dice en qué segundo de la llamada empieza' : ', sincronizadas desde el segundo 0'}. Cada pista es el micrófono de una persona (${names}); en su pista solo se oye a esa persona. Transcribe la conversación completa en español, palabra por palabra, en el orden en que se habló, intercalando a las personas según el momento en que hablan. El hablante de cada turno es el nombre de la pista donde se oye. Devuelve solo JSON: {"segments":[{"speaker":"...","start":"mm:ss","text":"..."}]}` });
         const body = { contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 65_536 } };
         const started = Date.now();
         let segments: TranscriptSegment[] = [];
@@ -117,8 +130,13 @@ export class GeminiTranscriber implements MeetingTranscriber {
         const usage = data.usageMetadata || {};
         return {
             text, segments, language: 'es', durationSec: null, provider: 'google', model: this.model, latencyMs: Date.now() - started,
-            usage: { inputTokens: usage.promptTokenCount, outputTokens: usage.candidatesTokenCount },
+            usage: geminiUsage(usage),
         };
+        } finally {
+            for (const file of uploaded) {
+                await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, { method: 'DELETE', headers: { 'x-goog-api-key': apiKey } }).catch(() => undefined);
+            }
+        }
     }
 
     async transcribe(audio: Audio): Promise<MeetingTranscript> {
@@ -157,12 +175,21 @@ export class GeminiTranscriber implements MeetingTranscriber {
         const usage = data.usageMetadata || {};
         return {
             text, segments, language: 'es', durationSec: null, provider: 'google', model: this.model, latencyMs: Date.now() - started,
-            usage: { inputTokens: usage.promptTokenCount, outputTokens: usage.candidatesTokenCount },
+            usage: geminiUsage(usage),
         };
         } finally {
             if (uploaded) await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploaded.name}`, { method: 'DELETE', headers: { 'x-goog-api-key': apiKey } }).catch(() => undefined);
         }
     }
+}
+
+/** Google bills audio tokens at a different price from text tokens. */
+function geminiUsage(meta: any): MeetingTranscript['usage'] {
+    const audioInputTokens = (meta?.promptTokensDetails || [])
+        .filter((d: any) => d?.modality === 'AUDIO')
+        .reduce((sum: number, d: any) => sum + (Number(d.tokenCount) || 0), 0);
+    const inputTokens = Number(meta?.promptTokenCount) || 0;
+    return { inputTokens: Math.max(0, inputTokens - audioInputTokens), audioInputTokens, outputTokens: Number(meta?.candidatesTokenCount) || 0 };
 }
 
 export const GEMINI_INLINE_LIMIT_BYTES = Number(process.env.MEETING_GEMINI_INLINE_LIMIT_BYTES || 14 * 1024 * 1024);

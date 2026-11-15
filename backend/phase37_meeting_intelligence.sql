@@ -1,6 +1,7 @@
--- Phase 37: meeting intelligence (PREPARED, NOT APPLIED).
+-- Phase 37: meeting summaries.
 -- Apply only with the owner's explicit approval. Every statement can run
--- more than once without harm.
+-- more than once without harm. Nothing here turns the feature on: the switch
+-- (app_settings.meeting_summaries_enabled) starts off.
 
 -- 1. Recordings stop being public. Today the bucket is public: anyone with a
 --    file's address could download it. The server reads it with its own key,
@@ -39,6 +40,10 @@ CREATE TABLE IF NOT EXISTS meeting_jobs (
     analyzer TEXT,
     audio_seconds INTEGER,
     cost_usd NUMERIC(10, 6),
+    -- One entry per person whose phone uploaded its microphone:
+    -- {"<user id>": {"path": "...", "startedAt": "...", "seconds": 123}}
+    tracks JSONB NOT NULL DEFAULT '{}'::jsonb,
+    expected_tracks INTEGER NOT NULL DEFAULT 2,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (call_id, pipeline_version)
@@ -66,3 +71,49 @@ CREATE POLICY "Users can see calls from their conversations" ON calls FOR SELECT
         WHERE cp.conversation_id = calls.conversation_id AND cp.user_id = auth.uid()
     )
 );
+
+
+-- 7. The switch in the admin panel. Off until the owner turns it on.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS meeting_summaries_enabled BOOLEAN NOT NULL DEFAULT false;
+
+-- 8. A phone finished uploading its microphone. The job waits a little for
+--    the other phones, and starts at once when every track is in.
+CREATE OR REPLACE FUNCTION add_meeting_track(
+    p_call_id UUID, p_pipeline_version TEXT, p_user_id UUID, p_track JSONB, p_expected INTEGER
+) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+    INSERT INTO meeting_jobs (call_id, pipeline_version, requested_by, tracks, expected_tracks, next_attempt_at)
+    VALUES (p_call_id, p_pipeline_version, p_user_id, jsonb_build_object(p_user_id::text, p_track), p_expected,
+            CASE WHEN p_expected <= 1 THEN NOW() ELSE NOW() + INTERVAL '3 minutes' END)
+    ON CONFLICT (call_id, pipeline_version) DO UPDATE
+    SET tracks = meeting_jobs.tracks || jsonb_build_object(p_user_id::text, p_track),
+        next_attempt_at = CASE
+            WHEN (SELECT count(*) FROM jsonb_object_keys(meeting_jobs.tracks || jsonb_build_object(p_user_id::text, p_track))) >= meeting_jobs.expected_tracks
+            THEN NOW() ELSE meeting_jobs.next_attempt_at END,
+        updated_at = NOW()
+    WHERE meeting_jobs.status = 'pending';
+END $$;
+
+-- 9. One worker takes one due job; a job stuck for 15 minutes is taken again.
+CREATE OR REPLACE FUNCTION claim_meeting_job(p_worker_id TEXT)
+RETURNS SETOF meeting_jobs
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+    RETURN QUERY
+    UPDATE meeting_jobs SET status = 'processing', locked_at = NOW(), locked_by = p_worker_id,
+        attempts = attempts + 1, updated_at = NOW()
+    WHERE id = (
+        SELECT id FROM meeting_jobs
+        WHERE (status = 'pending' AND next_attempt_at <= NOW())
+           OR (status = 'processing' AND locked_at < NOW() - INTERVAL '15 minutes')
+        ORDER BY next_attempt_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+    )
+    RETURNING *;
+END $$;
+
+REVOKE ALL ON FUNCTION add_meeting_track(UUID, TEXT, UUID, JSONB, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION claim_meeting_job(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON meeting_jobs FROM anon, authenticated;

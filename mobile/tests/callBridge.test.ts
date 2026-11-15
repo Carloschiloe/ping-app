@@ -60,3 +60,20 @@ describe('call bridge', () => {
         )).toBeNull();
     });
 });
+
+import { parseMeetingBridgeMessage } from '../src/utils/callBridge';
+
+describe('meeting recording bridge', () => {
+    it('reads what the call page says about the recording', () => {
+        expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'uploaded', startedAt: '2026-11-16T13:00:00.000Z', seconds: 61.5 })))
+            .toEqual({ type: 'meeting-recording', state: 'uploaded', startedAt: '2026-11-16T13:00:00.000Z', seconds: 61.5 });
+        expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'recording', seconds: 'x' })))
+            .toEqual({ type: 'meeting-recording', state: 'recording', startedAt: undefined, seconds: undefined });
+    });
+
+    it('ignores anything else', () => {
+        expect(parseMeetingBridgeMessage('hangup')).toBeNull();
+        expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'call-status', status: 'connected' }))).toBeNull();
+        expect(parseMeetingBridgeMessage(JSON.stringify({ type: 'meeting-recording', state: 'delete-everything' }))).toBeNull();
+    });
+});

@@ -10,6 +10,7 @@ import * as groupController from '../controllers/group.controller';
 import * as aiController from '../controllers/ai.controller';
 import * as calendarController from '../controllers/calendar.controller';
 import * as agoraController from '../controllers/agora.controller';
+import * as meetingController from '../controllers/meeting.controller';
 import * as operationController from '../controllers/operation.controller';
 import * as contactController from '../controllers/contact.controller';
 import * as privateFileController from '../controllers/privateFile.controller';
@@ -27,6 +28,7 @@ import * as appTelemetrySchema from '../schemas/appTelemetry.schema';
 import { getAccess, requirePlan } from '../services/access.service';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { validateRequest } from '../middleware/validate';
+import { z } from 'zod';
 import { agentTurnRequestSchema } from '../schemas/agentTurnRequest.schema';
 import { agentVoiceTranscriptionRequestSchema } from '../schemas/agentVoiceRequest.schema';
 import { m8LiveVoiceGeminiSessionSchema, m8LiveVoiceSessionSchema, m8LiveVoiceTelemetrySchema } from '../schemas/m8LiveVoice.schema';
@@ -449,4 +451,15 @@ router.get('/agora/token/:channelName', requireAuth, agoraController.getToken);
 router.post('/agora/call/notify', requireAuth, requirePlan, agoraController.notifyCall);
 router.post('/agora/recording/start', requireAuth, callRecordingEnabled, agoraController.startRecording);
 router.post('/agora/recording/:callId/stop', requireAuth, callRecordingEnabled, agoraController.stopRecording);
+// Meeting summaries: switched on from the admin panel; every participant says yes first.
+const meetingCallParams = z.object({ callId: z.string().uuid() });
+router.get('/meetings/status', requireAuth, meetingController.status);
+router.post('/meetings/request', requireAuth, requirePlan,
+    validateRequest(z.object({ body: z.object({ conversationId: z.string().uuid() }) })), meetingController.request);
+router.post('/meetings/:callId/consent', requireAuth, validateRequest(z.object({ params: meetingCallParams })), meetingController.consent);
+router.post('/meetings/:callId/decline', requireAuth, validateRequest(z.object({ params: meetingCallParams })), meetingController.decline);
+router.post('/meetings/:callId/upload-url', requireAuth, validateRequest(z.object({ params: meetingCallParams })), meetingController.uploadUrl);
+router.post('/meetings/:callId/uploaded', requireAuth,
+    validateRequest(z.object({ params: meetingCallParams, body: z.object({ startedAt: z.string().datetime(), seconds: z.number().min(0).max(4 * 3600) }) })),
+    meetingController.uploaded);
 router.get('/call', agoraController.renderCallPage);

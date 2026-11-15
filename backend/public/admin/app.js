@@ -696,7 +696,7 @@
   }
 
   // ---------- Gastos ----------
-  var FEATURES = { asistente: 'Asistente Vorian (texto)', voz_en_vivo: 'Asistente por voz', voz_transcripcion: 'Voz: entender lo que dices', transcripcion: 'Notas de voz y llamadas', resumen_chat: 'Resúmenes de chats', resumen_llamada: 'Resúmenes de llamadas', compromisos: 'Detectar compromisos', muestra_voz: 'Muestras de voz del panel' };
+  var FEATURES = { asistente: 'Asistente Vorian (texto)', voz_en_vivo: 'Asistente por voz', voz_transcripcion: 'Voz: entender lo que dices', transcripcion: 'Notas de voz y llamadas', resumen_chat: 'Resúmenes de chats', resumen_llamada: 'Resúmenes de llamadas', compromisos: 'Detectar compromisos', muestra_voz: 'Muestras de voz del panel', reunion_transcripcion: 'Reuniones: pasar a texto', reunion_resumen: 'Reuniones: resumen y compromisos' };
   function usd(v) {
     v = Number(v || 0);
     var digits = v === 0 ? 2 : v < 0.01 ? 4 : v < 0.1 ? 3 : 2;
@@ -860,7 +860,9 @@
         '<div class="sys"><span>Resúmenes de chats</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
         '<div class="sys"><span>Crear compromisos nuevos</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
         '<div class="sys"><span>Iniciar llamadas</span><span class="end"><span class="chip warn">Solo con plan</span></span></div>' +
-        '</div><div class="note" style="margin-top:12px">Enciéndelo cuando el pago con Google Play y App Store esté listo. Tú y quienes tengan acceso gratis nunca quedan bloqueados.</div></div></div>';
+        '</div><div class="note" style="margin-top:12px">Enciéndelo cuando el pago con Google Play y App Store esté listo. Tú y quienes tengan acceso gratis nunca quedan bloqueados.</div></div></div>' +
+        '<div class="card" id="meetings-card"><h3>Resúmenes de reuniones</h3><div class="sub">Cargando…</div></div>';
+      viewMeetingsCard();
       document.getElementById('settings-form').addEventListener('submit', function (e) {
         e.preventDefault();
         var f = e.target;
@@ -877,6 +879,37 @@
         api('/settings', { method: 'PUT', body: body }).then(function (saved) { trialDays = saved.trialDays; toast('Cambios guardados'); viewSettings(); }, function (err) { toast(err.message, true); });
       });
     }, failView);
+  }
+
+  // Meeting summaries: the switch and what they cost this month.
+  function viewMeetingsCard() {
+    api('/meetings').then(function (m) {
+      var card = document.getElementById('meetings-card');
+      if (!card) return;
+      var mo = m.month;
+      card.innerHTML = '<h3>Resúmenes de reuniones</h3>' +
+        (m.ready ? '' : '<div class="note" style="margin-bottom:10px">Falta aplicar el cambio de la base de datos de reuniones. Hasta entonces queda apagado.</div>') +
+        '<label class="switch"><input type="checkbox" id="meetings-switch"' + (m.enabled ? ' checked' : '') + (m.ready ? '' : ' disabled') + '><span><b>Grabar y resumir llamadas</b><small>' + (m.enabled
+          ? 'Encendido: en las llamadas aparece «Grabar y resumir». Solo se graba si todos aceptan; cada teléfono graba su propio micrófono y el audio se borra al terminar el resumen.'
+          : 'Apagado: nadie ve el botón y no se graba ninguna llamada.') + '</small></span></label>' +
+        '<div class="list">' +
+        '<div class="sys"><span>Reuniones resumidas este mes</span><span class="end"><b>' + num(mo.processed) + '</b></span></div>' +
+        '<div class="sys"><span>Minutos grabados</span><span class="end"><b>' + num(mo.minutes) + '</b></span></div>' +
+        '<div class="sys"><span>Gasto del mes</span><span class="end"><b>' + esc(usd(mo.costUsd)) + '</b></span></div>' +
+        '<div class="sys"><span>Costo promedio por reunión</span><span class="end"><b>' + (mo.averageUsd == null ? '—' : esc(usd(mo.averageUsd))) + '</b></span></div>' +
+        (mo.pending ? '<div class="sys"><span>En proceso</span><span class="end"><span class="chip warn">' + num(mo.pending) + '</span></span></div>' : '') +
+        (mo.failed ? '<div class="sys"><span>No se pudieron resumir</span><span class="end"><span class="chip bad">' + num(mo.failed) + '</span></span></div>' : '') +
+        '</div><div class="note" style="margin-top:12px">Cada reunión anota en «Gastos» lo que costó pasarla a texto y resumirla. Una llamada de 30 minutos entre dos personas cuesta cerca de US$ 0,07.</div>';
+      var sw = document.getElementById('meetings-switch');
+      if (sw) sw.addEventListener('change', function () {
+        var on = sw.checked;
+        if (on && !window.confirm('¿Encender los resúmenes de reuniones? En las llamadas aparecerá «Grabar y resumir». Solo se graba si todos aceptan, y cada reunión tiene un costo que verás aquí y en Gastos.')) { sw.checked = false; return; }
+        api('/meetings', { method: 'PUT', body: { enabled: on } }).then(function () { toast(on ? 'Resúmenes de reuniones encendidos' : 'Resúmenes de reuniones apagados'); viewMeetingsCard(); }, function (err) { sw.checked = !on; toast(err.message, true); });
+      });
+    }, function () {
+      var card = document.getElementById('meetings-card');
+      if (card) card.innerHTML = '<h3>Resúmenes de reuniones</h3><div class="sub">No se pudo cargar.</div>';
+    });
   }
 
   // ---------- start ----------
