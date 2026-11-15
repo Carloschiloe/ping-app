@@ -234,8 +234,9 @@ describe('M9 assistant tools — safety contract', () => {
     it('a change while agreeing still needs the user to have heard the action first', async () => {
         const chat = new Conversation();
         const output = await chat.say('agenda una reunión', [
-            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
-            [['confirm_action', { action: 'a1', newTitle: 'Otra', newDue: null }]],
+            // Proposed and "confirmed" in the same breath: the confirmation is refused.
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }],
+                ['confirm_action', { action: 'a1', newTitle: 'Otra', newDue: null }]],
             'ok',
         ]);
         expect(toolResults(output)[1]).toMatchObject({ error: 'needs_user_confirmation' });
@@ -488,5 +489,47 @@ describe('M9 assistant — Confirm/Cancel buttons', () => {
         expect(stale.result.response.answer).toBe('Esa propuesta ya no está pendiente; no hice ningún cambio.');
         expect(unknown.result.response.answer).toBe('Esa propuesta ya no está pendiente; no hice ningún cambio.');
         expect(world.executed).toHaveLength(0);
+    });
+});
+
+describe('M9 assistant — saying a proposal or a "sí" without a second model round', () => {
+    it('a single proposal is told from its summary, and the model is not asked again', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('agenda una reunión mañana a las 3', [
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
+            'NUNCA SE USA',
+        ]);
+        expect(output.answer).toBe('Voy a crear la reunión «reunión» el domingo 1 de noviembre a las 15:00. ¿Lo hago?');
+        expect(output.answer).not.toContain('NUNCA');
+    });
+
+    it('says when the person named is not a contact', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('agenda llamar a Beto Zúñiga mañana a las 3', [
+            [['find_person', { name: 'Beto Zúñiga' }]],
+            [['propose_create_commitment', { title: 'Llamar a Beto Zúñiga', due: '2026-11-01T15:00', kind: 'task', person: null, with: null }]],
+            'NUNCA SE USA',
+        ]);
+        expect(output.answer).toMatch(/^No tengo a Beto Zúñiga en tus contactos\. Voy a crear «Llamar a Beto Zúñiga».+¿Lo hago\?$/);
+    });
+
+    it('a short "sí" is answered with what was done', async () => {
+        const chat = new Conversation();
+        await chat.say('agenda una reunión mañana a las 3', [
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
+        ]);
+        const yes = await chat.say('sí, dale', [[['confirm_action', { action: 'a1', newTitle: null, newDue: null }]], 'NUNCA SE USA'], { userWordsHeard: true });
+        expect(yes.answer).toMatch(/^Listo, creé la reunión «reunión»/);
+        expect(chat.world.executed).toHaveLength(1);
+    });
+
+    it('anything more than one plain step still goes back to the model', async () => {
+        const chat = new Conversation();
+        const output = await chat.say('qué tengo mañana y agenda una reunión', [
+            [['list_commitments', { when: 'tomorrow' }]],
+            [['propose_create_commitment', { title: 'reunión', due: '2026-11-01T15:00', kind: 'meeting', person: null, with: null }]],
+            'Mañana no tienes nada. Voy a crear «reunión». ¿La agendo?',
+        ]);
+        expect(output.answer).toBe('Mañana no tienes nada. Voy a crear «reunión». ¿La agendo?');
     });
 });

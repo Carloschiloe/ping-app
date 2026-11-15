@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import { publicPingSurface } from '../api/agentSurfaceAdapter';
 import { isMicBusy, onMicBusyChange } from '../utils/micBusy';
-import { isWakePhrase, loadWakeWord, onWakeWordChange } from '../utils/wakeWord';
+import { isWakePhrase, loadWakeWord, onWakeWordChange, WAKE_HINTS } from '../utils/wakeWord';
 
 // While the app is open and on screen, and the person turned it on in
 // Ajustes, the phone listens for "Hola Vorian" (on the phone itself when it
@@ -51,6 +51,7 @@ export function useWakeWord(navigationRef: any) {
                     requiresOnDeviceRecognition: onDevice,
                     addsPunctuation: false,
                     androidIntentOptions: { EXTRA_LANGUAGE_MODEL: 'free_form' },
+                    contextualStrings: WAKE_HINTS,
                 });
             } catch {
                 listening = false;

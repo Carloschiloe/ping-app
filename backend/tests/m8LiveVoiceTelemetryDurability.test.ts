@@ -10,6 +10,7 @@ const storageState = vi.hoisted(() => ({
     bucketListErrorStatus: null as number | null,
     bucketListErrorCode: null as string | null,
     uploadFailures: 0,
+    uploads: 0,
 }));
 
 vi.mock('../src/lib/supabaseAdmin', () => ({
@@ -46,6 +47,7 @@ vi.mock('../src/lib/supabaseAdmin', () => ({
                         storageState.uploadFailures -= 1;
                         return { error: { message: 'temporary storage unavailable' } };
                     }
+                    storageState.uploads += 1;
                     storageState.objects.set(path, Buffer.from(body).toString('utf8'));
                     return { error: null };
                 },
@@ -95,6 +97,7 @@ describe('M8 production telemetry durable storage contract', () => {
         storageState.bucketListErrorStatus = null;
         storageState.bucketListErrorCode = null;
         storageState.uploadFailures = 0;
+        storageState.uploads = 0;
         clearM8LiveVoiceTelemetryForTests();
     });
 
@@ -123,6 +126,23 @@ describe('M8 production telemetry durable storage contract', () => {
         expect(JSON.stringify(recovered)).not.toContain(conversation);
         expect(JSON.stringify(recovered)).not.toContain('hidden');
         expect(storageState.bucketCreates).toBe(0);
+    });
+
+    it('a burst of events is stored together, not one storage round per event', async () => {
+        const events = Array.from({ length: 12 }, (_, index) => recordM8LiveVoiceTelemetry(actor, {
+            voiceSessionId: voice,
+            deviceSessionId: device,
+            event: index === 11 ? 'session_closed' : 'transcript_received',
+            transcript: `paso ${index}`,
+            atMs: index,
+            sideEffects: 0,
+        }));
+        await Promise.all(events);
+        // Two files per storage round; twelve one-by-one rounds would be 24 uploads.
+        expect(storageState.uploads).toBeLessThanOrEqual(4);
+        clearM8LiveVoiceTelemetryForTests();
+        const recovered = await getLatestM8LiveVoiceTelemetryInternal();
+        expect(recovered).toMatchObject({ voiceSessionId: voice, closed: true, eventCount: 12 });
     });
 
     it('recovers bucket verification after a transient storage failure', async () => {
