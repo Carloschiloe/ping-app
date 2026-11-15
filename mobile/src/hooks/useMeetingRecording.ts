@@ -16,6 +16,7 @@ export type MeetingState = 'off' | 'idle' | 'asking' | 'waiting' | 'recording' |
 type Channel = { on: (...args: any[]) => any; send: (message: any) => Promise<any> };
 
 const UPLOAD_WAIT_MS = 45_000;
+const ASK_SEEN_WAIT_MS = 10_000;
 
 export function useMeetingRecording(options: {
     conversationId: string;
@@ -32,6 +33,7 @@ export function useMeetingRecording(options: {
     const channelRef = useRef<Channel | null>(null);
     const uploadDone = useRef<(() => void) | null>(null);
     const startedAtRef = useRef<string | null>(null);
+    const askSeenRef = useRef(false);
 
     const set = useCallback((next: MeetingState) => { stateRef.current = next; setState(next); }, []);
 
@@ -68,6 +70,8 @@ export function useMeetingRecording(options: {
             .on('broadcast', { event: 'meeting-ask' }, ({ payload }: any) => {
                 const callId = typeof payload?.callId === 'string' ? payload.callId : null;
                 if (!callId || stateRef.current === 'off') return;
+                // Tell the asking phone the question arrived, so it does not wait in silence.
+                void broadcast('meeting-asked', { callId });
                 callIdRef.current = callId;
                 set('asking');
                 const name = typeof payload?.name === 'string' && payload.name ? payload.name : remoteName;
@@ -98,6 +102,9 @@ export function useMeetingRecording(options: {
                         void notify({ title: 'No se pudo guardar tu respuesta', message: error?.message || 'Inténtalo de nuevo.', icon: 'alert-circle-outline' });
                     }
                 });
+            })
+            .on('broadcast', { event: 'meeting-asked' }, () => {
+                askSeenRef.current = true;
             })
             .on('broadcast', { event: 'meeting-start' }, ({ payload }: any) => {
                 const callId = typeof payload?.callId === 'string' ? payload.callId : callIdRef.current;
@@ -147,8 +154,20 @@ export function useMeetingRecording(options: {
                 if (result.allConsented) {
                     await beginRecording(result.callId);
                 } else {
+                    askSeenRef.current = false;
                     await broadcast('meeting-ask', { callId: result.callId });
-                    // An older app on the other phone never answers.
+                    // The other phone says at once that it saw the question; if it
+                    // does not, it never will (an older app, or it lost the line).
+                    setTimeout(() => {
+                        if (stateRef.current !== 'waiting' || askSeenRef.current) return;
+                        set('idle');
+                        apiClient.post(`/meetings/${result.callId}/decline`, {}).catch(() => undefined);
+                        void notify({
+                            title: 'No le llegó el aviso',
+                            message: `El teléfono de ${remoteName} no recibió el pedido de grabar. Puede que tenga una versión antigua de Vorian: tiene que instalar la versión nueva.`,
+                            icon: 'alert-circle-outline',
+                        });
+                    }, ASK_SEEN_WAIT_MS);
                     setTimeout(() => {
                         if (stateRef.current !== 'waiting') return;
                         set('idle');

@@ -30,6 +30,14 @@ import { useMeetingRecording } from '../hooks/useMeetingRecording';
 // settings, which the app can only change on Android.
 const canSwitchSpeaker = Platform.OS === 'android';
 
+function applyAudioRoute(earpiece: boolean): Promise<void> {
+    return setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: true,
+        shouldRouteThroughEarpiece: earpiece,
+    }).catch(() => undefined);
+}
+
 const CallScreen = ({ route, navigation }: any) => {
     // A call has the microphone; listening for "Hola Vorian" waits.
     useEffect(() => { setMicBusy('call', true); return () => setMicBusy('call', false); }, []);
@@ -148,14 +156,27 @@ const CallScreen = ({ route, navigation }: any) => {
     // speaker unless told otherwise. Apply the chosen route, again once the
     // call connects (joining the call can reset it), and restore the normal
     // route when the call screen closes.
+    //
+    // When the other person's voice starts, the web view takes the phone's
+    // audio and sends it to the speaker; asking for the earpiece once more is
+    // then ignored. Going to the speaker and back to the earpiece (what the
+    // person had to do by hand) does take, so that is done here, right when
+    // the call connects and again a moment later.
+    const isSpeakerRef = useRef(isSpeaker);
     useEffect(() => {
+        isSpeakerRef.current = isSpeaker;
         if (!canSwitchSpeaker) return;
-        void setAudioModeAsync({
-            playsInSilentMode: true,
-            allowsRecording: true,
-            shouldRouteThroughEarpiece: !isSpeaker,
-        }).catch(() => undefined);
-    }, [isSpeaker, audioRouteTick]);
+        void applyAudioRoute(!isSpeaker);
+    }, [isSpeaker]);
+    useEffect(() => {
+        if (!canSwitchSpeaker || audioRouteTick === 0) return;
+        const reset = () => (isSpeakerRef.current
+            ? applyAudioRoute(false)
+            : applyAudioRoute(false).then(() => applyAudioRoute(true)));
+        void reset();
+        const later = [1500, 4000].map((ms) => setTimeout(() => { void reset(); }, ms));
+        return () => later.forEach(clearTimeout);
+    }, [audioRouteTick]);
 
     useEffect(() => () => {
         if (!canSwitchSpeaker) return;
