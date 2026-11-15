@@ -134,6 +134,7 @@ export async function runAssistantTurn(
     ];
 
     let answer = '';
+    const earlier: RoundCall[] = [];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         const response = await deps.model.complete(transcript(), ASSISTANT_TOOL_DEFINITIONS);
         if (response.toolCalls.length === 0) {
@@ -141,14 +142,54 @@ export async function runAssistantTurn(
             break;
         }
         turnMessages.push({ role: 'assistant', content: response.content, tool_calls: response.toolCalls });
+        const calls: RoundCall[] = [];
         for (const call of response.toolCalls) {
             const result = await runAssistantTool(call.function.name, call.function.arguments, ctx);
+            calls.push({ name: call.function.name, args: call.function.arguments, result: result as Record<string, unknown> });
             turnMessages.push({ role: 'tool', tool_call_id: call.id, content: clip(JSON.stringify(result)) });
         }
+        const direct = directAnswer(calls, earlier, input.text);
+        if (direct) {
+            answer = direct;
+            break;
+        }
+        earlier.push(...calls);
     }
     if (!answer) answer = 'No alcancé a terminar eso. ¿Me lo dices de nuevo?';
     turnMessages.push({ role: 'assistant', content: answer });
     return output(ctx, answer, turnMessages);
+}
+
+interface RoundCall { name: string; args: string; result: Record<string, unknown> }
+
+const MAX_WORDS_FOR_DIRECT_YES = 8;
+
+/**
+ * Saying what was proposed or done needs no second thought: when the only
+ * thing left is to tell the user, the answer is built from the action's own
+ * summary instead of asking the model again, which saves one full model round
+ * (about 1.3 s) on every "agenda…" and every "sí". Anything less plain (more
+ * than one action, earlier lookups to report, a long answer from the user)
+ * still goes back to the model.
+ */
+export function directAnswer(calls: RoundCall[], earlier: RoundCall[], userText: string): string | null {
+    if (calls.length !== 1) return null;
+    const [call] = calls;
+    if (earlier.some((item) => item.name !== 'find_person')) return null;
+    if (call.name.startsWith('propose_') && call.result.status === 'waiting_for_user_confirmation' && typeof call.result.summary === 'string') {
+        const summary = call.result.summary;
+        const missing = earlier.filter((item) => Array.isArray(item.result.people) && item.result.people.length === 0)
+            .map((item) => { try { return String(JSON.parse(item.args).name ?? '').trim(); } catch { return ''; } })
+            .filter(Boolean);
+        const lead = missing.length ? `No tengo a ${missing.join(' ni a ')} en tus contactos. ` : '';
+        const told = (summary.charAt(0).toLowerCase() + summary.slice(1)).replace(/[.!?]+$/, '');
+        return `${lead}Voy a ${told}${/[.!?]»$/.test(told) ? '' : '.'} ¿Lo hago?`;
+    }
+    if (call.name === 'confirm_action' && call.result.executed === true && earlier.length === 0
+        && userText.trim().split(/\s+/).length <= MAX_WORDS_FOR_DIRECT_YES) {
+        return doneSentence(String(call.result.summary ?? ''));
+    }
+    return null;
 }
 
 export type AssistantDecision = 'confirm' | 'discard';

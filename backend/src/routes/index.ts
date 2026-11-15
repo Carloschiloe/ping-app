@@ -69,7 +69,9 @@ const safetyRateLimiter = createAgentRateLimiter('safety', 15);
 const appTelemetryRateLimiter = createAgentRateLimiter('app-telemetry', 30);
 const agentVoiceCaptureRateLimiter = createAgentRateLimiter('voice-capture', 10);
 const agentVoiceSessionRateLimiter = createAgentRateLimiter('voice-session', 6);
-const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry', 240);
+// A live conversation reports many small steps; at 240 the log lost events
+// mid-conversation (2026-11-13), so it allows about four per second.
+const agentVoiceTelemetryRateLimiter = createAgentRateLimiter('voice-telemetry', 1200);
 const agentVoiceUsageRateLimiter = createAgentRateLimiter('voice-usage', 240);
 
 const operationEnabled = requireFeature('ENABLE_OPERATION_MODULE');

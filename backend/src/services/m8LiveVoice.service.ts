@@ -201,6 +201,11 @@ function telemetryBucket(): string {
 
 let telemetryBucketReady: Promise<void> | null = null;
 const telemetryWriteQueues = new Map<string, Promise<void>>();
+// A write that is queued but has not started yet. It reads every event held in
+// memory when it starts, so events arriving meanwhile join it instead of each
+// downloading and uploading the whole session again: a burst of events costs
+// one storage round, not one per event.
+const telemetryWritesNotStarted = new Map<string, Promise<void>>();
 type TelemetryPersistenceState = 'unknown' | 'ready' | 'degraded';
 let telemetryPersistenceState: TelemetryPersistenceState = 'unknown';
 let telemetryPersistenceLastSuccessAt: string | null = null;
@@ -464,8 +469,10 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         });
         return;
     }
+    const waiting = telemetryWritesNotStarted.get(event.voiceSessionId);
     const previous = telemetryWriteQueues.get(event.voiceSessionId) || Promise.resolve();
-    const next = previous.catch(() => undefined).then(async () => {
+    const next = waiting ?? previous.catch(() => undefined).then(async () => {
+        telemetryWritesNotStarted.delete(event.voiceSessionId);
         const path = telemetryPath(actorUserId, event.voiceSessionId);
         const existing = await downloadJson(path);
         // If Storage was temporarily unavailable, the in-process event ledger
@@ -496,7 +503,10 @@ async function persistTelemetryEvent(actorUserId: string, event: M8LiveVoiceTele
         await cleanupExpiredTelemetry();
         markTelemetryPersistenceReady();
     });
-    telemetryWriteQueues.set(event.voiceSessionId, next);
+    if (!waiting) {
+        telemetryWritesNotStarted.set(event.voiceSessionId, next);
+        telemetryWriteQueues.set(event.voiceSessionId, next);
+    }
     try {
         await next;
     } catch (error) {
@@ -665,6 +675,7 @@ export async function getLatestM8LiveVoiceTelemetryInternal() {
 
 export function clearM8LiveVoiceTelemetryForTests(): void {
     telemetryByVoiceSession.clear();
+    telemetryWritesNotStarted.clear();
     latestTelemetryByActor.clear();
     latestTelemetryGlobalVoiceSessionId = null;
     telemetryBucketReady = null;

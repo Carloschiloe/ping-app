@@ -5,8 +5,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // spellings count too, but only right after a greeting or on its own.
 
 const KEY = 'vorian.wake_word';
-const NAME = '(?:vorian|borian|florian|dorian|morian|gorian|bo?rian|vorin|boriam|vorián)';
-const WAKE_PATTERN = new RegExp(`(?:^|\\b)(?:hola|ola|oye|oe|hey|ey|ok|okey)\\s+${NAME}\\b|^${NAME}$`);
+// "luna": a phone heard "Hola Vorian" as "Hola Luna" (2026-11-14).
+const NAME = '(?:vorian|borian|florian|forian|dorian|morian|gorian|lorian|torian|orian|bo?rian|vorin|boriam|boria|luna)';
+// The name said on its own counts too, but "luna" alone is just a word.
+const WAKE_PATTERN = new RegExp(`(?:^|\\b)(?:hola|ola|oye|oe|hey|ey|ok|okey)\\s*${NAME}\\b|^(?!luna$)${NAME}$`);
+
+/** Words the phone's listener is told to expect, so it favours the name. */
+export const WAKE_HINTS = ['Vorian', 'Hola Vorian', 'Oye Vorian'];
 
 export function normalizeHeard(text: string): string {
     return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();

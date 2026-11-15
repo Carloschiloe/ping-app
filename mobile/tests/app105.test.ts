@@ -14,14 +14,14 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
 describe('«Hola Vorian»', () => {
     it('opens the voice on a greeting with the name, also when it is heard a bit off', async () => {
         const { isWakePhrase } = await import('../src/utils/wakeWord');
-        for (const heard of ['Hola Vorian', 'hola, Borian', 'Oye Florian', 'ok vorian ¿estás?', 'Vorian', 'HOLA VORIÁN']) {
+        for (const heard of ['Hola Vorian', 'hola, Borian', 'Oye Florian', 'ok vorian ¿estás?', 'Vorian', 'HOLA VORIÁN', 'Hola Luna', 'holavorian', 'hola lorian']) {
             expect(isWakePhrase(heard)).toBe(true);
         }
     });
 
     it('ignores ordinary talk that only mentions the name', async () => {
         const { isWakePhrase } = await import('../src/utils/wakeWord');
-        for (const heard of ['hola', 'le dije a vorian que', 'mañana llamo a Dorian Gray', '', null]) {
+        for (const heard of ['hola', 'le dije a vorian que', 'mañana llamo a Dorian Gray', 'luna', 'qué linda la luna', 'hola lunes', '', null]) {
             expect(isWakePhrase(heard)).toBe(false);
         }
     });
