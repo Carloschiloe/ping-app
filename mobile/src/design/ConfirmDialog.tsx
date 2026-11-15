@@ -13,7 +13,10 @@ interface ConfirmRequest {
     title: string;
     message?: string;
     confirmLabel?: string;
+    cancelLabel?: string;
     destructive?: boolean;
+    /** Ionicons name shown in the round badge, in place of the default. */
+    icon?: React.ComponentProps<typeof Ionicons>['name'];
 }
 
 type Pending = ConfirmRequest & { resolve: (ok: boolean) => void; notice?: boolean };
@@ -28,7 +31,7 @@ export function confirmAction(request: ConfirmRequest): Promise<boolean> {
 }
 
 /** A notice the person only acknowledges, in the same card. */
-export function notify(request: { title: string; message?: string; buttonLabel?: string }): Promise<void> {
+export function notify(request: { title: string; message?: string; buttonLabel?: string; icon?: ConfirmRequest['icon'] }): Promise<void> {
     return new Promise((resolve) => {
         if (!show) return resolve();
         show({
@@ -36,6 +39,7 @@ export function notify(request: { title: string; message?: string; buttonLabel?:
             message: request.message,
             confirmLabel: request.buttonLabel ?? 'Entendido',
             destructive: false,
+            icon: request.icon,
             notice: true,
             resolve: () => resolve(),
         });
@@ -67,7 +71,7 @@ export function ConfirmHost() {
                     <SheetFill />
                     <View style={[styles.icon, { backgroundColor: destructive ? colors.dangerTint : colors.accentTint }]}>
                         <Ionicons
-                            name={notice ? 'checkmark-circle-outline' : destructive ? 'trash-outline' : 'help-circle-outline'}
+                            name={pending?.icon ?? (notice ? 'checkmark-circle-outline' : destructive ? 'trash-outline' : 'help-circle-outline')}
                             size={22}
                             color={destructive ? colors.danger : colors.accentBright}
                         />
@@ -77,7 +81,7 @@ export function ConfirmHost() {
                     <View style={styles.actions}>
                         {!notice && (
                             <TouchableOpacity style={[styles.button, styles.cancel]} onPress={() => answer(false)} accessibilityRole="button">
-                                <Text style={styles.cancelText}>Cancelar</Text>
+                                <Text style={styles.cancelText}>{pending?.cancelLabel ?? 'Cancelar'}</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity
