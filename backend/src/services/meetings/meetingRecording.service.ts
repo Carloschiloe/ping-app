@@ -147,7 +147,7 @@ export async function meetingUploadUrl(userId: string, callId: string): Promise<
 export async function meetingTrackUploaded(
     userId: string,
     callId: string,
-    input: { startedAt: string; seconds: number },
+    input: { startedAt: string; seconds: number; pieces?: Array<{ at: number; from: number; len: number }> | null },
 ): Promise<{ queued: boolean }> {
     await assertCallConversationParticipant(userId, callId);
     const conversationId = await conversationOf(callId);
@@ -161,7 +161,11 @@ export async function meetingTrackUploaded(
         p_call_id: callId,
         p_pipeline_version: MEETING_PIPELINE_VERSION,
         p_user_id: userId,
-        p_track: { path: trackPath(callId, userId), startedAt: input.startedAt, seconds: Math.round(input.seconds) },
+        p_track: {
+            path: trackPath(callId, userId), startedAt: input.startedAt, seconds: Math.round(input.seconds),
+            // Where each piece this phone kept sits in the call (null: it kept everything).
+            pieces: Array.isArray(input.pieces) ? input.pieces : null,
+        },
         p_expected: state.participants,
     });
     if (error) throw error;

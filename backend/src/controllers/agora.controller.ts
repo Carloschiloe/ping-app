@@ -408,6 +408,77 @@ window.switchCamera = async () => {
 // Meeting summaries: this phone records only its own microphone, and only
 // after everyone in the call said yes (the app asks the server first).
 let meetingRecorder=null, meetingChunks=[], meetingStartedAt=null, meetingUploadUrl=null, meetingTimer=null;
+// Silences are not recorded: Google bills every second sent. The recorder
+// pauses while this person is quiet, and each kept piece notes where it sits
+// in the call (at) and in the file (from), so the server can put it back.
+let vad=null;
+const VAD_HANGOVER_MS = 900;
+function vadStop() {
+  if(!vad) return null;
+  clearInterval(vad.timer);
+  if(vad.speaking) vadClosePiece(performance.now());
+  try { vad.ctx.close(); } catch(e) {}
+  const pieces = vad.active ? vad.pieces : null;
+  vad = null;
+  return pieces;
+}
+function vadClosePiece(now) {
+  const len = (now - vad.pieceStartPerf) / 1000;
+  vad.pieces.push({ at: Math.round(vad.pieceAt * 1000) / 1000, from: Math.round(vad.recorded * 1000) / 1000, len: Math.round(len * 1000) / 1000 });
+  vad.recorded += len;
+  vad.speaking = false;
+}
+function vadStart(stream) {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    const ctx = new Ctx();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const data = new Float32Array(analyser.fftSize);
+    const begin = performance.now();
+    vad = { ctx, active: false, speaking: false, pieces: [], recorded: 0, floor: 0.01, lastVoice: 0, pieceAt: 0, pieceStartPerf: 0, timer: null };
+    if(ctx.state !== "running") ctx.resume().catch(() => {});
+    vad.timer = setInterval(() => {
+      if(!vad || !meetingRecorder) return;
+      if(!vad.active) {
+        // Only once the sound can be measured does the recorder start pausing;
+        // until then (or if it never can) it keeps everything.
+        if(ctx.state !== "running") return;
+        vad.active = true;
+        if(meetingRecorder.state === "recording") {
+          // What was recorded until now is the first piece, from the start.
+          vad.speaking = true;
+          vad.pieceAt = 0;
+          vad.pieceStartPerf = begin;
+          vad.lastVoice = performance.now();
+        }
+      }
+      analyser.getFloatTimeDomainData(data);
+      let sum = 0;
+      for(let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      const level = Math.sqrt(sum / data.length);
+      // Background noise is followed slowly; speech is a clear rise above it.
+      vad.floor = level < vad.floor ? level : vad.floor * 1.002;
+      const now = performance.now();
+      if(level > Math.max(0.008, vad.floor * 3)) {
+        vad.lastVoice = now;
+        if(!vad.speaking) {
+          vad.speaking = true;
+          vad.pieceAt = (now - begin) / 1000;
+          vad.pieceStartPerf = now;
+          if(meetingRecorder.state === "paused") meetingRecorder.resume();
+        }
+      } else if(vad.speaking && now - vad.lastVoice > VAD_HANGOVER_MS) {
+        vadClosePiece(now);
+        if(meetingRecorder.state === "recording") meetingRecorder.pause();
+      }
+    }, 50);
+  } catch(e) {
+    vad = null;
+  }
+}
 function postMeeting(state, extra) {
   if(window.ReactNativeWebView) {
     window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: "meeting-recording", state }, extra || {})));
@@ -424,6 +495,7 @@ window.startMeetingRecording = (uploadUrl, maxSeconds) => {
     meetingRecorder.ondataavailable = (e) => { if(e.data && e.data.size) meetingChunks.push(e.data); };
     meetingRecorder.start(10000);
     meetingStartedAt = new Date();
+    vadStart(stream);
     meetingTimer = setTimeout(() => { window.finishMeetingRecording(); }, Math.max(60, Number(maxSeconds) || 5400) * 1000);
     postMeeting("recording", { startedAt: meetingStartedAt.toISOString() });
     return true;
@@ -443,6 +515,7 @@ function stopMeetingRecorder() {
 window.finishMeetingRecording = async () => {
   if(!meetingRecorder) return false;
   clearTimeout(meetingTimer);
+  const pieces = vadStop();
   await stopMeetingRecorder();
   const startedAt = meetingStartedAt ? meetingStartedAt.toISOString() : new Date().toISOString();
   const seconds = meetingStartedAt ? (Date.now() - meetingStartedAt.getTime()) / 1000 : 0;
@@ -451,7 +524,7 @@ window.finishMeetingRecording = async () => {
   postMeeting("uploading");
   try {
     const response = await fetch(meetingUploadUrl, { method: "PUT", headers: { "Content-Type": "audio/webm", "x-upsert": "true" }, body: blob });
-    postMeeting(response.ok ? "uploaded" : "upload-failed", { startedAt, seconds });
+    postMeeting(response.ok ? "uploaded" : "upload-failed", { startedAt, seconds, pieces });
   } catch(e) {
     postMeeting("upload-failed", { startedAt, seconds });
   }
@@ -459,6 +532,7 @@ window.finishMeetingRecording = async () => {
 };
 window.cancelMeetingRecording = async () => {
   clearTimeout(meetingTimer);
+  vadStop();
   await stopMeetingRecorder();
   meetingRecorder = null; meetingChunks = [];
   postMeeting("cancelled");
