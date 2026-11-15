@@ -16,7 +16,9 @@ export type AiFeature =
     | 'resumen_chat'
     | 'resumen_llamada'
     | 'compromisos'
-    | 'muestra_voz';
+    | 'muestra_voz'
+    | 'reunion_transcripcion'
+    | 'reunion_resumen';
 
 // US dollars per 1M tokens (whisper: per minute), from
 // developers.openai.com/api/docs/pricing, November 2026.
@@ -25,6 +27,7 @@ export const PRICES: Record<string, Price> = {
     'gpt-5.6-sol': { input: 4, cached: 0.4, output: 20 },
     'gpt-5.6-terra': { input: 2, cached: 0.2, output: 12 },
     'gpt-5.6-luna': { input: 0.2, cached: 0.02, output: 1.2 },
+    'gpt-6-luna': { input: 0.1, cached: 0.01, output: 0.5 },
     'gpt-4o-mini-transcribe': { input: 1.25, cached: 1.25, output: 5, audioInput: 3 },
     'gpt-4o-transcribe': { input: 2.5, cached: 2.5, output: 10, audioInput: 6 },
     'gpt-4o-mini': { input: 0.15, cached: 0.075, output: 0.6 },
@@ -33,6 +36,8 @@ export const PRICES: Record<string, Price> = {
     'gpt-realtime': { input: 4, cached: 0.4, output: 16, audioInput: 32, audioOutput: 64, audioCached: 0.4 },
     'whisper-1': { input: 0, cached: 0, output: 0, perMinute: 0.006 },
     // Google's live voice (ai.google.dev/gemini-api/docs/pricing, November 2026).
+    // Meeting transcription (ai.google.dev/gemini-api/docs/pricing, 2026-11-15).
+    'gemini-3.1-flash-lite': { input: 0.25, cached: 0.025, output: 1.5, audioInput: 0.5 },
     'gemini-3.8-live': { input: 0.75, cached: 0.075, output: 4.5, audioInput: 3, audioOutput: 12, audioCached: 0.3 },
     // Spoken output, priced by the minute of audio.
     'gpt-4o-mini-tts': { input: 0, cached: 0, output: 0, perMinute: 0.015 },

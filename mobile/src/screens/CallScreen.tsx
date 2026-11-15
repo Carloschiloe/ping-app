@@ -22,7 +22,9 @@ import {
     isCallPageUrl,
     getAllowedCallPermissionResources,
     parseCallBridgeMessage,
+    parseMeetingBridgeMessage,
 } from '../utils/callBridge';
+import { useMeetingRecording } from '../hooks/useMeetingRecording';
 
 // Switching between earpiece and speaker is done through the phone's audio
 // settings, which the app can only change on Android.
@@ -50,6 +52,14 @@ const CallScreen = ({ route, navigation }: any) => {
     const channelRef = useRef<any>(null);
     const isHangingUp = useRef(false);
     const callErrorShown = useRef(false);
+    const inject = React.useCallback((js: string) => { webviewRef.current?.injectJavaScript(js); }, []);
+    const meeting = useMeetingRecording({
+        conversationId,
+        remoteName: remoteUser?.full_name || remoteUser?.email?.split('@')[0] || 'la otra persona',
+        inject,
+    });
+    const meetingRef = useRef(meeting);
+    meetingRef.current = meeting;
 
     const setupCallChannel = React.useCallback(() => {
         // Subscribe to Supabase Realtime for this call channel
@@ -61,15 +71,18 @@ const CallScreen = ({ route, navigation }: any) => {
             .on('broadcast', { event: 'accepted' }, () => {
                 setConnectionLabel('Llamada aceptada · conectando audio...');
             })
-            .on('broadcast', { event: 'hangup' }, () => {
+            .on('broadcast', { event: 'hangup' }, async () => {
                 // Other party hung up
                 if (!isHangingUp.current) {
                     isHangingUp.current = true;
+                    // A recording in progress is uploaded before leaving.
+                    await meetingRef.current.finishBeforeLeaving();
                     webviewRef.current?.injectJavaScript(`window.leaveCall && window.leaveCall(); true;`);
                     navigation.goBack();
                 }
-            })
-            .subscribe();
+            });
+        meetingRef.current.attach(channel);
+        channel.subscribe();
 
         channelRef.current = channel;
     }, [conversationId, navigation]);
@@ -198,6 +211,8 @@ const CallScreen = ({ route, navigation }: any) => {
             }
         }
 
+        // A recording in progress is uploaded before leaving.
+        await meeting.finishBeforeLeaving();
         webviewRef.current?.injectJavaScript(`window.leaveCall && window.leaveCall(); true;`);
         navigation.goBack();
     };
@@ -266,6 +281,11 @@ const CallScreen = ({ route, navigation }: any) => {
                         hangup();
                         return;
                     }
+                    const meetingMessage = parseMeetingBridgeMessage(event.nativeEvent.data);
+                    if (meetingMessage) {
+                        meeting.onBridgeMessage(meetingMessage);
+                        return;
+                    }
                     const message = parseCallBridgeMessage(event.nativeEvent.data);
                     if (!message) return;
                     if (message.status === 'joining') {
@@ -291,10 +311,19 @@ const CallScreen = ({ route, navigation }: any) => {
             <SafeAreaView style={styles.overlay} pointerEvents="box-none">
                 {/* Top bar */}
                 <View style={styles.header} pointerEvents="box-none">
-                    <View style={styles.encryptedHeader}>
-                        <Ionicons name="lock-closed" size={11} color={colors.textSoft} />
-                        <Text style={styles.encryptedText}>Conexión segura</Text>
-                    </View>
+                    {meeting.state === 'recording' || meeting.state === 'saving' ? (
+                        <View style={[styles.encryptedHeader, styles.recordingHeader]}>
+                            <View style={styles.recordingDot} />
+                            <Text style={styles.encryptedText}>
+                                {meeting.state === 'saving' ? 'Guardando la grabación…' : 'Grabando para resumir'}
+                            </Text>
+                        </View>
+                    ) : (
+                        <View style={styles.encryptedHeader}>
+                            <Ionicons name="lock-closed" size={11} color={colors.textSoft} />
+                            <Text style={styles.encryptedText}>Conexión segura</Text>
+                        </View>
+                    )}
                 </View>
 
                 {/* Bottom controls */}
@@ -323,6 +352,28 @@ const CallScreen = ({ route, navigation }: any) => {
                                     <Ionicons name={isSpeaker ? 'volume-high' : 'ear'} size={24} color={colors.text} />
                                 </TouchableOpacity>
                                 <Text style={styles.controlLabel}>{isSpeaker ? 'Altavoz' : 'Auricular'}</Text>
+                            </View>
+                        )}
+
+                        {meeting.state !== 'off' && (
+                            <View style={styles.controlCol}>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.controlBtn,
+                                        meeting.state === 'recording' && styles.controlBtnRecording,
+                                        (meeting.state === 'waiting' || meeting.state === 'asking' || meeting.state === 'saving') && styles.controlBtnDisabled,
+                                    ]}
+                                    onPress={meeting.press}
+                                    disabled={meeting.state === 'waiting' || meeting.state === 'asking' || meeting.state === 'saving'}
+                                    accessibilityLabel={meeting.state === 'recording' ? 'Terminar la grabación' : 'Grabar y resumir la llamada'}
+                                >
+                                    {meeting.state === 'waiting' || meeting.state === 'saving'
+                                        ? <ActivityIndicator size="small" color={colors.text} />
+                                        : <Ionicons name={meeting.state === 'recording' ? 'stop' : 'sparkles'} size={22} color={colors.text} />}
+                                </TouchableOpacity>
+                                <Text style={styles.controlLabel}>
+                                    {meeting.state === 'recording' ? 'Grabando' : meeting.state === 'waiting' ? 'Esperando' : meeting.state === 'saving' ? 'Guardando' : 'Resumir'}
+                                </Text>
                             </View>
                         )}
 
@@ -401,6 +452,9 @@ const styles = StyleSheet.create({
     },
     controlBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     controlBtnDisabled: { opacity: 0.4 },
+    controlBtnRecording: { backgroundColor: colors.dangerTint, borderColor: colors.danger },
+    recordingHeader: { borderColor: colors.danger },
+    recordingDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.danger },
     hangupBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.danger, borderColor: colors.danger },
     controlLabel: { fontFamily: fonts.semibold, color: colors.textSoft, fontSize: 11 },
 });

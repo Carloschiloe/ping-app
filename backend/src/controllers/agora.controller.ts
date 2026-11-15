@@ -405,6 +405,64 @@ window.switchCamera = async () => {
     return false;
   }
 };
+// Meeting summaries: this phone records only its own microphone, and only
+// after everyone in the call said yes (the app asks the server first).
+let meetingRecorder=null, meetingChunks=[], meetingStartedAt=null, meetingUploadUrl=null, meetingTimer=null;
+function postMeeting(state, extra) {
+  if(window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({ type: "meeting-recording", state }, extra || {})));
+  }
+}
+window.startMeetingRecording = (uploadUrl, maxSeconds) => {
+  try {
+    if(meetingRecorder || !localAudioTrack || typeof MediaRecorder === "undefined") { postMeeting("unavailable"); return false; }
+    const stream = new MediaStream([localAudioTrack.getMediaStreamTrack()]);
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+    meetingChunks = [];
+    meetingUploadUrl = uploadUrl;
+    meetingRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 16000 });
+    meetingRecorder.ondataavailable = (e) => { if(e.data && e.data.size) meetingChunks.push(e.data); };
+    meetingRecorder.start(10000);
+    meetingStartedAt = new Date();
+    meetingTimer = setTimeout(() => { window.finishMeetingRecording(); }, Math.max(60, Number(maxSeconds) || 5400) * 1000);
+    postMeeting("recording", { startedAt: meetingStartedAt.toISOString() });
+    return true;
+  } catch(e) {
+    meetingRecorder = null;
+    postMeeting("unavailable");
+    return false;
+  }
+};
+function stopMeetingRecorder() {
+  return new Promise((resolve) => {
+    if(!meetingRecorder || meetingRecorder.state === "inactive") { resolve(); return; }
+    meetingRecorder.onstop = () => resolve();
+    try { meetingRecorder.stop(); } catch(e) { resolve(); }
+  });
+}
+window.finishMeetingRecording = async () => {
+  if(!meetingRecorder) return false;
+  clearTimeout(meetingTimer);
+  await stopMeetingRecorder();
+  const startedAt = meetingStartedAt ? meetingStartedAt.toISOString() : new Date().toISOString();
+  const seconds = meetingStartedAt ? (Date.now() - meetingStartedAt.getTime()) / 1000 : 0;
+  const blob = new Blob(meetingChunks, { type: "audio/webm" });
+  meetingRecorder = null; meetingChunks = [];
+  postMeeting("uploading");
+  try {
+    const response = await fetch(meetingUploadUrl, { method: "PUT", headers: { "Content-Type": "audio/webm", "x-upsert": "true" }, body: blob });
+    postMeeting(response.ok ? "uploaded" : "upload-failed", { startedAt, seconds });
+  } catch(e) {
+    postMeeting("upload-failed", { startedAt, seconds });
+  }
+  return true;
+};
+window.cancelMeetingRecording = async () => {
+  clearTimeout(meetingTimer);
+  await stopMeetingRecorder();
+  meetingRecorder = null; meetingChunks = [];
+  postMeeting("cancelled");
+};
 window.leaveCall   = async () => {
   localAudioTrack && localAudioTrack.close();
   localVideoTrack && localVideoTrack.close();

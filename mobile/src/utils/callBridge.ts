@@ -64,3 +64,33 @@ export function parseCallBridgeMessage(raw: string): CallBridgeMessage | null {
     }
     return null;
 }
+
+// Meeting summaries: what the call page says about this phone's recording.
+export type MeetingRecordingState = 'recording' | 'unavailable' | 'uploading' | 'uploaded' | 'upload-failed' | 'cancelled';
+
+export type MeetingBridgeMessage = {
+    type: 'meeting-recording';
+    state: MeetingRecordingState;
+    startedAt?: string;
+    seconds?: number;
+};
+
+export function parseMeetingBridgeMessage(raw: string): MeetingBridgeMessage | null {
+    try {
+        const value = JSON.parse(raw);
+        if (
+            value?.type === 'meeting-recording'
+            && ['recording', 'unavailable', 'uploading', 'uploaded', 'upload-failed', 'cancelled'].includes(value.state)
+        ) {
+            return {
+                type: 'meeting-recording',
+                state: value.state,
+                startedAt: typeof value.startedAt === 'string' ? value.startedAt : undefined,
+                seconds: typeof value.seconds === 'number' && Number.isFinite(value.seconds) ? value.seconds : undefined,
+            };
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}

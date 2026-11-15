@@ -442,6 +442,22 @@ export function productionInitiativeDeps(now = new Date()): InitiativeDeps {
     };
 }
 
+/**
+ * A recorded call was summarised: Vorian tells this participant in their own
+ * chat with Vorian and offers to note their commitments, which wait for a yes.
+ * The key makes a retry say it only once.
+ */
+export async function deliverMeetingSummary(userId: string, key: string, note: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin.from('profiles').select(RECIPIENT_COLUMNS).eq('id', userId).single();
+    if (error || !data) throw new Error(`profiles: ${error?.message ?? 'not found'}`);
+    const recipient = recipientFromRow(data);
+    const deps = productionInitiativeDeps();
+    if (!(await deps.claim(key, userId, 'meeting_summary', localDateKey(new Date(), recipient.timezone)))) return false;
+    // The notification opens the chat with Vorian (not the live voice).
+    await deliver(recipient, 'meeting_summary', [key], note, deps);
+    return true;
+}
+
 let isRunning = false;
 
 /** Cron entry point. Needs the conversation history, where initiatives live. */

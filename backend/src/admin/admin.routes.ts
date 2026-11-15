@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
+import * as meetingsAdmin from './meetings.service';
 import { requireAuth } from '../middleware/auth';
 import { validateRequest } from '../middleware/validate';
 import { createRateLimitStore } from '../middleware/rateLimitStore';
@@ -140,6 +141,11 @@ adminRouter.put('/costs/settings',
         }),
     })),
     handle((req) => costs.updateCostSettings(req.body)));
+
+adminRouter.get('/meetings', handle(() => meetingsAdmin.meetingAdmin()));
+adminRouter.put('/meetings',
+    validateRequest(z.object({ body: z.object({ enabled: z.boolean() }) })),
+    handle((req) => meetingsAdmin.setMeetingSummaries(req.body.enabled)));
 
 adminRouter.get('/settings', handle(() => admin.getSettings()));
 adminRouter.put('/settings',
