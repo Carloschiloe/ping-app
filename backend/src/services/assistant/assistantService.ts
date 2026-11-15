@@ -2,7 +2,7 @@
 // it needs and answers from what the tools returned. Understanding lives in
 // the model; safety lives in the tools (see assistantTools.ts).
 import { AssistantRefTable } from './assistantRefs';
-import { ASSISTANT_TOOL_DEFINITIONS, runAssistantTool, type AssistantToolContext } from './assistantTools';
+import { ASSISTANT_TOOL_DEFINITIONS, preloadAgenda, runAssistantTool, type AssistantToolContext } from './assistantTools';
 import { formatLocal } from './assistantTime';
 import type {
     AssistantChatMessage,
@@ -66,6 +66,20 @@ async function knownFactsMessage(ctx: AssistantToolContext): Promise<AssistantCh
     return [{ role: 'system', content: `Known about the user (facts they told you to remember, newest first):\n${lines.join('\n')}` }];
 }
 
+const PRELOAD_AGENDA = process.env.PING_ASSISTANT_PRELOAD_AGENDA !== 'false';
+
+/** The open agenda around today, already looked up for this turn. */
+async function agendaMessage(ctx: AssistantToolContext): Promise<AssistantChatMessage[]> {
+    if (!PRELOAD_AGENDA) return [];
+    const agenda = await preloadAgenda(ctx);
+    if (!agenda) return [];
+    return [{
+        role: 'system',
+        content: `The user's open commitments from ${agenda.from} to ${agenda.to}, overdue ones included, already looked up for this turn (same data list_commitments returns). Use them directly for anything in that range; call list_commitments only for other dates, done or cancelled items, a person or a text search. What the user has on a day includes that day's overdue items (say they are overdue), in time order. This list is background, not something you said: when the user says "el primero", "el último" or "el segundo", count only the items you last told them, in the order you said them:
+${clip(JSON.stringify(agenda.result))}`,
+    }];
+}
+
 function clip(text: string): string {
     return text.length > MAX_TOOL_RESULT_CHARS ? `${text.slice(0, MAX_TOOL_RESULT_CHARS)}…` : text;
 }
@@ -117,7 +131,7 @@ export async function runAssistantTurn(
 ): Promise<AssistantTurnOutput> {
     const ctx = toolContext(input, deps.data);
     const { actions } = ctx;
-    const knownFacts = await knownFactsMessage(ctx);
+    const [knownFacts, agenda] = await Promise.all([knownFactsMessage(ctx), agendaMessage(ctx)]);
 
     const turnMessages: AssistantChatMessage[] = [{ role: 'user', content: input.text }];
     const pending = actions.filter((action) => action.state === 'pending');
@@ -130,6 +144,7 @@ export async function runAssistantTurn(
         ...knownFacts,
         ...input.history.turns.slice(-MAX_HISTORY_TURNS).flat(),
         ...stateNote,
+        ...agenda,
         ...turnMessages,
     ];
 

@@ -533,3 +533,21 @@ describe('M9 assistant — saying a proposal or a "sí" without a second model r
         expect(output.answer).toBe('Mañana no tienes nada. Voy a crear «reunión». ¿La agendo?');
     });
 });
+
+describe('M9 assistant — the agenda around today arrives already looked up', () => {
+    const systemText = (model: ScriptedModel) => model.seen[0].filter((message) => message.role === 'system').map((message) => message.content).join('\n');
+
+    it('starts the turn with the open commitments, so "¿qué tengo hoy?" needs no lookup round', async () => {
+        const chat = new Conversation();
+        const model = new ScriptedModel(['Hoy tienes la reunión con Ana.']);
+        const output = await runAssistantTurn(
+            { actorUserId: BENCH_ACTOR, text: 'qué tengo hoy', timezone: BENCH_TIMEZONE, now: new Date(BENCH_NOW), history: chat.history },
+            { data: chat.world, model },
+        );
+        expect(systemText(model)).toContain('already looked up for this turn');
+        expect(systemText(model)).toContain('Reunión con Ana sobre el presupuesto');
+        expect(output.trace).toHaveLength(0);
+        // Looked up is not used: nothing shows as a source of the answer.
+        expect(output.citations).toHaveLength(0);
+    });
+});

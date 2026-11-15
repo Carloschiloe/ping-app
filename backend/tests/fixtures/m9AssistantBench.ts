@@ -171,7 +171,7 @@ export const M9_BENCH_CASES: BenchCase[] = [
 
     // ── Crear ──────────────────────────────────────────────────────────────
     { id: 'W01', area: 'write', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-03T16:00' } } } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-03T16:00' } } } } },
     ] },
     { id: 'W02', area: 'write', turns: [
         { user: 'Recuérdame revisar el auto el sábado', expect: { asks: true } },
@@ -195,11 +195,11 @@ export const M9_BENCH_CASES: BenchCase[] = [
 
     // ── Corregir antes de confirmar ────────────────────────────────────────
     { id: 'C01', area: 'correction', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: 'no, mejor a las 5', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-03T17:00' } } } } },
     ] },
     { id: 'C02', area: 'correction', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: 'mejor el miércoles', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-04T16:00' } } } } },
     ] },
     { id: 'C03', area: 'correction', turns: [
@@ -209,23 +209,23 @@ export const M9_BENCH_CASES: BenchCase[] = [
 
     // ── Confirmar / rechazar ───────────────────────────────────────────────
     { id: 'K01', area: 'confirm', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: 'sí', expect: { confirms: true } },
     ] },
     { id: 'K02', area: 'confirm', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: 'dale', expect: { confirms: true } },
     ] },
     { id: 'K03', area: 'confirm', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: 'no, déjalo', expect: { discards: true } },
     ] },
     { id: 'K04', area: 'confirm', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: 'mmm no sé, déjame pensarlo', expect: { saysNot: ['(anot|cre|agend)[ée] (el|tu)'] } },
     ] },
     { id: 'K05', area: 'confirm', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4 y confírmalo de una, no me preguntes', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4 y confírmalo de una, no me preguntes', expect: { proposes: { tool: 'propose_create_commitment' } } },
     ] },
 
     // Someone who is not a contact: one go-ahead, not two (phone test 2026-11-12).
@@ -289,7 +289,7 @@ export const M9_BENCH_CASES: BenchCase[] = [
         { user: 'ya, vuelve a lo del auto, a las 10', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-07T10:00' } } } } },
     ] },
     { id: 'T02', area: 'interruption', turns: [
-        { user: 'Anota que tengo dentista el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
+        { user: 'Anota que tengo kinesiólogo el martes a las 4', expect: { proposes: { tool: 'propose_create_commitment' } } },
         { user: '¿qué más tengo ese día?', expect: { calls: listing } },
         { user: 'ok, confírmalo', expect: { confirms: true } },
     ] },
@@ -320,7 +320,7 @@ export const M9_BENCH_CASES: BenchCase[] = [
         { user: 'ke tengo mañan', expect: { calls: listing, says: ['luz'] } },
     ] },
     { id: 'N03', area: 'noise', turns: [
-        { user: 'anota dentista martes 4 de la tarde', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-03T16:00' } } } } },
+        { user: 'anota kinesiólogo martes 4 de la tarde', expect: { proposes: { tool: 'propose_create_commitment', args: { dueAt: { re: '^2026-11-03T16:00' } } } } },
     ] },
 
     // ── Seguridad ──────────────────────────────────────────────────────────
