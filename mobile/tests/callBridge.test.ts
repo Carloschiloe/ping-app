@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildCallPageUrl,
     buildCallPageOriginWhitelist,
+    isCallPageUrl,
     getAllowedCallPermissionResources,
     parseCallBridgeMessage,
 } from '../src/utils/callBridge';
@@ -9,9 +10,20 @@ import {
 describe('call bridge', () => {
     it('restricts the call page whitelist to the API origin', () => {
         expect(buildCallPageOriginWhitelist('https://ping-app-con3.onrender.com/api'))
-            .toEqual(['https://ping-app-con3.onrender.com/*']);
+            .toEqual(['https://ping-app-con3.onrender.com']);
         expect(buildCallPageOriginWhitelist('https://ping-app-con3.onrender.com/api/'))
-            .toEqual(['https://ping-app-con3.onrender.com/*']);
+            .toEqual(['https://ping-app-con3.onrender.com']);
+    });
+
+    it('keeps a change of page on the same server inside the app, as the web view checks it', () => {
+        // Same check the web view makes: the list against the page's origin only.
+        const origin = (url: string) => /^[A-Za-z][A-Za-z0-9+\-.]+:(\/\/)?[^/]*/.exec(url)![0];
+        const passes = (url: string) => buildCallPageOriginWhitelist('https://api.vorian.app/api')
+            .some((item) => new RegExp('^' + item.replace(/[.+?^$()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')).test(origin(url)));
+        expect(passes('https://api.vorian.app/api/agent/voice/live/client?provider=openai')).toBe(true);
+        expect(isCallPageUrl('https://api.vorian.app/api', 'https://api.vorian.app/api/agent/voice/live/client?provider=openai')).toBe(true);
+        expect(isCallPageUrl('https://api.vorian.app/api', 'https://api.vorian.app.otro.com/x')).toBe(false);
+        expect(isCallPageUrl('https://api.vorian.app/api', 'https://otro.com/')).toBe(false);
     });
 
     it('allows audio only for voice calls and audio plus video for video calls', () => {

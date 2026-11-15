@@ -9,7 +9,7 @@ import * as Localization from 'expo-localization';
 import { getAuthHeaders, API_URL } from '../../api/client';
 import { getDeviceTimeZone } from '../../utils/timeZone';
 import { createEphemeralUuid } from '../../utils/voiceSession';
-import { buildCallPageOriginWhitelist } from '../../utils/callBridge';
+import { buildCallPageOriginWhitelist, isCallPageUrl } from '../../utils/callBridge';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -254,6 +254,7 @@ export function LiveVoiceSession({ visible, conversationId, instant = false, bri
                 mediaPlaybackRequiresUserAction={false}
                 allowsInlineMediaPlayback
                 originWhitelist={buildCallPageOriginWhitelist(API_URL)}
+                onShouldStartLoadWithRequest={(request) => isCallPageUrl(API_URL, request.url)}
                 style={styles.webview}
             /> : <ActivityIndicator style={styles.loading} color={colors.accentBright} />}
         </GlassBackdrop>
